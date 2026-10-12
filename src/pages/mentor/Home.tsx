@@ -1,6 +1,6 @@
-import { BookOpen, CalendarCheck, ClipboardCheck, FileStack, Users } from 'lucide-react';
+import { BookOpen, CalendarCheck, CheckCircle2, ClipboardCheck, FileStack, Hourglass, MapPin, School, Users } from 'lucide-react';
 import { Link } from 'react-router';
-import type { MentorOverview } from '../../../shared/api.ts';
+import type { MentorOverview, MentorStudentCard, ReviewItem } from '../../../shared/api.ts';
 import { MentorSessionRow } from '../../components/MentorSessions.tsx';
 import { Badge, ButtonLink, Card, EmptyState, ErrorBox, Loading, Notice, PageHeader, SectionTitle } from '../../components/ui.tsx';
 import { useAuth } from '../../lib/auth.tsx';
@@ -17,6 +17,9 @@ export default function MentorHome() {
   // A class can need both a report and a recording; list it once.
   const afterClass = [...new Map([...data.pendingReports, ...data.pendingRecordings].map((s) => [s.id, s])).values()].sort((a, b) => b.startAt.localeCompare(a.startAt));
   const todo = data.pendingReports.length + data.pendingRecordings.length + data.toReview.length;
+  // Work waiting for review first, then what was reviewed recently.
+  const reviewed = data.recentWork.filter((r) => !data.toReview.some((t) => t.submission.id === r.submission.id));
+  const work = [...data.toReview, ...reviewed.slice(0, Math.max(4, 10 - data.toReview.length))];
 
   return (
     <>
@@ -27,6 +30,19 @@ export default function MentorHome() {
       />
 
       <div className="flex flex-col gap-8">
+        {!isAdmin && !data.approved && (
+          <Notice icon={<Hourglass className="mt-0.5 size-4 shrink-0" />}>
+            <p className="font-semibold">Thanks for applying! The Abugida team is reviewing your application.</p>
+            <p className="mt-1">
+              We'll email you once you're approved, and students paired with you will appear here. Meanwhile, keep your{' '}
+              <Link to="/mentor/profile" className="font-semibold underline">
+                availability and subjects
+              </Link>{' '}
+              up to date — we use them to find the right students for you.
+            </p>
+          </Notice>
+        )}
+
         {data.curriculumWindow.open ? (
           <Notice tone="blue" icon={<FileStack className="mt-0.5 size-4 shrink-0" />}>
             <p className="font-semibold">The curriculum window for {data.curriculumWindow.quarter} is open — it closes {fmtDateTime(data.curriculumWindow.closesAt)}.</p>
@@ -50,22 +66,23 @@ export default function MentorHome() {
           </section>
         )}
 
-        {data.toReview.length > 0 && (
+        {data.students.length > 0 && (
           <section>
-            <SectionTitle>Homework to review</SectionTitle>
+            <SectionTitle>{isAdmin ? 'Students' : 'My students'}</SectionTitle>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {data.students.map((card) => (
+                <StudentCard key={card.student.id} card={card} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {work.length > 0 && (
+          <section>
+            <SectionTitle>Submitted homework</SectionTitle>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              {data.toReview.map((r) => (
-                <Link key={r.submission.id} to={`/mentor/homework/${r.submission.homeworkId}`} className="flex items-center gap-3 rounded-2xl border border-sand-200 bg-white p-4 hover:border-brand-300">
-                  <ClipboardCheck className="size-5 shrink-0 text-brand-600" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold">
-                      {r.studentName} · {r.homeworkTitle}
-                    </span>
-                    <span className="text-sm text-ink-soft">
-                      {r.courseTitle} · handed in {fmtRelative(r.submission.submittedAt)}
-                    </span>
-                  </span>
-                </Link>
+              {work.map((r) => (
+                <WorkRow key={r.submission.id} item={r} />
               ))}
             </div>
           </section>
@@ -94,7 +111,7 @@ export default function MentorHome() {
                     <div className="min-w-0">
                       <p className="font-semibold group-hover:text-brand-800">{c.course.title}</p>
                       <p className="text-sm text-ink-soft">
-                        {c.course.subject} · Grade {c.course.gradeLevel} · {c.course.type === 'one_on_one' ? '1-on-1' : 'Group'}
+                        {c.course.subject} · Grade {c.course.gradeLevel} · 1-on-1
                       </p>
                     </div>
                     <BookOpen className="size-5 shrink-0 text-brand-600" />
@@ -121,5 +138,68 @@ export default function MentorHome() {
         </section>
       </div>
     </>
+  );
+}
+
+function StudentCard({ card }: { card: MentorStudentCard }) {
+  const { student } = card;
+  const place = [student.city, student.state].filter(Boolean).join(', ');
+  return (
+    <Link to={`/mentor/students/${student.id}`} className="group flex flex-col gap-3 rounded-2xl border border-sand-200 bg-white p-5 hover:border-brand-300">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold group-hover:text-brand-800">{student.displayName}</p>
+          <p className="text-sm text-ink-soft">
+            {student.grade ? `Grade ${student.grade}` : 'Grade not set'} · @{student.username}
+          </p>
+        </div>
+        {card.submissionsToReview > 0 && <Badge tone="blue">{card.submissionsToReview} to review</Badge>}
+      </div>
+      <div className="flex flex-col gap-1 text-sm text-ink-soft">
+        {student.schoolName && (
+          <span className="flex items-center gap-1.5">
+            <School className="size-4 shrink-0" /> {student.schoolName}
+          </span>
+        )}
+        {place && (
+          <span className="flex items-center gap-1.5">
+            <MapPin className="size-4 shrink-0" /> {place}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {card.classes.map((c) => (
+          <Badge key={c.courseId} tone="brand">
+            {c.subject}
+          </Badge>
+        ))}
+        {student.hoursPerWeek ? <Badge>{student.hoursPerWeek} h/week requested</Badge> : null}
+      </div>
+      {student.notes && (
+        <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+          <span className="font-semibold">Notes from the family: </span>
+          {student.notes}
+        </p>
+      )}
+      {card.lastSubmissionAt && <p className="text-xs text-ink-muted">Last homework handed in {fmtRelative(card.lastSubmissionAt)}</p>}
+    </Link>
+  );
+}
+
+function WorkRow({ item }: { item: ReviewItem }) {
+  const reviewed = Boolean(item.submission.reviewedAt);
+  return (
+    <Link to={`/mentor/homework/${item.submission.homeworkId}`} className="flex items-center gap-3 rounded-2xl border border-sand-200 bg-white p-4 hover:border-brand-300">
+      {reviewed ? <CheckCircle2 className="size-5 shrink-0 text-emerald-600" /> : <ClipboardCheck className="size-5 shrink-0 text-brand-600" />}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-semibold">
+          {item.studentName} · {item.homeworkTitle}
+        </span>
+        <span className="text-sm text-ink-soft">
+          {item.courseTitle} · handed in {fmtRelative(item.submission.submittedAt)}
+        </span>
+      </span>
+      {reviewed ? <Badge tone="green">{typeof item.submission.score === 'number' ? `${item.submission.score}%` : 'Reviewed'}</Badge> : <Badge tone="amber">Needs review</Badge>}
+    </Link>
   );
 }

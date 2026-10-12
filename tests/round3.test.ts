@@ -101,6 +101,14 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     assert.ok(h.mailer.sent.some((e) => e.subject === 'New mentor application: Hana Girma' && e.to[0] === 'info@abugidaeducation.com'));
     assert.equal((await applicant.get<MentorOverview>('/api/mentor/overview')).approved, false);
     assert.equal((await admin.get('/api/admin/approvals/counts')).mentors, 1);
+    // Classes can't be given to an applicant before the team approves them.
+    const err = await admin.post('/api/admin/courses', { title: 'Chem', subject: 'Chemistry', gradeLevel: 11, mentorId: user.id, studentIds: [abeba.id], schedule: [], timezone: NY, startDate: '2026-10-01' }, 400);
+    assert.match(err.error, /not an approved, active mentor/);
+    // The quarterly curriculum email goes to approved mentors only.
+    await admin.post('/api/admin/jobs/run');
+    const curriculumEmails = h.mailer.sent.filter((e) => /Curriculum window is open/.test(e.subject)).map((e) => e.to[0]);
+    assert.ok(curriculumEmails.includes('sara@example.org'));
+    assert.ok(!curriculumEmails.includes('hana@example.org'));
 
     // A chemistry student signs up: the pending mentor must not be suggested.
     await new Client(h).post('/api/auth/signup', {
@@ -174,6 +182,9 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     assert.equal(view.questions.length, 10);
     assert.equal(view.questions[0].answerIndex, undefined);
     assert.equal(view.session!.deadline, '2026-10-20T14:30:00.000Z');
+    h.clock.now = new Date('2026-10-20T14:04:00Z');
+    // After a refresh the timer comes from the server, not the device clock.
+    assert.equal((await student.get<StudentQuizView>(`/api/student/quizzes/${quiz.id}`)).session!.remainingSeconds, 26 * 60);
 
     await student.post(`/api/student/quizzes/${quiz.id}/events`, { events: [{ type: 'tab_hidden', at: '2026-10-20T14:05:00Z' }, { type: 'bogus' }] });
     const form = new FormData();

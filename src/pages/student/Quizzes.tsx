@@ -11,7 +11,7 @@ export default function StudentQuizzes() {
   if (error || !data) return <ErrorBox message={error || 'Could not load quizzes.'} onRetry={reload} />;
   return (
     <>
-      <PageHeader title="Monthly quizzes" subtitle="Each month, a short quiz checks the skills you practised in your homework." />
+      <PageHeader title="Monthly quizzes" subtitle="Each month, a short timed quiz checks how well you can use what you practised in homework. You take it on your own with your webcam on — no AI tools, websites or outside help." />
       {data.length ? (
         <div className="flex flex-col gap-3">
           {data.map((q) => (
@@ -19,7 +19,7 @@ export default function StudentQuizzes() {
               <div>
                 <p className="font-semibold">{q.title}</p>
                 <p className="text-sm text-ink-soft">
-                  {q.courseTitle} · {monthLabel(q.month)} · {q.questionCount} questions
+                  {q.courseTitle} · {monthLabel(q.month)} · {q.questionCount} questions · webcam proctored
                 </p>
               </div>
               {q.attempt ? (

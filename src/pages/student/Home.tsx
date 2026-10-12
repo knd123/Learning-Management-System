@@ -63,7 +63,7 @@ export default function StudentHome() {
                 <span>
                   <span className="block font-semibold text-sky-900">Your {monthLabel(q.month)} quiz is ready</span>
                   <span className="text-sm text-sky-800">
-                    {q.courseTitle} · {q.questionCount} questions · open until {fmtDateTime(q.closesAt)}
+                    {q.courseTitle} · {q.questionCount} questions · timed, webcam on · open until {fmtDateTime(q.closesAt)}
                   </span>
                 </span>
               </span>

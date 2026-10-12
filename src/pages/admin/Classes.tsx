@@ -2,10 +2,10 @@ import { Pencil, Plus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import type { AdminCourseRow } from '../../../shared/api.ts';
-import type { ClassType, Course, PublicUser, ScheduleSlot } from '../../../shared/types.ts';
+import type { Course, PublicUser, ScheduleSlot } from '../../../shared/types.ts';
 import { ScheduleEditor } from '../../components/ScheduleEditor.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
-import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, useToast } from '../../components/ui.tsx';
+import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, Select, Table, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { browserTimeZone, fmtSlot, localYmd, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
@@ -18,7 +18,7 @@ export default function AdminClasses() {
     <>
       <PageHeader
         title="Classes"
-        subtitle="Set up classes, assign a mentor and students, and define the weekly schedule."
+        subtitle="Every class is 1-on-1: one mentor, one student and a weekly schedule."
         actions={
           <Button onClick={() => setEditing('new')}>
             <Plus className="size-4" /> New class
@@ -34,7 +34,7 @@ export default function AdminClasses() {
             <tr>
               <th>Class</th>
               <th>Mentor</th>
-              <th>Students</th>
+              <th>Student</th>
               <th>Weekly schedule</th>
               <th>Status</th>
               <th />
@@ -48,7 +48,7 @@ export default function AdminClasses() {
                     {course.title}
                   </Link>
                   <p className="text-xs text-ink-muted">
-                    {course.subject} · Grade {course.gradeLevel} · {course.type === 'one_on_one' ? '1-on-1' : 'Group'}
+                    {course.subject} · Grade {course.gradeLevel} · 1-on-1
                   </p>
                 </td>
                 <td>{mentorName}</td>
@@ -102,7 +102,6 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
   const [title, setTitle] = useState(course?.title || '');
   const [subject, setSubject] = useState(course?.subject || '');
   const [gradeLevel, setGradeLevel] = useState(String(course?.gradeLevel || 5));
-  const [type, setType] = useState<ClassType>(course?.type || 'one_on_one');
   const [mentorId, setMentorId] = useState(course?.mentorId || '');
   const [studentIds, setStudentIds] = useState<string[]>(course?.studentIds || []);
   const [schedule, setSchedule] = useState<ScheduleSlot[]>(course?.schedule || [{ weekday: 1, startTime: '16:00', durationMinutes: 60 }]);
@@ -120,7 +119,7 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const body = { title, subject, gradeLevel: Number(gradeLevel), type, mentorId, studentIds, schedule, timezone, meetingUrl, startDate, endDate, requiresRecording, active };
+    const body = { title, subject, gradeLevel: Number(gradeLevel), type: 'one_on_one', mentorId, studentIds, schedule, timezone, meetingUrl, startDate, endDate, requiresRecording, active };
     try {
       if (course) await api.patch(`/api/admin/courses/${course.id}`, body);
       else await api.post('/api/admin/courses', body);
@@ -132,10 +131,6 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
     }
   };
 
-  const toggleStudent = (id: string) => {
-    if (type === 'one_on_one') setStudentIds(studentIds.includes(id) ? [] : [id]);
-    else setStudentIds(studentIds.includes(id) ? studentIds.filter((s) => s !== id) : [...studentIds, id]);
-  };
   const q = studentQuery.trim().toLowerCase();
   const studentList = (students.data || []).filter((s) => s.active && (!q || s.displayName.toLowerCase().includes(q) || s.username.includes(q)));
 
@@ -159,29 +154,12 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
               </Select>
             )}
           </Field>
-          <Field label="Type">
-            {(id) => (
-              <Select
-                id={id}
-                value={type}
-                onChange={(e) => {
-                  const t = e.target.value as ClassType;
-                  setType(t);
-                  if (t === 'one_on_one') setStudentIds(studentIds.slice(0, 1));
-                  if (!course) setRequiresRecording(t === 'one_on_one');
-                }}
-              >
-                <option value="one_on_one">1-on-1 mentorship</option>
-                <option value="group">Group class</option>
-              </Select>
-            )}
-          </Field>
           <Field label="Mentor">
             {(id) => (
               <Select id={id} required value={mentorId} onChange={(e) => setMentorId(e.target.value)}>
                 <option value="">Choose a mentor…</option>
                 {(mentors.data || [])
-                  .filter((m) => m.active || m.id === mentorId)
+                  .filter((m) => (m.active && m.mentorStatus !== 'pending' && m.mentorStatus !== 'declined') || m.id === mentorId)
                   .map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.displayName}
@@ -193,12 +171,18 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
         </div>
 
         <div>
-          <p className="mb-2 text-sm font-medium">{type === 'one_on_one' ? 'Student' : 'Students'}</p>
+          <p className="text-sm font-medium">Student</p>
+          <p className="mb-2 text-xs text-ink-muted">Every class is 1-on-1 — one student per class.</p>
+          {(course?.studentIds.length || 0) > 1 && (
+            <div className="mb-2">
+              <Notice>This class has {course!.studentIds.length} students from before classes became 1-on-1. Keep one student here and create a separate class for each of the others.</Notice>
+            </div>
+          )}
           <Input placeholder="Search students" value={studentQuery} onChange={(e) => setStudentQuery(e.target.value)} className="mb-2" />
           <div className="max-h-48 overflow-y-auto rounded-xl border border-sand-200 p-2">
             {studentList.map((s) => (
               <label key={s.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-sand-50">
-                <input type={type === 'one_on_one' ? 'radio' : 'checkbox'} checked={studentIds.includes(s.id)} onChange={() => toggleStudent(s.id)} className="size-4 accent-brand-700" />
+                <input type="radio" name="class-student" checked={studentIds.includes(s.id)} onChange={() => setStudentIds([s.id])} className="size-4 accent-brand-700" />
                 <span className="flex-1">{s.displayName}</span>
                 <span className="text-xs text-ink-muted">Grade {s.grade}</span>
               </label>

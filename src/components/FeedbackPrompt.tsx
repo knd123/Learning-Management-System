@@ -29,7 +29,7 @@ function snooze(sessionId: string) {
 export function FeedbackPrompt() {
   const toast = useToast();
   const { pathname } = useLocation();
-  const [pending, setPending] = useState<PendingFeedback[]>([]);
+  const [current, setCurrent] = useState<PendingFeedback | null>(null);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
@@ -37,9 +37,9 @@ export function FeedbackPrompt() {
 
   const load = useCallback(async () => {
     try {
-      const r = await api.get<{ pending: PendingFeedback[] }>('/api/student/feedback/pending');
-      const skip = snoozed();
-      setPending(r.pending.filter((p) => !skip.includes(p.sessionId)));
+      // The server offers the most recent finished class that hasn't been rated.
+      const r = await api.get<{ pending: PendingFeedback | null }>('/api/student/feedback/pending');
+      setCurrent(r.pending && !snoozed().includes(r.pending.sessionId) ? r.pending : null);
     } catch {
       /* not worth interrupting the student over */
     }
@@ -56,12 +56,11 @@ export function FeedbackPrompt() {
     };
   }, [load]);
 
-  const current = pending[0];
   // Never interrupt a monthly quiz.
   const open = Boolean(current) && !pathname.startsWith('/student/quizzes/');
 
   const next = () => {
-    setPending((p) => p.slice(1));
+    setCurrent(null);
     setRating(0);
     setComment('');
     setError(null);

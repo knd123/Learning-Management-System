@@ -28,7 +28,7 @@ export default function MentorClass() {
     <>
       <PageHeader
         title={course.title}
-        subtitle={`${course.subject} · Grade ${course.gradeLevel} · ${course.type === 'one_on_one' ? '1-on-1' : 'Group'} · Mentor: ${data.mentorName}`}
+        subtitle={`${course.subject} · Grade ${course.gradeLevel} · 1-on-1 · Mentor: ${data.mentorName}`}
         back={{ to: '/mentor', label: 'Dashboard' }}
       />
       <Tabs

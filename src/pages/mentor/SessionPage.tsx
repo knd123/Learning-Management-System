@@ -5,7 +5,7 @@ import type { MentorCourseDetail, MentorSessionDetail } from '../../../shared/ap
 import type { AttendanceMark } from '../../../shared/types.ts';
 import { AttachmentLink } from '../../components/Attachments.tsx';
 import { emptyHomework, HomeworkFields, homeworkPayload, type HomeworkDraft } from '../../components/HomeworkFields.tsx';
-import { MentorSessionBadges } from '../../components/MentorSessions.tsx';
+import { MentorSessionBadges, Stars } from '../../components/MentorSessions.tsx';
 import { Badge, Button, Card, Checkbox, ErrorBox, ExternalButton, Field, Input, Loading, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtDateTime, fmtDay, fmtTimeRange, localYmd, toLocalInput } from '../../lib/format.ts';
@@ -40,10 +40,39 @@ export default function MentorSession() {
         </div>
         <div className="flex flex-col gap-6 lg:col-span-2">
           {ended && session.status !== 'cancelled' && (course.requiresRecording || session.recordingUrl) && <RecordingCard data={data} onSaved={reload} />}
+          {ended && session.status !== 'cancelled' && <FeedbackCard data={data} />}
           <ManageCard data={data} onSaved={reload} />
         </div>
       </div>
     </>
+  );
+}
+
+function FeedbackCard({ data }: { data: MentorSessionDetail }) {
+  const feedback = data.session.feedback || [];
+  return (
+    <Card>
+      <h2 className="mb-3 font-semibold">Student rating</h2>
+      {feedback.length ? (
+        <ul className="flex flex-col gap-4">
+          {feedback.map((f, i) => (
+            <li key={i}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Stars rating={f.rating} />
+                <span className="text-sm font-semibold">{f.rating} of 5</span>
+                <span className="text-xs text-ink-muted">
+                  {f.studentName} · {fmtDateTime(f.createdAt)}
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-ink-muted">What can be better for next class?</p>
+              <p className="text-sm">{f.comment || <span className="text-ink-muted">No comment.</span>}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-ink-soft">No rating yet. Students are asked to rate each class when it ends; ratings are emailed to you and the Abugida team.</p>
+      )}
+    </Card>
   );
 }
 

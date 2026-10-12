@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { CheckCircle2, ChevronRight, FileWarning, Video } from 'lucide-react';
+import { CheckCircle2, ChevronRight, FileWarning, Star, Video } from 'lucide-react';
 import { Link } from 'react-router';
 import type { MentorSessionView } from '../../shared/api.ts';
 import { fmtShortDay, fmtTimeRange } from '../lib/format.ts';
@@ -29,6 +29,11 @@ export function MentorSessionBadges({ session }: { session: MentorSessionView })
           <CheckCircle2 className="size-3" /> Recording
         </Badge>
       ) : null}
+      {session.feedback?.map((f, i) => (
+        <Badge key={i} tone={f.rating >= 4 ? 'green' : f.rating === 3 ? 'amber' : 'red'}>
+          <Star className="size-3 fill-current" /> {f.rating}/5
+        </Badge>
+      ))}
     </>
   );
 }
@@ -53,5 +58,16 @@ export function MentorSessionRow({ session, showCourse = true }: { session: Ment
       </div>
       <ChevronRight className="size-5 shrink-0 text-ink-muted" aria-hidden />
     </Link>
+  );
+}
+
+/** Stars for a 1–5 rating, e.g. ★★★★☆. */
+export function Stars({ rating, className }: { rating: number; className?: string }) {
+  return (
+    <span className={clsx('inline-flex gap-0.5', className)} role="img" aria-label={`${rating} out of 5 stars`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star key={n} className={clsx('size-4', n <= rating ? 'fill-amber-400 text-amber-400' : 'text-sand-300')} aria-hidden />
+      ))}
+    </span>
   );
 }

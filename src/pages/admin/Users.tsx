@@ -12,6 +12,7 @@ import { suggestUsername } from '../Signup.tsx';
 
 const ROLE_TABS: Array<{ id: Role; label: string; singular: string }> = [
   { id: 'student', label: 'Students', singular: 'student' },
+  { id: 'parent', label: 'Parents', singular: 'parent' },
   { id: 'mentor', label: 'Mentors', singular: 'mentor' },
   { id: 'admin', label: 'Abugida team', singular: 'team member' },
 ];
@@ -22,6 +23,8 @@ export default function AdminUsers() {
   const [editing, setEditing] = useState<PublicUser | 'new' | null>(null);
   const [credentials, setCredentials] = useState<{ username: string; password: string; name: string } | null>(null);
   const { data, error, loading, reload } = useApi<PublicUser[]>(`/api/admin/users?role=${role}`);
+  const students = useApi<PublicUser[]>(role === 'parent' ? '/api/admin/users?role=student' : null);
+  const studentNames = new Map((students.data || []).map((s) => [s.id, s.displayName]));
   const toast = useToast();
   const tab = ROLE_TABS.find((t) => t.id === role)!;
 
@@ -36,13 +39,13 @@ export default function AdminUsers() {
   };
 
   const q = query.trim().toLowerCase();
-  const rows = (data || []).filter((u) => !q || u.displayName.toLowerCase().includes(q) || u.username.includes(q) || u.email?.includes(q) || u.parentEmails?.some((e) => e.includes(q)));
+  const rows = (data || []).filter((u) => !q || u.displayName.toLowerCase().includes(q) || u.username.includes(q) || u.email?.includes(q) || u.phone?.includes(q) || u.parentEmails?.some((e) => e.includes(q)));
 
   return (
     <>
       <PageHeader
         title="People"
-        subtitle="Create logins for students, mentors and the Abugida team."
+        subtitle="Create logins for students, parents, mentors and the Abugida team."
         actions={
           <Button onClick={() => setEditing('new')}>
             <Plus className="size-4" /> Add {tab.singular}
@@ -69,6 +72,11 @@ export default function AdminUsers() {
                   <th>Parent email</th>
                   <th>Drive folder</th>
                 </>
+              ) : role === 'parent' ? (
+                <>
+                  <th>Email & phone</th>
+                  <th>Follows</th>
+                </>
               ) : (
                 <>
                   <th>Email</th>
@@ -90,13 +98,31 @@ export default function AdminUsers() {
                     <td className="text-ink-soft">{u.parentEmails?.join(', ') || <Badge tone="amber">Missing</Badge>}</td>
                     <td>{u.driveFolderUrl ? <Badge tone="green">Linked</Badge> : <Badge tone="amber">Missing</Badge>}</td>
                   </>
+                ) : role === 'parent' ? (
+                  <>
+                    <td className="text-ink-soft">
+                      {u.email}
+                      {u.phone && <span className="block text-xs">{u.phone}</span>}
+                    </td>
+                    <td>{u.linkedStudentIds?.length ? u.linkedStudentIds.map((id) => studentNames.get(id) || 'Former student').join(', ') : <Badge tone="amber">No student linked</Badge>}</td>
+                  </>
                 ) : (
                   <>
                     <td className="text-ink-soft">{u.email}</td>
                     {role === 'mentor' && <td className="text-ink-soft">{u.subjects?.join(', ')}</td>}
                   </>
                 )}
-                <td>{u.active ? <Badge tone="green">Active</Badge> : <Badge>Deactivated</Badge>}</td>
+                <td>
+                  {u.mentorStatus === 'pending' ? (
+                    <Badge tone="amber">Application waiting</Badge>
+                  ) : u.mentorStatus === 'declined' ? (
+                    <Badge tone="red">Declined</Badge>
+                  ) : u.active ? (
+                    <Badge tone="green">Active</Badge>
+                  ) : (
+                    <Badge>Deactivated</Badge>
+                  )}
+                </td>
                 <td>
                   <div className="flex justify-end gap-1">
                     <Button size="sm" variant="ghost" onClick={() => setEditing(u)} aria-label={`Edit ${u.displayName}`}>
@@ -189,6 +215,11 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
   const [minGrade, setMinGrade] = useState(String(user?.minGrade ?? 3));
   const [maxGrade, setMaxGrade] = useState(String(user?.maxGrade ?? 12));
   const [capacity, setCapacity] = useState(user?.weeklyCapacityHours === undefined ? '' : String(user.weeklyCapacityHours));
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [academicLevel, setAcademicLevel] = useState(user?.academicLevel || '');
+  const [linkedStudentIds, setLinkedStudentIds] = useState<string[]>(user?.linkedStudentIds || []);
+  const [studentQuery, setStudentQuery] = useState('');
+  const students = useApi<PublicUser[]>(role === 'parent' ? '/api/admin/users?role=student' : null);
   const [queueForPairing, setQueueForPairing] = useState(true);
   const [active, setActive] = useState(user?.active ?? true);
   const [busy, setBusy] = useState(false);
@@ -205,7 +236,8 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
       if (hoursPerWeek) body.hoursPerWeek = Number(hoursPerWeek);
       if (!user) body.createMatchRequest = queueForPairing;
     }
-    if (role === 'mentor') Object.assign(body, { subjects, availability, minGrade: Number(minGrade), maxGrade: Number(maxGrade), weeklyCapacityHours: capacity === '' ? 0 : Number(capacity) });
+    if (role === 'mentor') Object.assign(body, { subjects, availability, phone, academicLevel, minGrade: Number(minGrade), maxGrade: Number(maxGrade), weeklyCapacityHours: capacity === '' ? 0 : Number(capacity) });
+    if (role === 'parent') Object.assign(body, { phone, linkedStudentIds });
     try {
       if (user) {
         await api.patch(`/api/admin/users/${user.id}`, { ...body, active });
@@ -292,8 +324,53 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
             {!user && <Checkbox label="Add to the mentor-pairing queue" hint="Creates a match request with suggested mentors for the subjects above." checked={queueForPairing} onChange={setQueueForPairing} />}
           </>
         )}
+        {role === 'parent' && (
+          <>
+            <Field label="Phone number" className="max-w-xs">
+              {(id) => <Input id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}
+            </Field>
+            <hr className="border-sand-200" />
+            <div>
+              <p className="text-sm font-medium">Students this parent can follow</p>
+              <p className="mb-2 text-xs text-ink-muted">The parent's email is added to each student's monthly report recipients.</p>
+              <Input placeholder="Search students" value={studentQuery} onChange={(e) => setStudentQuery(e.target.value)} className="mb-2" />
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-sand-200 p-2">
+                {(students.data || [])
+                  .filter((s) => linkedStudentIds.includes(s.id) || !studentQuery.trim() || s.displayName.toLowerCase().includes(studentQuery.trim().toLowerCase()))
+                  .map((s) => (
+                    <label key={s.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-sand-50">
+                      <input
+                        type="checkbox"
+                        checked={linkedStudentIds.includes(s.id)}
+                        onChange={() => setLinkedStudentIds(linkedStudentIds.includes(s.id) ? linkedStudentIds.filter((x) => x !== s.id) : [...linkedStudentIds, s.id])}
+                        className="size-4 accent-brand-700"
+                      />
+                      <span className="flex-1">{s.displayName}</span>
+                      <span className="text-xs text-ink-muted">{s.grade ? `Grade ${s.grade}` : ''}</span>
+                    </label>
+                  ))}
+                {!students.data?.length && <p className="px-2 py-1.5 text-sm text-ink-muted">No students yet.</p>}
+              </div>
+            </div>
+          </>
+        )}
         {role === 'mentor' && (
           <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Phone (optional)">{(id) => <Input id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}</Field>
+              <Field label="Academic level">
+                {(id) => (
+                  <>
+                    <Input id={id} list="academic-levels" value={academicLevel} onChange={(e) => setAcademicLevel(e.target.value)} placeholder="e.g. Undergraduate" />
+                    <datalist id="academic-levels">
+                      {(config.data?.academicLevels || []).map((l) => (
+                        <option key={l} value={l} />
+                      ))}
+                    </datalist>
+                  </>
+                )}
+              </Field>
+            </div>
             <hr className="border-sand-200" />
             <Field label="Subjects taught">{() => <SubjectPicker options={config.data?.subjectOptions || []} value={subjects} onChange={setSubjects} />}</Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

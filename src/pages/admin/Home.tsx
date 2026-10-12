@@ -25,7 +25,12 @@ export default function AdminHome() {
   const [running, setRunning] = useState(false);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox message={error || 'Could not load overview.'} onRetry={reload} />;
-  const { counts, status } = data;
+  const { counts, status, approvals } = data;
+  const waiting = [
+    approvals.mentors && { tab: 'mentors', text: `${approvals.mentors} mentor application${approvals.mentors > 1 ? 's' : ''}` },
+    approvals.parents && { tab: 'parents', text: `${approvals.parents} parent request${approvals.parents > 1 ? 's' : ''}` },
+    approvals.rewards && { tab: 'rewards', text: `${approvals.rewards} gift card${approvals.rewards > 1 ? 's' : ''} earned` },
+  ].filter((x): x is { tab: string; text: string } => Boolean(x));
 
   const runJobs = async () => {
     setRunning(true);
@@ -52,6 +57,15 @@ export default function AdminHome() {
             <span className="text-sm text-amber-800">Suggested mentors are ready — review and approve the pairings.</span>
           </span>
           <span className="font-semibold text-amber-900">Review →</span>
+        </Link>
+      )}
+      {waiting.length > 0 && (
+        <Link to={`/admin/approvals?tab=${waiting[0].tab}`} className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 hover:bg-sky-100">
+          <span>
+            <span className="block font-semibold text-sky-900">Waiting for your approval</span>
+            <span className="text-sm text-sky-800">{waiting.map((w) => w.text).join(' · ')}</span>
+          </span>
+          <span className="font-semibold text-sky-900">Review →</span>
         </Link>
       )}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">

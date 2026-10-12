@@ -63,11 +63,16 @@ export default function AdminSettings() {
         </Card>
 
         <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <h2 className="font-semibold sm:col-span-2">Student sign-up & mentor pairing</h2>
-          <div className="sm:col-span-2">
+          <h2 className="font-semibold sm:col-span-2">Sign-up & mentor pairing</h2>
+          <div className="flex flex-col gap-3 sm:col-span-2">
             <Checkbox label="Students can create their own account" hint="Shows “Create a student account” on the sign-in page." checked={form.allowStudentSignup} onChange={(allowStudentSignup) => set({ allowStudentSignup })} />
+            <Checkbox label="Mentors can apply online" hint="Applications wait on the Approvals page; mentors can't be paired until approved." checked={form.allowMentorSignup} onChange={(allowMentorSignup) => set({ allowMentorSignup })} />
+            <Checkbox label="Parents can create their own account" hint="Parents see a student only after the team approves the request." checked={form.allowParentSignup} onChange={(allowParentSignup) => set({ allowParentSignup })} />
           </div>
-          <Field label="Team inbox" hint="Gets an email for every new sign-up and every subject change." className="sm:col-span-2">
+          <Field label="Sibling discount (% off per sibling)" hint="Offered on the parent sign-up form.">
+            {(id) => <Input id={id} type="number" min={0} max={50} value={form.siblingDiscountPercent} onChange={(e) => set({ siblingDiscountPercent: Number(e.target.value) })} />}
+          </Field>
+          <Field label="Team inbox" hint="Gets an email for every sign-up, subject change, class rating and gift card request." className="sm:col-span-2">
             {(id) => <Input id={id} type="email" value={form.adminNotificationEmail} onChange={(e) => set({ adminNotificationEmail: e.target.value })} />}
           </Field>
           <Field label="Subjects offered" hint="Shown on the sign-up form and used to match students with mentors. Click to remove, or add new ones." className="sm:col-span-2">
@@ -98,7 +103,16 @@ export default function AdminSettings() {
           <Field label="Prepare quizzes on day" hint="Of each month, from that month's homework.">
             {(id) => <Input id={id} type="number" min={1} max={28} value={form.quizGenerationDay} onChange={(e) => set({ quizGenerationDay: Number(e.target.value) })} />}
           </Field>
-          <Field label="Questions per quiz">{(id) => <Input id={id} type="number" min={3} max={30} value={form.quizQuestionCount} onChange={(e) => set({ quizQuestionCount: Number(e.target.value) })} />}</Field>
+          <Field label="Questions per quiz" hint="At most 10.">{(id) => <Input id={id} type="number" min={3} max={10} value={form.quizQuestionCount} onChange={(e) => set({ quizQuestionCount: Number(e.target.value) })} />}</Field>
+          <Field label="Time limit (minutes)" hint="One webcam-proctored sitting.">
+            {(id) => <Input id={id} type="number" min={10} max={60} value={form.quizTimeLimitMinutes} onChange={(e) => set({ quizTimeLimitMinutes: Number(e.target.value) })} />}
+          </Field>
+          <Field label="Keep webcam photos for (days)" hint="Deleted automatically afterwards.">
+            {(id) => <Input id={id} type="number" min={1} max={365} value={form.proctoringRetentionDays} onChange={(e) => set({ proctoringRetentionDays: Number(e.target.value) })} />}
+          </Field>
+          <Field label="Gift card: score above (%)" hint="Two months in a row in the same class creates a Starbucks gift card request." className="sm:col-span-2">
+            {(id) => <Input id={id} type="number" min={50} max={99} value={form.rewardScoreAbove} onChange={(e) => set({ rewardScoreAbove: Number(e.target.value) })} className="w-32" />}
+          </Field>
           <div className="sm:col-span-2">
             <Checkbox label="Publish quizzes to students automatically" hint="Turn off to let mentors review each quiz before students see it." checked={form.quizAutoPublish} onChange={(quizAutoPublish) => set({ quizAutoPublish })} />
           </div>

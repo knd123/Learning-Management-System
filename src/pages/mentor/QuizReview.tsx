@@ -1,12 +1,12 @@
-import { CheckCircle2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CameraOff, CheckCircle2, Pencil, Plus, ShieldAlert, ShieldCheck, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 import type { QuizResults } from '../../../shared/api.ts';
-import type { QuizQuestion } from '../../../shared/types.ts';
+import type { ProctorEventType, ProctoringSummary, QuizAttempt, QuizQuestion, QuizSession } from '../../../shared/types.ts';
 import { TopicBars } from '../../components/Charts.tsx';
-import { Badge, Button, Card, ErrorBox, Field, Input, Loading, Notice, PageHeader, SectionTitle, Table, Textarea, useToast } from '../../components/ui.tsx';
-import { api, errorMessage } from '../../lib/api.ts';
-import { fmtDateTime, monthLabel } from '../../lib/format.ts';
+import { Badge, Button, Card, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, SectionTitle, Table, Textarea, useToast } from '../../components/ui.tsx';
+import { api, errorMessage, fileUrl } from '../../lib/api.ts';
+import { fmtDateTime, fmtTime, monthLabel } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 export default function MentorQuiz() {
@@ -17,6 +17,7 @@ export default function MentorQuiz() {
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState<{ studentId: string; studentName: string } | null>(null);
 
   useEffect(() => {
     if (data) setQuestions(data.quiz.questions);
@@ -157,9 +158,10 @@ export default function MentorQuiz() {
             <Button
               variant="secondary"
               className="self-start"
+              disabled={questions.length >= 10}
               onClick={() => setQuestions([...questions, { id: `new-${Date.now()}`, prompt: '', options: ['', '', '', ''], answerIndex: 0, explanation: '', topic: questions[0]?.topic || 'General' }])}
             >
-              <Plus className="size-4" /> Add question
+              <Plus className="size-4" /> {questions.length >= 10 ? 'Monthly quizzes have at most 10 questions' : 'Add question'}
             </Button>
           )}
         </div>
@@ -173,19 +175,40 @@ export default function MentorQuiz() {
                   <tr>
                     <th>Student</th>
                     <th>Score</th>
+                    <th>Proctoring</th>
                     <th>Taken</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.attempts.map(({ attempt, studentName }) => (
-                    <tr key={attempt.id}>
-                      <td className="font-medium">{studentName}</td>
-                      <td className="tabular-nums">
-                        {attempt.score}% <span className="text-ink-muted">({attempt.correct}/{attempt.total})</span>
-                      </td>
-                      <td className="text-ink-soft">{fmtDateTime(attempt.submittedAt)}</td>
-                    </tr>
-                  ))}
+                  {data.attempts.map(({ attempt, studentName }) => {
+                    const flags = integrityFlags(attempt.proctoring);
+                    return (
+                      <tr key={attempt.id}>
+                        <td className="font-medium">{studentName}</td>
+                        <td className="tabular-nums">
+                          {attempt.score}% <span className="text-ink-muted">({attempt.correct}/{attempt.total})</span>
+                        </td>
+                        <td>
+                          {attempt.proctoring ? (
+                            <button onClick={() => setReviewing({ studentId: attempt.studentId, studentName })} className="rounded-full hover:ring-2 hover:ring-brand-200" aria-label={`Review proctoring for ${studentName}`}>
+                              {flags ? (
+                                <Badge tone="amber">
+                                  <ShieldAlert className="size-3" /> {flags} flag{flags === 1 ? '' : 's'}
+                                </Badge>
+                              ) : (
+                                <Badge tone="green">
+                                  <ShieldCheck className="size-3" /> Clean
+                                </Badge>
+                              )}
+                            </button>
+                          ) : (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                        </td>
+                        <td className="text-ink-soft">{fmtDateTime(attempt.submittedAt)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </Table>
             ) : (
@@ -204,12 +227,133 @@ export default function MentorQuiz() {
           </Card>
           {topics.length > 0 && (
             <Card>
-              <h2 className="mb-3 font-semibold">Class results by skill</h2>
+              <h2 className="mb-3 font-semibold">Results by skill</h2>
               <TopicBars topics={topics} />
             </Card>
           )}
         </div>
       </div>
+      <Modal open={Boolean(reviewing)} onClose={() => setReviewing(null)} title={reviewing ? `Proctoring · ${reviewing.studentName}` : ''} wide>
+        {reviewing && <ProctoringReview quizId={quiz.id} studentId={reviewing.studentId} />}
+      </Modal>
     </>
+  );
+}
+
+const EVENT_LABELS: Record<ProctorEventType, string> = {
+  started: 'Started the quiz',
+  resumed: 'Came back to the quiz after leaving the page',
+  tab_hidden: 'Switched tab or app',
+  window_blur: 'Clicked outside the quiz window',
+  fullscreen_exit: 'Left full screen',
+  camera_off: 'Camera was off',
+  no_face: 'No face in view',
+  multiple_faces: 'More than one face in view',
+  copy_paste: 'Tried to copy or paste',
+  auto_submitted: 'Handed in automatically when time ran out',
+};
+
+const NOT_FLAGS: ProctorEventType[] = ['started', 'resumed', 'auto_submitted'];
+
+function integrityFlags(p?: ProctoringSummary): number {
+  if (!p) return 0;
+  return Object.entries(p.flags)
+    .filter(([type]) => !NOT_FLAGS.includes(type as ProctorEventType))
+    .reduce((sum, [, n]) => sum + (n || 0), 0);
+}
+
+function ProctoringReview({ quizId, studentId }: { quizId: string; studentId: string }) {
+  const { data, error, loading } = useApi<{ session: QuizSession | null; attempt: QuizAttempt | null }>(`/api/mentor/quizzes/${encodeURIComponent(quizId)}/proctoring/${encodeURIComponent(studentId)}`);
+  const [broken, setBroken] = useState<Set<string>>(new Set());
+  if (loading && !data) return <Loading />;
+  if (error || !data) return <ErrorBox message={error || 'Could not load the proctoring record.'} />;
+  const summary = data.attempt?.proctoring;
+  const flags = Object.entries(summary?.flags || {}).filter(([type, n]) => n && !NOT_FLAGS.includes(type as ProctorEventType)) as Array<[ProctorEventType, number]>;
+  const events = data.session?.events || [];
+  const snapshots = data.session?.snapshots || [];
+  return (
+    <div className="flex flex-col gap-5">
+      {summary && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Fact label="Started" value={fmtDateTime(summary.startedAt)} />
+          <Fact label="Time used" value={`${Math.floor(summary.durationSeconds / 60)} min ${summary.durationSeconds % 60} s`} />
+          <Fact label="Webcam photos" value={String(summary.snapshotCount)} />
+          <Fact label="Handed in" value={summary.autoSubmitted ? 'Automatically (time ran out)' : 'By the student'} />
+        </div>
+      )}
+      {flags.length ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="mb-2 font-semibold">Integrity flags</p>
+          <ul className="flex flex-col gap-1">
+            {flags.map(([type, n]) => (
+              <li key={type}>
+                {EVENT_LABELS[type]} — {n} time{n === 1 ? '' : 's'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <Notice tone="green" icon={<ShieldCheck className="size-5 shrink-0" />}>
+          No integrity flags were recorded.
+        </Notice>
+      )}
+      <p className="text-xs text-ink-muted">
+        Flags are signals, not proof: a notification or a slow camera can trigger one. Look at the photos and the timeline before drawing conclusions, and talk to the student if something looks wrong.
+      </p>
+
+      <section>
+        <h3 className="mb-2 font-semibold">Webcam photos</h3>
+        {snapshots.length ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {snapshots.map((s) => (
+              <figure key={s.fileId} className="overflow-hidden rounded-xl border border-sand-200 bg-sand-50">
+                {broken.has(s.fileId) ? (
+                  <div className="grid aspect-[4/3] place-items-center p-2 text-center text-xs text-ink-muted">Deleted after the retention period</div>
+                ) : (
+                  <a href={fileUrl(s.fileId)} target="_blank" rel="noopener noreferrer">
+                    <img src={fileUrl(s.fileId)} alt={`Webcam photo at ${fmtTime(s.at)}`} loading="lazy" className="aspect-[4/3] w-full object-cover" onError={() => setBroken(new Set([...broken, s.fileId]))} />
+                  </a>
+                )}
+                <figcaption className="px-2 py-1 text-xs text-ink-soft">{fmtTime(s.at)}</figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : (
+          <p className="flex items-center gap-2 text-sm text-ink-soft">
+            <CameraOff className="size-4" /> No webcam photos were taken.
+          </p>
+        )}
+      </section>
+
+      <section>
+        <h3 className="mb-2 font-semibold">Timeline</h3>
+        <ol className="flex flex-col gap-1 text-sm">
+          {events.map((e, i) => (
+            <li key={i} className="flex gap-3">
+              <span className="w-20 shrink-0 tabular-nums text-ink-muted">{fmtTime(e.at)}</span>
+              <span className={NOT_FLAGS.includes(e.type) ? '' : 'font-medium text-amber-800'}>
+                {EVENT_LABELS[e.type]}
+                {e.detail ? ` (${e.detail})` : ''}
+              </span>
+            </li>
+          ))}
+          {data.attempt && (
+            <li className="flex gap-3">
+              <span className="w-20 shrink-0 tabular-nums text-ink-muted">{fmtTime(data.attempt.submittedAt)}</span>
+              <span>Handed in — {data.attempt.score}%</span>
+            </li>
+          )}
+        </ol>
+      </section>
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-sand-50 p-3">
+      <p className="text-xs text-ink-muted">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold">{value}</p>
+    </div>
   );
 }

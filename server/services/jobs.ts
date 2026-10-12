@@ -4,6 +4,7 @@ import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { firstName } from './access.ts';
+import { isApprovedMentor } from './accounts.ts';
 import { curriculumWindow } from './curriculum.ts';
 import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
 import { finalizeExpiredSessions, purgeOldSnapshots } from './proctoring.ts';
@@ -65,7 +66,8 @@ async function announceCurriculumWindow(deps: Deps, result: JobResult) {
   if (!naturallyOpen) return;
   const lockId = `curriculum_window_${window.quarter}`;
   if (!(await deps.store.createIfAbsent(C.locks, { id: lockId, createdAt: deps.now().toISOString() }))) return;
-  const mentors = (await deps.store.find<UserRecord>(C.users, { role: 'mentor', active: true })).filter((m) => m.email);
+  // Applicants still waiting for approval have no classes yet.
+  const mentors = (await deps.store.find<UserRecord>(C.users, { role: 'mentor', active: true })).filter((m) => m.email && isApprovedMentor(m));
   const closes = new Date(window.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: settings.timezone });
   for (const mentor of mentors) {
     await sendEmail(

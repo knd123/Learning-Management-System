@@ -209,6 +209,7 @@ export function adminRoutes(deps: Deps): Router {
     if (!existing || body.mentorId !== undefined) {
       const mentor = await deps.store.get<UserRecord>(C.users, String(body.mentorId || ''));
       if (!mentor || mentor.role !== 'mentor') throw badRequest('Choose a mentor for this class.');
+      if (mentor.id !== existing?.mentorId && !isApprovedMentor(mentor)) throw badRequest(`${mentor.displayName} is not an approved, active mentor yet. Approve their application first.`);
       out.mentorId = mentor.id;
     }
     if (!existing || body.studentIds !== undefined) {

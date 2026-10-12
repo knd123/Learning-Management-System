@@ -1,4 +1,5 @@
-import { Pencil, Plus } from 'lucide-react';
+import { Pencil, Plus, Star } from 'lucide-react';
+import { Link } from 'react-router';
 import { useMemo, useState } from 'react';
 import type { MentorDirectoryRow } from '../../../shared/api.ts';
 import type { PublicUser } from '../../../shared/types.ts';
@@ -85,16 +86,24 @@ export default function AdminMentors() {
               <th>Weekly availability</th>
               <th>Capacity</th>
               <th>Students</th>
+              <th>Rating</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ mentor, committedHours, activeClasses, studentCount }) => (
+            {rows.map(({ mentor, committedHours, activeClasses, studentCount, averageRating, ratingCount }) => (
               <tr key={mentor.id} className={mentor.active ? '' : 'opacity-60'}>
                 <td>
                   <p className="font-medium">{mentor.displayName}</p>
                   <p className="text-xs text-ink-muted">{mentor.email}</p>
-                  {!mentor.active && <Badge>Deactivated</Badge>}
+                  {mentor.academicLevel && <p className="text-xs text-ink-muted">{mentor.academicLevel}</p>}
+                  {mentor.mentorStatus === 'pending' && (
+                    <Link to="/admin/approvals?tab=mentors">
+                      <Badge tone="amber">Application waiting</Badge>
+                    </Link>
+                  )}
+                  {mentor.mentorStatus === 'declined' && <Badge tone="red">Declined</Badge>}
+                  {!mentor.active && mentor.mentorStatus !== 'declined' && <Badge>Deactivated</Badge>}
                 </td>
                 <td>
                   <div className="flex max-w-56 flex-wrap gap-1">
@@ -112,6 +121,17 @@ export default function AdminMentors() {
                 <td className="tabular-nums">
                   {studentCount} <span className="text-xs text-ink-muted">({activeClasses} {activeClasses === 1 ? 'class' : 'classes'})</span>
                 </td>
+                <td className="whitespace-nowrap tabular-nums">
+                  {averageRating !== null ? (
+                    <span className="flex items-center gap-1">
+                      <Star className="size-4 fill-amber-400 text-amber-400" aria-hidden />
+                      <span className="font-semibold">{averageRating.toFixed(1)}</span>
+                      <span className="text-xs text-ink-muted">({ratingCount})</span>
+                    </span>
+                  ) : (
+                    <span className="text-ink-muted">—</span>
+                  )}
+                </td>
                 <td className="text-right">
                   <Button size="sm" variant="ghost" onClick={() => setEditing(mentor)} aria-label={`Edit ${mentor.displayName}`}>
                     <Pencil className="size-4" />
@@ -121,7 +141,7 @@ export default function AdminMentors() {
             ))}
             {!rows.length && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-ink-muted">
+                <td colSpan={8} className="py-8 text-center text-ink-muted">
                   No mentors match these filters.
                 </td>
               </tr>

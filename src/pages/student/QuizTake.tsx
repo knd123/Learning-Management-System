@@ -256,9 +256,7 @@ function QuizSitting({ quiz, camera, onDone }: { quiz: StudentQuizView; camera: 
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
-  const log = useCallback((type: ProctorEventType, detail?: string) => {
-    events.current.push({ type, at: new Date().toISOString(), detail });
-  }, []);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flush = useCallback(async () => {
     const batch = events.current.splice(0);
@@ -269,6 +267,18 @@ function QuizSitting({ quiz, camera, onDone }: { quiz: StudentQuizView; camera: 
       events.current.unshift(...batch);
     }
   }, [quiz.id]);
+
+  // Events are sent within a second, so closing or refreshing the page can't lose them.
+  const log = useCallback(
+    (type: ProctorEventType, detail?: string) => {
+      events.current.push({ type, at: new Date().toISOString(), detail });
+      flushTimer.current ??= setTimeout(() => {
+        flushTimer.current = null;
+        void flush();
+      }, 1000);
+    },
+    [flush],
+  );
 
   const finish = useCallback(
     async (auto: boolean) => {
@@ -348,6 +358,18 @@ function QuizSitting({ quiz, camera, onDone }: { quiz: StudentQuizView; camera: 
       e.preventDefault();
       e.returnValue = '';
     };
+    // The page is going away: send what's left in a request that outlives it.
+    const onPageHide = () => {
+      const batch = events.current.splice(0);
+      if (!batch.length) return;
+      void fetch(`/api/student/quizzes/${quiz.id}/events`, {
+        method: 'POST',
+        keepalive: true,
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'x-abugida-client': '1' },
+        body: JSON.stringify({ events: batch }),
+      }).catch(() => undefined);
+    };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
     document.addEventListener('fullscreenchange', onFullscreen);
@@ -356,6 +378,7 @@ function QuizSitting({ quiz, camera, onDone }: { quiz: StudentQuizView; camera: 
     document.addEventListener('paste', onClipboard);
     document.addEventListener('contextmenu', noMenu);
     window.addEventListener('beforeunload', onLeave);
+    window.addEventListener('pagehide', onPageHide);
     setOutOfFullscreen(fullscreenSupported() && !document.fullscreenElement);
     const flusher = setInterval(() => void flush(), EVENT_FLUSH_MS);
     return () => {
@@ -367,10 +390,11 @@ function QuizSitting({ quiz, camera, onDone }: { quiz: StudentQuizView; camera: 
       document.removeEventListener('paste', onClipboard);
       document.removeEventListener('contextmenu', noMenu);
       window.removeEventListener('beforeunload', onLeave);
+      window.removeEventListener('pagehide', onPageHide);
       clearInterval(flusher);
       void flush();
     };
-  }, [log, flush]);
+  }, [log, flush, quiz.id]);
 
   // Watch the camera: it must stay on.
   useEffect(() => {

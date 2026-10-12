@@ -1,8 +1,8 @@
 // Fills an EMPTY database with demo data so the platform can be explored:
 //   npm run seed:demo
-// Logins (all demo): admin / admin1234, sara.bekele / mentor1234, abeba / abeba123, kalkidan / kalkidan1 …
+// Logins (all demo): admin / admin1234, sara.bekele / mentor1234, abeba / abeba123, hanna / parent1234 …
 import crypto from 'node:crypto';
-import type { ClassSession, Course, Curriculum, Homework, ParentReport, Quiz, QuizAttempt, Settings, Submission } from '../../shared/types.ts';
+import type { ClassFeedback, ClassSession, Course, Curriculum, Homework, ParentLinkRequest, ParentReport, Quiz, QuizAttempt, RewardRequest, Settings, Submission } from '../../shared/types.ts';
 import { addMonths, monthInZone, ONE_DAY, ONE_HOUR, quarterOf } from '../../shared/time.ts';
 import { hashPassword, type UserRecord } from '../auth.ts';
 import { C, type Store } from '../db/store.ts';
@@ -80,9 +80,9 @@ async function main() {
 
   await user(store, { username: 'admin', role: 'admin', displayName: 'Abugida Admin', email: 'team@abugida.education' }, 'admin1234');
   const wk = (days: number[], start: string, end: string) => days.map((weekday) => ({ weekday, start, end }));
-  const sara = await user(store, { username: 'sara.bekele', role: 'mentor', displayName: 'Sara Bekele', email: 'sara@abugida.education', subjects: ['Math', 'Physics'], minGrade: 5, maxGrade: 12, weeklyCapacityHours: 12, availability: [...wk([1, 3], '15:00', '20:00'), ...wk([6], '09:00', '13:00')] }, 'mentor1234');
-  const daniel = await user(store, { username: 'daniel.haile', role: 'mentor', displayName: 'Daniel Haile', email: 'daniel@abugida.education', subjects: ['English / Language Arts', 'Reading', 'Writing'], minGrade: 3, maxGrade: 9, weeklyCapacityHours: 10, availability: wk([2, 4], '15:00', '20:00') }, 'mentor1234');
-  await user(store, { username: 'hana.girma', role: 'mentor', displayName: 'Hana Girma', email: 'hana@abugida.education', subjects: ['Chemistry', 'Biology', 'Math'], minGrade: 8, maxGrade: 12, weeklyCapacityHours: 8, availability: [...wk([2, 4], '16:00', '20:00'), ...wk([0], '13:00', '17:00')] }, 'mentor1234');
+  const sara = await user(store, { username: 'sara.bekele', role: 'mentor', displayName: 'Sara Bekele', email: 'sara@abugida.education', academicLevel: "Master's degree", phone: '+1 202 555 0101', subjects: ['Math', 'Physics'], minGrade: 5, maxGrade: 12, weeklyCapacityHours: 12, availability: [...wk([1, 3], '15:00', '20:00'), ...wk([6], '09:00', '13:00')] }, 'mentor1234');
+  const daniel = await user(store, { username: 'daniel.haile', role: 'mentor', displayName: 'Daniel Haile', email: 'daniel@abugida.education', academicLevel: "Bachelor's degree", subjects: ['English / Language Arts', 'Reading', 'Writing'], minGrade: 3, maxGrade: 9, weeklyCapacityHours: 10, availability: wk([2, 4], '15:00', '20:00') }, 'mentor1234');
+  await user(store, { username: 'hana.girma', role: 'mentor', displayName: 'Hana Girma', email: 'hana@abugida.education', academicLevel: 'Doctorate (PhD / EdD)', subjects: ['Chemistry', 'Biology', 'Math'], minGrade: 8, maxGrade: 12, weeklyCapacityHours: 8, availability: [...wk([2, 4], '16:00', '20:00'), ...wk([0], '13:00', '17:00')] }, 'mentor1234');
   const folder = (n: string) => `https://drive.google.com/drive/folders/demo-${n}`;
   const intake = (school: string, city: string, state: string, subjects: string[], hoursPerWeek: number, availability: ReturnType<typeof wk>, parentPhone: string) => ({ schoolName: school, city, state, subjects, hoursPerWeek, availability, parentPhone });
   const abeba = await user(store, { username: 'abeba', role: 'student', displayName: 'Abeba Tesfaye', email: 'abeba@example.com', grade: 5, parentName: 'Hanna Tesfaye', parentEmails: ['hanna.parent@example.com'], driveFolderUrl: folder('abeba'), ...intake('Riverside Elementary', 'Silver Spring', 'MD', ['Math'], 2, wk([1, 3], '15:30', '18:30'), '+1 301 555 0142') }, 'abeba123');
@@ -111,9 +111,14 @@ async function main() {
     },
     {
       kind: 'physics',
-      course: course({ title: 'Grade 11 Physics Group', subject: 'Physics', gradeLevel: 11, type: 'group', mentorId: sara.id, studentIds: [liya.id, meron.id], schedule: [{ weekday: 6, startTime: '10:00', durationMinutes: 90 }], meetingUrl: 'https://meet.google.com/xyz-abcd-efg', requiresRecording: true }),
+      course: course({ title: 'Grade 11 Physics — Meron', subject: 'Physics', gradeLevel: 11, type: 'one_on_one', mentorId: sara.id, studentIds: [meron.id], schedule: [{ weekday: 6, startTime: '09:00', durationMinutes: 90 }], meetingUrl: 'https://meet.google.com/xyz-abcd-efg', requiresRecording: true }),
+    },
+    {
+      kind: 'physics',
+      course: course({ title: 'Grade 11 Physics — Liya', subject: 'Physics', gradeLevel: 11, type: 'one_on_one', mentorId: sara.id, studentIds: [liya.id], schedule: [{ weekday: 6, startTime: '10:45', durationMinutes: 90 }], meetingUrl: 'https://meet.google.com/lmn-opqr-stu', requiresRecording: true }),
     },
   ];
+  const COMMENTS = ['', 'More practice problems together would help.', '', 'Could we go a bit slower on the new topic?', '', 'Great examples today!'];
 
   for (const { course: c, kind } of courses) {
     await store.put(C.courses, c);
@@ -160,6 +165,13 @@ async function main() {
         },
       };
       await store.put(C.sessions, updated);
+      // Students rate each class; the newest class is left for the rating pop-up.
+      for (const sid of c.studentIds) {
+        if (attendance[sid] !== 'present') continue;
+        const rating = [5, 4, 5, 3, 5, 4][i % 6];
+        const feedback: ClassFeedback = { id: `${s.id}__${sid}`, sessionId: s.id, courseId: c.id, studentId: sid, mentorId: c.mentorId, rating, comment: COMMENTS[i % COMMENTS.length], createdAt: new Date(new Date(s.endAt).getTime() + 10 * 60_000).toISOString() };
+        await store.put(C.feedback, feedback);
+      }
       for (const [k, sid] of c.studentIds.entries()) {
         if ((i + k) % 5 === 4) continue; // a few missed assignments
         const submittedAt = new Date(new Date(assignedAt).getTime() + 2 * ONE_DAY).toISOString();
@@ -196,7 +208,10 @@ async function main() {
 
     // Two past monthly quizzes (for the progress charts) and an open one this month.
     const thisMonth = monthInZone(now, TZ);
-    for (const [offset, quality] of [[-2, 0.6], [-1, 0.8], [0, 0]] as const) {
+    // Abeba aces both past math quizzes, which earns her a gift card request.
+    const quizQuality = (offset: number) => (offset === 0 ? 0 : kind === 'math' ? 1 : offset === -2 ? 0.6 : 0.8);
+    for (const offset of [-2, -1, 0]) {
+      const quality = quizQuality(offset);
       const month = addMonths(thisMonth, offset);
       const quiz: Quiz = {
         id: `${c.id}__${month}`,
@@ -215,7 +230,20 @@ async function main() {
       if (offset === 0) continue;
       for (const [k, sid] of c.studentIds.entries()) {
         const answers = quiz.questions.map((q, n) => ((n + k) / quiz.questions.length < quality ? q.answerIndex : (q.answerIndex + 1) % q.options.length));
-        const attempt: QuizAttempt = { id: `${quiz.id}__${sid}`, quizId: quiz.id, courseId: c.id, studentId: sid, month, answers, ...gradeAttempt(quiz, answers), submittedAt: new Date(now.getTime() + offset * 25 * ONE_DAY).toISOString() };
+        const submittedAt = new Date(now.getTime() + offset * 25 * ONE_DAY);
+        const startedAt = new Date(submittedAt.getTime() - (18 + k * 4) * 60_000);
+        const flags = kind === 'english' && offset === -1 ? { started: 1, tab_hidden: 1 } : { started: 1 };
+        const attempt: QuizAttempt = {
+          id: `${quiz.id}__${sid}`,
+          quizId: quiz.id,
+          courseId: c.id,
+          studentId: sid,
+          month,
+          answers,
+          ...gradeAttempt(quiz, answers),
+          submittedAt: submittedAt.toISOString(),
+          proctoring: { startedAt: startedAt.toISOString(), durationSeconds: Math.round((submittedAt.getTime() - startedAt.getTime()) / 1000), autoSubmitted: false, snapshotCount: 18 + k * 4, flags },
+        };
         await store.put(C.attempts, attempt);
       }
     }
@@ -228,6 +256,32 @@ async function main() {
   await createMatchRequest(deps, nahom, { kind: 'new_student', subjects: ['English / Language Arts', 'Reading'] });
   await store.put(C.users, { ...abeba, subjects: ['Math', 'Reading'] });
   await createMatchRequest(deps, { ...abeba, subjects: ['Math', 'Reading'] }, { kind: 'subject_change', subjects: ['Reading'] });
+
+  // A mentor application waiting for the team.
+  await user(store, { username: 'mekdes.alemu', role: 'mentor', displayName: 'Mekdes Alemu', email: 'mekdes@example.com', phone: '+1 571 555 0127', academicLevel: 'Undergraduate student', mentorStatus: 'pending', subjects: ['Biology', 'Chemistry'], weeklyCapacityHours: 6, availability: [...wk([1, 2, 3], '17:00', '20:00'), ...wk([0], '10:00', '14:00')], createdAt: new Date(now.getTime() - 2 * ONE_DAY).toISOString() }, 'mentor1234');
+
+  // Parents: Hanna already follows Abeba; Girma asked to follow Yonas and to sign up a sibling.
+  const hanna = await user(store, { username: 'hanna', role: 'parent', displayName: 'Hanna Tesfaye', email: 'hanna.parent@example.com', phone: '+1 301 555 0142', linkedStudentIds: [abeba.id] }, 'parent1234');
+  const approvedAt = new Date(now.getTime() - 30 * ONE_DAY).toISOString();
+  await store.put<ParentLinkRequest>(C.parentRequests, { id: crypto.randomUUID(), parentId: hanna.id, status: 'approved', children: [{ name: 'Abeba Tesfaye', isSibling: false, suggestedStudentId: abeba.id, linkedStudentId: abeba.id }], siblingDiscount: false, discountPercent: settings.siblingDiscountPercent, createdAt: approvedAt, decidedAt: approvedAt });
+  const girma = await user(store, { username: 'girma', role: 'parent', displayName: 'Girma Alemu', email: 'girma.parent@example.com', phone: '+1 703 555 0178', createdAt: new Date(now.getTime() - ONE_DAY).toISOString() }, 'parent1234');
+  await store.put<ParentLinkRequest>(C.parentRequests, {
+    id: crypto.randomUUID(),
+    parentId: girma.id,
+    status: 'pending',
+    children: [
+      { name: 'Yonas Girma', isSibling: false, suggestedStudentId: yonas.id },
+      { name: 'Saba Girma', grade: 4, isSibling: true },
+    ],
+    siblingDiscount: true,
+    discountPercent: settings.siblingDiscountPercent,
+    createdAt: new Date(now.getTime() - ONE_DAY).toISOString(),
+  });
+
+  // Abeba scored above 90% on two monthly math quizzes in a row.
+  const mathCourse = courses.find((x) => x.kind === 'math')!.course;
+  const rewardMonths = [addMonths(monthInZone(now, TZ), -2), addMonths(monthInZone(now, TZ), -1)];
+  await store.put<RewardRequest>(C.rewards, { id: `${abeba.id}__${mathCourse.id}__${rewardMonths[1]}`, studentId: abeba.id, courseId: mathCourse.id, subject: 'Math', months: rewardMonths, scores: [100, 100], integrityFlags: 0, status: 'pending', createdAt: new Date(now.getTime() - 25 * ONE_DAY).toISOString() });
 
   // Last month's parent reports, as the platform would have prepared and sent them.
   const lastMonth = addMonths(monthInZone(now, TZ), -1);
@@ -243,6 +297,8 @@ async function main() {
   Mentors        sara.bekele / mentor1234    daniel.haile / mentor1234    hana.girma / mentor1234
   Students       abeba / abeba123    yonas / yonas123    liya / liya1234    meron / meron123
   Waiting for a mentor   kalkidan / kalkidan1    nahom / nahom123
+  Parents        hanna / parent1234 (follows Abeba)    girma / parent1234 (waiting for approval)
+  Mentor application waiting   mekdes.alemu / mentor1234
 `);
 }
 
