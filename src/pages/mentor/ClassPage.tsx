@@ -114,12 +114,14 @@ function Overview({ data, onSaved }: { data: MentorCourseDetail; onSaved(): void
           <ul className="flex flex-col divide-y divide-sand-100">
             {data.students.map((s) => (
               <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0">
-                <div>
+                <div className="min-w-0">
                   <p className="font-semibold">{s.displayName}</p>
                   <p className="text-sm text-ink-soft">
                     @{s.username}
                     {s.grade && ` · Grade ${s.grade}`}
+                    {s.schoolName && ` · ${s.schoolName}`}
                   </p>
+                  {s.notes && <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-amber-50 px-2.5 py-1.5 text-sm text-amber-900">Note from the family: {s.notes}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {s.driveFolderUrl ? (

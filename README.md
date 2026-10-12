@@ -4,9 +4,28 @@ A web app for Abugida Education's students (grades 3–12), mentors and team.
 
 | Who | What they can do |
 | --- | --- |
-| **Students** | Sign in with a **username**. See all their classes, the weekly schedule and each class link, and join with one tap (attendance is logged). Hand in homework (text, photos, files, links) and see grades and feedback. Rewatch class recordings for **7 days** after each class. Take the **monthly quiz** and follow their progress by skill. |
-| **Mentors** | See all their classes on one dashboard. Assign the class link and homework (optionally drafted by AI from the curriculum). Submit the **post-class report** (date, duration, PowerPoint, homework, topics, attendance). Add the recording link after uploading to the student's Google Drive folder. They get **email reminders 12h and 24h after class** until the recording is added. They also review homework, check and publish monthly quizzes, and upload or update each class's **curriculum once per quarter**. |
-| **Abugida team (admins)** | Create logins and classes with weekly schedules. Read every curriculum (curricula are never shown to students). Review the **AI-written monthly parent reports** and the email log, and change settings. |
+| **Students** | **Create their own account** with an intake form (see below), then sign in with a **username**. See all their classes, the weekly schedule and each class link, and join with one tap (attendance is logged). Hand in homework (text, photos, files, links) and see grades and feedback. Rewatch class recordings for **7 days** after each class. Take the **monthly quiz** and follow their progress by skill. Update their subjects, availability and details under **My profile**. |
+| **Mentors** | Keep their subjects, grade range, weekly availability and weekly capacity (hours) up to date. See all their classes on one dashboard. Assign the class link and homework (optionally drafted by AI from the curriculum). Submit the **post-class report** (date, duration, PowerPoint, homework, topics, attendance). Add the recording link after uploading to the student's Google Drive folder. They get **email reminders 12h and 24h after class** until the recording is added. They also review homework, check and publish monthly quizzes, and upload or update each class's **curriculum once per quarter**. |
+| **Abugida team (admins)** | **Approve mentor pairings** suggested by the platform. See every mentor's subjects, grades, availability and remaining capacity. Create logins and classes with weekly schedules. Read every curriculum (curricula are never shown to students). Review the **AI-written monthly parent reports** and the email log, and change settings. |
+
+### Sign-up and mentor pairing
+
+1. **A student signs up** at `/signup` (linked from the sign-in page). The 3-step form asks for:
+   - **About the student:** full name, email, school name, city & state, grade.
+   - **Tutoring needs:** subjects, hours of tutoring per week, availability for each day of the week, and additional notes (special needs).
+   - **Parent and login:** the parent's phone and email, then a username and password.
+
+   The student lands on their dashboard right away, with no mentor yet. The team inbox (`info@abugidaeducation.com` by default) gets an email with all the details.
+2. **The platform suggests mentors** for each subject under **Admin → Match requests**. Mentors are ranked by:
+   - whether they teach the subject and the student's grade;
+   - how much free time both share each week, after their existing classes, across timezones;
+   - how much weekly capacity the mentor has left.
+
+   A mentor who covers several of the requested subjects scores higher. The scarcest subject is planned first so suggested class times never collide. Proposed weekly class times are filled in for you.
+3. **Nothing is final until an admin approves.** Approving creates the 1-on-1 class (it appears on both schedules), sends an in-app notification to the student and the mentor, and emails the student, the mentor and the parent.
+4. **Students can change their subjects later** from **My profile**. The team inbox gets an email with the student's name and what they want to add or drop. New subjects go back into the pairing queue.
+
+**Admin → Mentors** lists every mentor with their subjects, grade range, weekly availability and capacity (used / total hours), with filters by subject, grade and free capacity.
 
 Time-based work runs automatically:
 
@@ -29,7 +48,7 @@ npm run seed:demo             # demo classes, homework, quizzes and reports
 npm run dev                   # http://localhost:3000
 ```
 
-Demo logins: `admin / admin1234`, mentors `sara.bekele / mentor1234`, `daniel.haile / mentor1234`, students `abeba / abeba123`, `yonas / yonas123`, `liya / liya1234`, `meron / meron123`.
+Demo logins: `admin / admin1234`, mentors `sara.bekele / mentor1234`, `daniel.haile / mentor1234`, `hana.girma / mentor1234`, students `abeba / abeba123`, `yonas / yonas123`, `liya / liya1234`, `meron / meron123`. `kalkidan / kalkidan1` and `nahom / nahom123` have just signed up and are waiting for a mentor (see Admin → Match requests).
 
 Without SMTP settings, emails are not sent. They appear under **Admin → Emails** instead. Without a `GEMINI_API_KEY`, parent reports use a standard template and AI quiz and homework generation is turned off.
 
@@ -95,12 +114,17 @@ The built-in scheduler handles reminders, quizzes and reports (`INTERNAL_SCHEDUL
 
 ## First-day checklist
 
-1. **Settings.** Set the organization timezone (it defines month and quarter boundaries), the support email, and whether parent reports are sent automatically or after review.
-2. **People → Mentors.** Add each mentor with their email, which receives the recording reminders.
-3. **People → Students.** Add each student with their grade, parent email(s) (for monthly reports) and the link to **their Google Drive folder** (where recordings go). The app generates easy-to-type passwords; copy the login details and send them to the parent.
-4. **Classes.** Create each class: mentor, student(s), weekly times and timezone. Upcoming classes appear on everyone's schedule right away.
-5. **Mentors** sign in, add the class link for each class, and upload the curriculum for each class. The Q4 window is open now. You can extend it in Settings, and a class's first curriculum can be uploaded at any time.
-6. Send a **test email** from Admin → Emails to confirm SMTP works.
+1. **Settings.**
+   - Set the organization timezone (it defines month and quarter boundaries) and the support email.
+   - Check the **team inbox** (`info@abugidaeducation.com`) and the list of **subjects offered** on the sign-up form.
+   - Choose whether students may sign up themselves, and whether parent reports are sent automatically or after review.
+2. **Mentors.** Add each mentor with their email (for reminders and pairing emails), subjects, grade range, **weekly availability** and **weekly capacity in hours**. Mentors can also keep these up to date themselves under "Availability & subjects".
+3. **Students.**
+   - Share the sign-up link (`APP_URL/signup`) with families. Each sign-up shows up under **Match requests**, where you approve a mentor.
+   - Or add students yourself under People → Students; they join the pairing queue too.
+   - Add each student's **Google Drive folder** link (People → Student) so mentors know where to upload recordings.
+4. **Mentors** sign in, add the class link for each new class, and upload the curriculum for each class. The Q4 window is open now. You can extend it in Settings, and a class's first curriculum can be uploaded at any time.
+5. Send a **test email** from Admin → Emails to confirm SMTP works.
 
 ## Email setup
 

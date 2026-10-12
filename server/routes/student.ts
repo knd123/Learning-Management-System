@@ -1,16 +1,19 @@
 import { Router } from 'express';
-import type { HomeworkView, StudentCourse, StudentCourseDetail, StudentOverview } from '../../shared/api.ts';
+import type { HomeworkView, StudentCourse, StudentCourseDetail, StudentOverview, StudentProfile } from '../../shared/api.ts';
 import type { Attachment, ClassSession, Course, Homework, Quiz, QuizAttempt, Submission } from '../../shared/types.ts';
 import { ONE_DAY } from '../../shared/time.ts';
-import { requireRole } from '../auth.ts';
+import { requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, h, HttpError, jsonField, notFound, str } from '../http.ts';
 import { courseForStudent, coursesFor, usersById } from '../services/access.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
+import { createMatchRequest, emailAdminSubjectChange, studentRequests } from '../services/pairing.ts';
+import { applyProfile, subjectChanges } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { attemptIdFor, effectiveStatus, gradeAttempt, studentQuizView } from '../services/quizzes.ts';
 import { ensureSessions } from '../services/schedule.ts';
+import { getSettings } from '../services/settings.ts';
 import { homeworkView, quizSummary, sessionView } from '../services/views.ts';
 import type { Upload } from './upload.ts';
 
@@ -63,15 +66,17 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const now = deps.now();
       const courses = await coursesFor(deps, user);
       const mentors = await usersById(deps, courses.map((c) => c.mentorId));
-      const [courseViews, week, recent, homework, quizzes, attempts] = await Promise.all([
+      const [courseViews, week, recent, homework, quizzes, attempts, requests] = await Promise.all([
         Promise.all(courses.map((c) => studentCourse(c, mentors.get(c.mentorId)?.displayName || 'Mentor'))),
         sessionsInRange(courses, new Date(now.getTime() - 3 * 3_600_000), new Date(now.getTime() + 7 * ONE_DAY)),
         sessionsInRange(courses, new Date(now.getTime() - 14 * ONE_DAY), now),
         homeworkFor(courses, user.id),
         Promise.all(courses.map((c) => deps.store.find<Quiz>(C.quizzes, { courseId: c.id }))),
         deps.store.find<QuizAttempt>(C.attempts, { studentId: user.id }),
+        studentRequests(deps, user.id),
       ]);
       const titles = new Map(courses.map((c) => [c.id, c.title]));
+      const recentCutoff = new Date(now.getTime() - 14 * ONE_DAY).toISOString();
       const attemptByQuiz = new Map(attempts.map((a) => [a.quizId, a]));
       const overview: StudentOverview = {
         courses: courseViews,
@@ -85,6 +90,7 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
           .flat()
           .filter((q) => effectiveStatus(q, now) === 'published' && !attemptByQuiz.has(q.id))
           .map((q) => quizSummary(q, titles.get(q.courseId) || '', now)),
+        requests: requests.filter((r) => r.status === 'open' || r.createdAt >= recentCutoff),
       };
       res.json(overview);
     }),
@@ -275,6 +281,41 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       };
       if (!(await deps.store.createIfAbsent(C.attempts, attempt))) throw new HttpError(409, 'You have already taken this quiz.');
       res.json(studentQuizView(quiz, course.title, now, attempt));
+    }),
+  );
+
+  router.get(
+    '/profile',
+    h(async (req, res) => {
+      const settings = await getSettings(deps.store);
+      const profile: StudentProfile = { user: toPublicUser(req.user!), requests: await studentRequests(deps, req.user!.id), subjectOptions: settings.subjectOptions };
+      res.json(profile);
+    }),
+  );
+
+  // Students keep their intake details up to date. Subject changes go to the
+  // team inbox and, for new subjects, into the mentor-pairing queue.
+  router.put(
+    '/profile',
+    h(async (req, res) => {
+      const user = req.user!;
+      const settings = await getSettings(deps.store);
+      const body = (req.body || {}) as Record<string, unknown>;
+      const allowed = ['displayName', 'email', 'grade', 'schoolName', 'city', 'state', 'subjects', 'hoursPerWeek', 'availability', 'timezone', 'notes', 'parentName', 'parentPhone', 'parentEmails'];
+      const changes: Partial<UserRecord> = {};
+      applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'student', { timezone: user.timezone });
+      if (changes.subjects && !changes.subjects.length) throw badRequest('Keep at least one subject.');
+      if (changes.availability && !changes.availability.length) throw badRequest('Add at least one time you are available each week.');
+      if (changes.parentEmails && !changes.parentEmails.length) throw badRequest("A parent's email is required.");
+      const updated = (await deps.store.patch<UserRecord>(C.users, user.id, changes))!;
+
+      const { added, removed } = subjectChanges(user.subjects, updated.subjects);
+      if (added.length || removed.length) {
+        const request = await createMatchRequest(deps, updated, { kind: 'subject_change', subjects: added, removedSubjects: removed });
+        await emailAdminSubjectChange(deps, updated, added, removed, request);
+      }
+      const profile: StudentProfile = { user: toPublicUser(updated), requests: await studentRequests(deps, user.id), subjectOptions: settings.subjectOptions };
+      res.json(profile);
     }),
   );
 

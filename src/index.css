@@ -43,3 +43,10 @@
     outline-offset: 2px;
   }
 }
+
+/* Narrow screens: give time fields room for "4:00 PM"; tapping still opens the picker. */
+@media (max-width: 639px) {
+  input[type='time']::-webkit-calendar-picker-indicator {
+    display: none;
+  }
+}

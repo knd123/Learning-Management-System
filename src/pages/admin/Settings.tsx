@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { Settings } from '../../../shared/types.ts';
+import { SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
 import { Button, Card, Checkbox, ErrorBox, Field, Input, Loading, PageHeader, Select, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
@@ -58,6 +59,19 @@ export default function AdminSettings() {
           </Field>
           <Field label="Home timezone" hint="Decides when months and quarters start for quizzes, reports and curricula." className="sm:col-span-2">
             {(id) => <TimezoneSelect id={id} value={form.timezone} onChange={(timezone) => set({ timezone })} />}
+          </Field>
+        </Card>
+
+        <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <h2 className="font-semibold sm:col-span-2">Student sign-up & mentor pairing</h2>
+          <div className="sm:col-span-2">
+            <Checkbox label="Students can create their own account" hint="Shows “Create a student account” on the sign-in page." checked={form.allowStudentSignup} onChange={(allowStudentSignup) => set({ allowStudentSignup })} />
+          </div>
+          <Field label="Team inbox" hint="Gets an email for every new sign-up and every subject change." className="sm:col-span-2">
+            {(id) => <Input id={id} type="email" value={form.adminNotificationEmail} onChange={(e) => set({ adminNotificationEmail: e.target.value })} />}
+          </Field>
+          <Field label="Subjects offered" hint="Shown on the sign-up form and used to match students with mentors. Click to remove, or add new ones." className="sm:col-span-2">
+            {() => <SubjectPicker options={[]} value={form.subjectOptions} onChange={(subjectOptions) => set({ subjectOptions })} />}
           </Field>
         </Card>
 

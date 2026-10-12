@@ -10,6 +10,9 @@ const KIND_LABEL: Record<EmailLog['kind'], string> = {
   recording_reminder: 'Recording reminder',
   parent_report: 'Parent report',
   curriculum_window: 'Curriculum window',
+  new_student: 'New sign-up',
+  subject_change: 'Subject change',
+  pairing: 'Mentor pairing',
   test: 'Test',
 };
 

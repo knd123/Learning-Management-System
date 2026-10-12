@@ -11,6 +11,7 @@ import { mentorRoutes } from './routes/mentor.ts';
 import { studentRoutes } from './routes/student.ts';
 import { createUpload } from './routes/upload.ts';
 import { canDownload, contentDisposition, type StoredFile } from './services/files.ts';
+import { markRead, notificationsFor } from './services/notifications.ts';
 import { runScheduledJobs } from './services/jobs.ts';
 
 function safeEqual(a: string, b: string): boolean {
@@ -61,6 +62,23 @@ export function createApp(deps: Deps) {
   app.use('/api/student', studentRoutes(deps, upload));
   app.use('/api/mentor', mentorRoutes(deps, upload));
   app.use('/api/admin', adminRoutes(deps));
+
+  app.get(
+    '/api/notifications',
+    requireRole('student', 'mentor', 'admin'),
+    h(async (req, res) => {
+      res.json(await notificationsFor(deps, req.user!.id));
+    }),
+  );
+
+  app.post(
+    '/api/notifications/read',
+    requireRole('student', 'mentor', 'admin'),
+    h(async (req, res) => {
+      await markRead(deps, req.user!.id, typeof req.body?.id === 'string' ? req.body.id : undefined);
+      res.json(await notificationsFor(deps, req.user!.id));
+    }),
+  );
 
   app.get(
     '/api/files/:id',

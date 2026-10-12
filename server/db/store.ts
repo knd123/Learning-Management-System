@@ -40,6 +40,8 @@ export const C = {
   settings: 'settings',
   locks: 'locks',
   meta: 'meta',
+  matchRequests: 'matchRequests',
+  notifications: 'notifications',
 } as const;
 
 function matches(doc: Record<string, unknown>, where: Where = {}, options: FindOptions = {}): boolean {

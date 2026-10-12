@@ -1,6 +1,6 @@
 // Fills an EMPTY database with demo data so the platform can be explored:
 //   npm run seed:demo
-// Logins (all demo): admin / admin1234, sara.bekele / mentor1234, abeba / abeba123 …
+// Logins (all demo): admin / admin1234, sara.bekele / mentor1234, abeba / abeba123, kalkidan / kalkidan1 …
 import crypto from 'node:crypto';
 import type { ClassSession, Course, Curriculum, Homework, ParentReport, Quiz, QuizAttempt, Settings, Submission } from '../../shared/types.ts';
 import { addMonths, monthInZone, ONE_DAY, ONE_HOUR, quarterOf } from '../../shared/time.ts';
@@ -10,6 +10,7 @@ import type { Deps } from '../deps.ts';
 import { DisabledAi } from '../services/ai.ts';
 import { LogMailer } from '../services/email.ts';
 import { gradeAttempt, monthLabel, quizClosesAt } from '../services/quizzes.ts';
+import { createMatchRequest } from '../services/pairing.ts';
 import { generateParentReport } from '../services/reports.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { DEFAULT_SETTINGS } from '../services/settings.ts';
@@ -78,13 +79,16 @@ async function main() {
   await store.put(C.settings, settings);
 
   await user(store, { username: 'admin', role: 'admin', displayName: 'Abugida Admin', email: 'team@abugida.education' }, 'admin1234');
-  const sara = await user(store, { username: 'sara.bekele', role: 'mentor', displayName: 'Sara Bekele', email: 'sara@abugida.education', subjects: ['Math', 'Physics'] }, 'mentor1234');
-  const daniel = await user(store, { username: 'daniel.haile', role: 'mentor', displayName: 'Daniel Haile', email: 'daniel@abugida.education', subjects: ['English'] }, 'mentor1234');
+  const wk = (days: number[], start: string, end: string) => days.map((weekday) => ({ weekday, start, end }));
+  const sara = await user(store, { username: 'sara.bekele', role: 'mentor', displayName: 'Sara Bekele', email: 'sara@abugida.education', subjects: ['Math', 'Physics'], minGrade: 5, maxGrade: 12, weeklyCapacityHours: 12, availability: [...wk([1, 3], '15:00', '20:00'), ...wk([6], '09:00', '13:00')] }, 'mentor1234');
+  const daniel = await user(store, { username: 'daniel.haile', role: 'mentor', displayName: 'Daniel Haile', email: 'daniel@abugida.education', subjects: ['English / Language Arts', 'Reading', 'Writing'], minGrade: 3, maxGrade: 9, weeklyCapacityHours: 10, availability: wk([2, 4], '15:00', '20:00') }, 'mentor1234');
+  await user(store, { username: 'hana.girma', role: 'mentor', displayName: 'Hana Girma', email: 'hana@abugida.education', subjects: ['Chemistry', 'Biology', 'Math'], minGrade: 8, maxGrade: 12, weeklyCapacityHours: 8, availability: [...wk([2, 4], '16:00', '20:00'), ...wk([0], '13:00', '17:00')] }, 'mentor1234');
   const folder = (n: string) => `https://drive.google.com/drive/folders/demo-${n}`;
-  const abeba = await user(store, { username: 'abeba', role: 'student', displayName: 'Abeba Tesfaye', grade: 5, parentName: 'Hanna Tesfaye', parentEmails: ['hanna.parent@example.com'], driveFolderUrl: folder('abeba') }, 'abeba123');
-  const yonas = await user(store, { username: 'yonas', role: 'student', displayName: 'Yonas Girma', grade: 8, parentName: 'Girma Alemu', parentEmails: ['girma.parent@example.com'], driveFolderUrl: folder('yonas') }, 'yonas123');
-  const liya = await user(store, { username: 'liya', role: 'student', displayName: 'Liya Mekonnen', grade: 11, parentName: 'Selam Mekonnen', parentEmails: ['selam.parent@example.com'], driveFolderUrl: folder('liya') }, 'liya1234');
-  const meron = await user(store, { username: 'meron', role: 'student', displayName: 'Meron Assefa', grade: 11, parentName: 'Assefa Kebede', parentEmails: ['assefa.parent@example.com'], driveFolderUrl: folder('meron') }, 'meron123');
+  const intake = (school: string, city: string, state: string, subjects: string[], hoursPerWeek: number, availability: ReturnType<typeof wk>, parentPhone: string) => ({ schoolName: school, city, state, subjects, hoursPerWeek, availability, parentPhone });
+  const abeba = await user(store, { username: 'abeba', role: 'student', displayName: 'Abeba Tesfaye', email: 'abeba@example.com', grade: 5, parentName: 'Hanna Tesfaye', parentEmails: ['hanna.parent@example.com'], driveFolderUrl: folder('abeba'), ...intake('Riverside Elementary', 'Silver Spring', 'MD', ['Math'], 2, wk([1, 3], '15:30', '18:30'), '+1 301 555 0142') }, 'abeba123');
+  const yonas = await user(store, { username: 'yonas', role: 'student', displayName: 'Yonas Girma', email: 'yonas@example.com', grade: 8, parentName: 'Girma Alemu', parentEmails: ['girma.parent@example.com'], driveFolderUrl: folder('yonas'), ...intake('Eastside Middle School', 'Alexandria', 'VA', ['English / Language Arts'], 2, wk([2, 4], '16:30', '19:00'), '+1 703 555 0178') }, 'yonas123');
+  const liya = await user(store, { username: 'liya', role: 'student', displayName: 'Liya Mekonnen', email: 'liya@example.com', grade: 11, parentName: 'Selam Mekonnen', parentEmails: ['selam.parent@example.com'], driveFolderUrl: folder('liya'), ...intake('Wilson High School', 'Washington', 'DC', ['Physics'], 1.5, wk([6], '09:00', '13:00'), '+1 202 555 0119') }, 'liya1234');
+  const meron = await user(store, { username: 'meron', role: 'student', displayName: 'Meron Assefa', email: 'meron@example.com', grade: 11, parentName: 'Assefa Kebede', parentEmails: ['assefa.parent@example.com'], driveFolderUrl: folder('meron'), ...intake('Wilson High School', 'Washington', 'DC', ['Physics'], 1.5, wk([6], '09:00', '12:00'), '+1 202 555 0164') }, 'meron123');
 
   const created = new Date(now.getTime() - 42 * ONE_DAY);
   const course = (c: Omit<Course, 'id' | 'createdAt' | 'updatedAt' | 'active' | 'startDate' | 'timezone'>): Course => ({
@@ -217,6 +221,14 @@ async function main() {
     }
   }
 
+  // Two new sign-ups and a subject change waiting for the team to approve a mentor.
+  const kalkidan = await user(store, { username: 'kalkidan', role: 'student', displayName: 'Kalkidan Bekele', email: 'kalkidan@example.com', grade: 10, parentName: 'Mulu Bekele', parentEmails: ['mulu.parent@example.com'], notes: 'Has ADHD — short breaks and clear step-by-step instructions help her focus.', ...intake('Lincoln High School', 'Columbus', 'OH', ['Math', 'Chemistry'], 3, [...wk([1, 3], '16:00', '19:00'), ...wk([4], '17:00', '19:00'), ...wk([6], '09:00', '12:00')], '+1 614 555 0134') }, 'kalkidan1');
+  await createMatchRequest(deps, kalkidan, { kind: 'new_student', subjects: ['Math', 'Chemistry'] });
+  const nahom = await user(store, { username: 'nahom', role: 'student', displayName: 'Nahom Tadesse', email: 'nahom@example.com', grade: 6, parentName: 'Tigist Alemu', parentEmails: ['tigist.parent@example.com'], ...intake('Hoover Middle School', 'Rockville', 'MD', ['English / Language Arts', 'Reading'], 2, wk([2, 4], '16:00', '18:30'), '+1 240 555 0190') }, 'nahom123');
+  await createMatchRequest(deps, nahom, { kind: 'new_student', subjects: ['English / Language Arts', 'Reading'] });
+  await store.put(C.users, { ...abeba, subjects: ['Math', 'Reading'] });
+  await createMatchRequest(deps, { ...abeba, subjects: ['Math', 'Reading'] }, { kind: 'subject_change', subjects: ['Reading'] });
+
   // Last month's parent reports, as the platform would have prepared and sent them.
   const lastMonth = addMonths(monthInZone(now, TZ), -1);
   for (const student of [abeba, yonas, liya, meron]) {
@@ -228,8 +240,9 @@ async function main() {
   console.log(`Demo data created.
 
   Abugida team   admin / admin1234
-  Mentors        sara.bekele / mentor1234    daniel.haile / mentor1234
+  Mentors        sara.bekele / mentor1234    daniel.haile / mentor1234    hana.girma / mentor1234
   Students       abeba / abeba123    yonas / yonas123    liya / liya1234    meron / meron123
+  Waiting for a mentor   kalkidan / kalkidan1    nahom / nahom123
 `);
 }
 

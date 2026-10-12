@@ -1,41 +1,27 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import type { AdminCourseRow, AdminOverview, CurriculumRow, ReportDetail, ReportRow } from '../../shared/api.ts';
-import type { ClassSession, ClassType, Course, EmailLog, ParentReport, ReportNarrative, Role, ScheduleSlot, Settings } from '../../shared/types.ts';
-import { isValidHm, isValidTimeZone, isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
+import type { AdminCourseRow, AdminOverview, CurriculumRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ReportDetail, ReportRow } from '../../shared/api.ts';
+import type { ClassSession, ClassType, Course, EmailLog, MatchRequest, ParentReport, ReportNarrative, Role, ScheduleSlot, Settings } from '../../shared/types.ts';
+import { isValidHm, isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
 import { generatePassword, hashPassword, requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
-import { badRequest, h, HttpError, httpUrl, notFound, num, str } from '../http.ts';
+import { badRequest, h, httpUrl, notFound, num, str } from '../http.ts';
 import { usersById } from '../services/access.ts';
 import { curriculumVersions } from '../services/curriculum.ts';
 import { sendEmail } from '../services/email.ts';
 import { runScheduledJobs, type JobResult } from '../services/jobs.ts';
+import { committedHours } from '../services/matching.ts';
+import { approveMatchItem, closeMatchRequest, createMatchRequest, declineMatchItem, loadRequest, planSuggestions, requestDetail } from '../services/pairing.ts';
+import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../services/profiles.ts';
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
 import { recordingState } from '../services/recordings.ts';
 import { resyncFutureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
-import { normalizeUsername } from './auth.ts';
+import { assertUsernameAvailable, normalizeUsername } from './auth.ts';
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function email(value: unknown, field: string, required = false): string | undefined {
-  const s = str(value, field, { required, max: 200 }).toLowerCase();
-  if (!s) return undefined;
-  if (!EMAIL_RE.test(s)) throw badRequest(`${field} must be a valid email address.`);
-  return s;
-}
-
-function emailList(value: unknown, field: string): string[] {
-  const raw = Array.isArray(value) ? value : String(value || '').split(/[,;\s]+/);
-  return [...new Set(raw.map((v) => email(v, field)).filter((v): v is string => Boolean(v)))];
-}
-
-function timezone(value: unknown, fallback: string): string {
-  const tz = str(value, 'Timezone') || fallback;
-  if (!isValidTimeZone(tz)) throw badRequest(`"${tz}" is not a valid timezone.`);
-  return tz;
-}
+const email = parseEmail;
+const timezone = parseTimezone;
 
 function parseSchedule(value: unknown): ScheduleSlot[] {
   if (!Array.isArray(value)) throw badRequest('Schedule must be a list of weekly class times.');
@@ -54,40 +40,18 @@ export function adminRoutes(deps: Deps): Router {
   const router = Router();
   router.use(requireRole('admin'));
 
-  async function ensureUniqueUsername(username: string, exceptId?: string) {
-    if (!/^[a-z0-9][a-z0-9._-]{2,39}$/.test(username)) {
-      throw badRequest('Usernames are 3–40 characters: letters, numbers, dots, dashes or underscores.');
-    }
-    const [existing] = await deps.store.find<UserRecord>(C.users, { username });
-    if (existing && existing.id !== exceptId) throw new HttpError(409, `The username "${username}" is already taken.`);
-  }
-
-  function applyProfile(target: Partial<UserRecord>, body: Record<string, unknown>, role: Role, defaults: { timezone: string }) {
-    if (body.displayName !== undefined) target.displayName = str(body.displayName, 'Full name', { required: true, max: 100 });
-    if (body.email !== undefined) target.email = email(body.email, 'Email', role !== 'student');
-    if (body.timezone !== undefined) target.timezone = timezone(body.timezone, defaults.timezone);
-    if (role === 'student') {
-      if (body.grade !== undefined) target.grade = num(body.grade, 'Grade', { min: 3, max: 12, required: true });
-      if (body.parentName !== undefined) target.parentName = str(body.parentName, 'Parent name', { max: 100 }) || undefined;
-      if (body.parentEmails !== undefined) target.parentEmails = emailList(body.parentEmails, 'Parent email');
-      if (body.driveFolderUrl !== undefined) target.driveFolderUrl = httpUrl(body.driveFolderUrl, 'Google Drive folder') || undefined;
-      if (body.googleEmail !== undefined) target.googleEmail = email(body.googleEmail, 'Student Google account');
-    }
-    if (role === 'mentor' && body.subjects !== undefined) {
-      const raw = Array.isArray(body.subjects) ? body.subjects : String(body.subjects || '').split(',');
-      target.subjects = raw.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
-    }
-  }
+  const ensureUniqueUsername = (username: string, exceptId?: string) => assertUsernameAvailable(deps.store, username, exceptId);
 
   router.get(
     '/overview',
     h(async (_req, res) => {
       const now = deps.now();
       const settings = await getSettings(deps.store);
-      const [users, courses, lastRun] = await Promise.all([
+      const [users, courses, lastRun, openRequests] = await Promise.all([
         deps.store.find<UserRecord>(C.users, { active: true }),
         deps.store.find<Course>(C.courses, { active: true }),
         deps.store.get<{ id: string; result: JobResult }>(C.meta, 'last_job_run'),
+        deps.store.find<MatchRequest>(C.matchRequests, { status: 'open' }),
       ]);
       const sessionLists = await Promise.all(courses.map((c) => deps.store.find<ClassSession>(C.sessions, { courseId: c.id })));
       const courseById = new Map(courses.map((c) => [c.id, c]));
@@ -114,6 +78,7 @@ export function adminRoutes(deps: Deps): Router {
           sessionsThisWeek,
           pendingReports,
           pendingRecordings,
+          openMatchRequests: openRequests.length,
         },
         status: { aiEnabled: deps.ai.enabled, emailLive: deps.mailer.live, driveEnabled: Boolean(deps.drive), dataBackend: deps.dataBackend, appUrl: deps.appUrl },
         lastJobRun: lastRun ? { ranAt: lastRun.result.ranAt, notes: lastRun.result.notes } : undefined,
@@ -155,9 +120,13 @@ export function adminRoutes(deps: Deps): Router {
         tokenVersion: 1,
       };
       // Defaults make required fields (name, and email for staff) fail validation when missing.
-      applyProfile(user, { displayName: '', ...(role === 'student' ? {} : { email: '' }), ...body }, role, settings);
+      applyProfile(user, { displayName: '', ...(role === 'student' ? {} : { email: '' }), ...body }, role, { timezone: settings.timezone, admin: true });
       if (role === 'student' && user.grade === undefined) throw badRequest('Grade is required for students.');
       await deps.store.put(C.users, user);
+      // Students added by the team with subjects join the pairing queue like self-sign-ups.
+      if (role === 'student' && user.subjects?.length && body.createMatchRequest !== false) {
+        await createMatchRequest(deps, user, { kind: 'new_student', subjects: user.subjects });
+      }
       res.status(201).json({ user: toPublicUser(user), password });
     }),
   );
@@ -174,7 +143,12 @@ export function adminRoutes(deps: Deps): Router {
         changes.username = normalizeUsername(str(body.username, 'Username', { required: true, max: 40 }));
         await ensureUniqueUsername(changes.username, user.id);
       }
-      applyProfile(changes, body, user.role, settings);
+      applyProfile(changes, body, user.role, { timezone: settings.timezone, admin: true });
+      if (user.role === 'mentor') {
+        const minGrade = changes.minGrade ?? user.minGrade;
+        const maxGrade = changes.maxGrade ?? user.maxGrade;
+        if (minGrade !== undefined && maxGrade !== undefined && minGrade > maxGrade) throw badRequest('The lowest grade must not be above the highest grade.');
+      }
       if (body.active !== undefined) {
         if (user.id === req.user!.id && body.active === false) throw badRequest('You cannot deactivate your own account.');
         changes.active = Boolean(body.active);
@@ -383,6 +357,102 @@ export function adminRoutes(deps: Deps): Router {
     }),
   );
 
+  // --- Mentor pairing -------------------------------------------------------
+
+  router.get(
+    '/matches',
+    h(async (req, res) => {
+      const status = req.query.status === 'closed' ? 'closed' : 'open';
+      const requests = (await deps.store.find<MatchRequest>(C.matchRequests, { status })).sort((a, b) => (status === 'open' ? a.createdAt.localeCompare(b.createdAt) : b.updatedAt.localeCompare(a.updatedAt)));
+      const [students, mentors, courses] = await Promise.all([
+        usersById(deps, requests.map((r) => r.studentId)),
+        deps.store.find<UserRecord>(C.users, { role: 'mentor' }),
+        status === 'open' ? deps.store.find<Course>(C.courses, { active: true }) : Promise.resolve([]),
+      ]);
+      const mentorName = new Map(mentors.map((m) => [m.id, m.displayName]));
+      const now = deps.now();
+      const rows: MatchRequestRow[] = requests.slice(0, 200).map((request) => {
+        const student = students.get(request.studentId);
+        // Open requests show today's best pick; decided subjects show the approved mentor.
+        const plan = student && status === 'open' ? planSuggestions(student, request.items.filter((i) => i.status === 'pending'), mentors.filter((m) => m.active), courses, now) : new Map();
+        const mentorNames: Record<string, string> = {};
+        for (const i of request.items) {
+          const id = i.mentorId || plan.get(i.id)?.find((c: MentorCandidate) => c.fit !== 'unavailable')?.mentorId;
+          const name = id ? mentorName.get(id) : undefined;
+          if (name) mentorNames[i.id] = name;
+        }
+        return {
+          request,
+          student: { id: request.studentId, displayName: student?.displayName || 'Former student', grade: student?.grade, schoolName: student?.schoolName, city: student?.city, state: student?.state },
+          mentorNames,
+        };
+      });
+      res.json(rows);
+    }),
+  );
+
+  router.get(
+    '/matches/:id',
+    h(async (req, res) => {
+      res.json(await requestDetail(deps, await loadRequest(deps, req.params.id)));
+    }),
+  );
+
+  router.post(
+    '/matches/:id/items/:itemId/approve',
+    h(async (req, res) => {
+      const request = await loadRequest(deps, req.params.id);
+      const startDate = str(req.body?.startDate, 'First class date');
+      if (startDate && !isValidYmd(startDate)) throw badRequest('First class date must be a valid date.');
+      await approveMatchItem(deps, req.user!, request, req.params.itemId, {
+        mentorId: str(req.body?.mentorId, 'Mentor', { required: true }),
+        hoursPerWeek: num(req.body?.hoursPerWeek, 'Hours per week', { min: 0.5, max: 30, required: true })!,
+        schedule: parseSchedule(req.body?.schedule ?? []),
+        meetingUrl: httpUrl(req.body?.meetingUrl, 'Class link'),
+        startDate: startDate || undefined,
+      });
+      res.json(await requestDetail(deps, await loadRequest(deps, request.id)));
+    }),
+  );
+
+  router.post(
+    '/matches/:id/items/:itemId/decline',
+    h(async (req, res) => {
+      const request = await loadRequest(deps, req.params.id);
+      await declineMatchItem(deps, req.user!, request, req.params.itemId, str(req.body?.note, 'Note', { max: 1000 }));
+      res.json(await requestDetail(deps, await loadRequest(deps, request.id)));
+    }),
+  );
+
+  router.post(
+    '/matches/:id/close',
+    h(async (req, res) => {
+      await closeMatchRequest(deps, req.user!, await loadRequest(deps, req.params.id));
+      res.json(await requestDetail(deps, await loadRequest(deps, req.params.id)));
+    }),
+  );
+
+  router.get(
+    '/mentors',
+    h(async (_req, res) => {
+      const [mentors, courses] = await Promise.all([deps.store.find<UserRecord>(C.users, { role: 'mentor' }), deps.store.find<Course>(C.courses, { active: true })]);
+      const rows: MentorDirectoryRow[] = mentors
+        .sort((a, b) => Number(b.active) - Number(a.active) || a.displayName.localeCompare(b.displayName))
+        .map((m) => {
+          const mine = courses.filter((c) => c.mentorId === m.id);
+          const committed = committedHours(m.id, courses);
+          return {
+            mentor: toPublicUser(m),
+            committedHours: committed,
+            remainingHours: Math.round(((m.weeklyCapacityHours ?? 0) - committed) * 10) / 10,
+            activeClasses: mine.length,
+            studentCount: new Set(mine.flatMap((c) => c.studentIds)).size,
+          };
+        });
+      res.json(rows);
+    }),
+  );
+
   router.get(
     '/emails',
     h(async (req, res) => {
@@ -434,6 +504,9 @@ export function adminRoutes(deps: Deps): Router {
         reportDay: num(b.reportDay ?? current.reportDay, 'Report day', { min: 1, max: 28 })!,
         reportDelivery: b.reportDelivery === 'review' ? 'review' : b.reportDelivery === 'auto' ? 'auto' : current.reportDelivery,
         supportEmail: b.supportEmail === undefined ? current.supportEmail : email(b.supportEmail, 'Support email'),
+        adminNotificationEmail: b.adminNotificationEmail === undefined ? current.adminNotificationEmail : email(b.adminNotificationEmail, 'Team inbox email', true)!,
+        allowStudentSignup: b.allowStudentSignup === undefined ? current.allowStudentSignup : Boolean(b.allowStudentSignup),
+        subjectOptions: b.subjectOptions === undefined ? current.subjectOptions : parseSubjects(b.subjectOptions, 'Subject', true),
         updatedAt: deps.now().toISOString(),
       };
       await deps.store.put(C.settings, next);

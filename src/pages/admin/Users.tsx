@@ -1,10 +1,14 @@
 import { Copy, KeyRound, Pencil, Plus, Search } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import type { PublicUser, Role } from '../../../shared/types.ts';
+import type { PublicConfig } from '../../../shared/api.ts';
+import type { AvailabilityWindow, PublicUser, Role } from '../../../shared/types.ts';
+import { AvailabilityEditor } from '../../components/Availability.tsx';
+import { SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
-import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, useToast } from '../../components/ui.tsx';
+import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { useApi } from '../../lib/useApi.ts';
+import { suggestUsername } from '../Signup.tsx';
 
 const ROLE_TABS: Array<{ id: Role; label: string; singular: string }> = [
   { id: 'student', label: 'Students', singular: 'student' },
@@ -135,7 +139,7 @@ export default function AdminUsers() {
   );
 }
 
-function CredentialsCard({ username, password, name }: { username: string; password: string; name: string }) {
+export function CredentialsCard({ username, password, name }: { username: string; password: string; name: string }) {
   const toast = useToast();
   const text = `Abugida Education login for ${name}\nWebsite: ${window.location.origin}\nUsername: ${username}\nPassword: ${password}`;
   return (
@@ -162,30 +166,33 @@ function CredentialsCard({ username, password, name }: { username: string; passw
   );
 }
 
-function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUser | null; onClose(): void; onSaved(created?: { username: string; password: string; name: string }): void }) {
+export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUser | null; onClose(): void; onSaved(created?: { username: string; password: string; name: string }): void }) {
+  const config = useApi<PublicConfig>('/api/auth/config');
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [username, setUsername] = useState(user?.username || '');
   const [email, setEmail] = useState(user?.email || '');
   const [timezone, setTimezone] = useState(user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [password, setPassword] = useState('');
   const [grade, setGrade] = useState(String(user?.grade || 5));
+  const [schoolName, setSchoolName] = useState(user?.schoolName || '');
+  const [city, setCity] = useState(user?.city || '');
+  const [state, setState] = useState(user?.state || '');
+  const [hoursPerWeek, setHoursPerWeek] = useState(user?.hoursPerWeek ? String(user.hoursPerWeek) : '');
+  const [notes, setNotes] = useState(user?.notes || '');
   const [parentName, setParentName] = useState(user?.parentName || '');
+  const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
   const [parentEmails, setParentEmails] = useState(user?.parentEmails?.join(', ') || '');
   const [driveFolderUrl, setDriveFolderUrl] = useState(user?.driveFolderUrl || '');
   const [googleEmail, setGoogleEmail] = useState(user?.googleEmail || '');
-  const [subjects, setSubjects] = useState(user?.subjects?.join(', ') || '');
+  const [subjects, setSubjects] = useState<string[]>(user?.subjects || []);
+  const [availability, setAvailability] = useState<AvailabilityWindow[]>(user?.availability || []);
+  const [minGrade, setMinGrade] = useState(String(user?.minGrade ?? 3));
+  const [maxGrade, setMaxGrade] = useState(String(user?.maxGrade ?? 12));
+  const [capacity, setCapacity] = useState(user?.weeklyCapacityHours === undefined ? '' : String(user.weeklyCapacityHours));
+  const [queueForPairing, setQueueForPairing] = useState(true);
   const [active, setActive] = useState(user?.active ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const suggestUsername = (name: string) =>
-    name
-      .toLowerCase()
-      .normalize('NFKD')
-      .replace(/[^a-z0-9\s.]/g, '')
-      .trim()
-      .replace(/\s+/g, '.')
-      .slice(0, 30);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -193,8 +200,12 @@ function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUs
     setError(null);
     const body: Record<string, unknown> = { displayName, username, timezone };
     if (role !== 'student' || email) body.email = email;
-    if (role === 'student') Object.assign(body, { grade: Number(grade), parentName, parentEmails, driveFolderUrl, googleEmail });
-    if (role === 'mentor') body.subjects = subjects;
+    if (role === 'student') {
+      Object.assign(body, { grade: Number(grade), schoolName, city, state, subjects, availability, notes, parentName, parentPhone, parentEmails, driveFolderUrl, googleEmail });
+      if (hoursPerWeek) body.hoursPerWeek = Number(hoursPerWeek);
+      if (!user) body.createMatchRequest = queueForPairing;
+    }
+    if (role === 'mentor') Object.assign(body, { subjects, availability, minGrade: Number(minGrade), maxGrade: Number(maxGrade), weeklyCapacityHours: capacity === '' ? 0 : Number(capacity) });
     try {
       if (user) {
         await api.patch(`/api/admin/users/${user.id}`, { ...body, active });
@@ -210,10 +221,19 @@ function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUs
     }
   };
 
+  const gradeSelect = (id: string, value: string, set: (v: string) => void) => (
+    <Select id={id} value={value} onChange={(e) => set(e.target.value)}>
+      {Array.from({ length: 10 }, (_, i) => i + 3).map((g) => (
+        <option key={g} value={g}>
+          Grade {g}
+        </option>
+      ))}
+    </Select>
+  );
+
   return (
     <Modal open onClose={onClose} title={user ? `Edit ${user.displayName}` : `Add ${role === 'admin' ? 'team member' : role}`} wide>
       <form onSubmit={submit} className="flex flex-col gap-4">
-        {error && <ErrorBox message={error} />}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Full name">
             {(id) => (
@@ -231,7 +251,7 @@ function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUs
           <Field label="Username" hint="Used to sign in. Letters, numbers, dots or dashes.">
             {(id) => <Input id={id} required value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} autoCapitalize="none" />}
           </Field>
-          <Field label={role === 'student' ? 'Student email (optional)' : 'Email'} hint={role === 'mentor' ? 'Recording reminders are sent here.' : undefined}>
+          <Field label={role === 'student' ? 'Student email' : 'Email'} hint={role === 'mentor' ? 'Reminders and pairing emails are sent here.' : undefined}>
             {(id) => <Input id={id} type="email" required={role !== 'student'} value={email} onChange={(e) => setEmail(e.target.value)} />}
           </Field>
           <Field label="Timezone">{(id) => <TimezoneSelect id={id} value={timezone} onChange={setTimezone} />}</Field>
@@ -245,19 +265,21 @@ function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUs
           <>
             <hr className="border-sand-200" />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Grade">
-                {(id) => (
-                  <Select id={id} value={grade} onChange={(e) => setGrade(e.target.value)}>
-                    {Array.from({ length: 10 }, (_, i) => i + 3).map((g) => (
-                      <option key={g} value={g}>
-                        Grade {g}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-              </Field>
+              <Field label="Grade">{(id) => gradeSelect(id, grade, setGrade)}</Field>
+              <Field label="School name">{(id) => <Input id={id} value={schoolName} onChange={(e) => setSchoolName(e.target.value)} />}</Field>
+              <Field label="City">{(id) => <Input id={id} value={city} onChange={(e) => setCity(e.target.value)} />}</Field>
+              <Field label="State">{(id) => <Input id={id} value={state} onChange={(e) => setState(e.target.value)} />}</Field>
+            </div>
+            <Field label="Subjects for tutoring">{() => <SubjectPicker options={config.data?.subjectOptions || []} value={subjects} onChange={setSubjects} />}</Field>
+            <Field label="Hours of tutoring per week" className="max-w-xs">
+              {(id) => <Input id={id} type="number" min={0.5} max={30} step={0.5} value={hoursPerWeek} onChange={(e) => setHoursPerWeek(e.target.value)} />}
+            </Field>
+            <Field label="Weekly availability">{() => <AvailabilityEditor value={availability} onChange={setAvailability} />}</Field>
+            <Field label="Additional notes / special needs">{(id) => <Textarea id={id} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Parent / guardian name">{(id) => <Input id={id} value={parentName} onChange={(e) => setParentName(e.target.value)} />}</Field>
-              <Field label="Parent email(s)" hint="Monthly progress reports go here. Separate several with commas." className="sm:col-span-2">
+              <Field label="Parent phone">{(id) => <Input id={id} type="tel" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} />}</Field>
+              <Field label="Parent email(s)" hint="Pairing updates and monthly reports go here. Separate several with commas." className="sm:col-span-2">
                 {(id) => <Input id={id} value={parentEmails} onChange={(e) => setParentEmails(e.target.value)} placeholder="parent@example.com, other@example.com" />}
               </Field>
               <Field label="Student's Google Drive folder" hint="Where mentors upload this student's class recordings." className="sm:col-span-2">
@@ -267,10 +289,23 @@ function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUs
                 {(id) => <Input id={id} type="email" value={googleEmail} onChange={(e) => setGoogleEmail(e.target.value)} placeholder="student@gmail.com" />}
               </Field>
             </div>
+            {!user && <Checkbox label="Add to the mentor-pairing queue" hint="Creates a match request with suggested mentors for the subjects above." checked={queueForPairing} onChange={setQueueForPairing} />}
           </>
         )}
-        {role === 'mentor' && <Field label="Subjects" hint="Comma separated.">{(id) => <Input id={id} value={subjects} onChange={(e) => setSubjects(e.target.value)} placeholder="Math, Science" />}</Field>}
+        {role === 'mentor' && (
+          <>
+            <hr className="border-sand-200" />
+            <Field label="Subjects taught">{() => <SubjectPicker options={config.data?.subjectOptions || []} value={subjects} onChange={setSubjects} />}</Field>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Field label="Lowest grade">{(id) => gradeSelect(id, minGrade, setMinGrade)}</Field>
+              <Field label="Highest grade">{(id) => gradeSelect(id, maxGrade, setMaxGrade)}</Field>
+              <Field label="Weekly capacity (hours)">{(id) => <Input id={id} type="number" min={0} max={80} step={0.5} value={capacity} onChange={(e) => setCapacity(e.target.value)} />}</Field>
+            </div>
+            <Field label="Weekly availability">{() => <AvailabilityEditor value={availability} onChange={setAvailability} />}</Field>
+          </>
+        )}
         {user && <Checkbox label="Account is active" hint="Deactivated accounts cannot sign in." checked={active} onChange={setActive} />}
+        {error && <ErrorBox message={error} />}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

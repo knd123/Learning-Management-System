@@ -2,6 +2,7 @@ import { BookOpen, CalendarDays, ClipboardList, PlayCircle, Sparkles } from 'luc
 import { Link } from 'react-router';
 import type { StudentOverview } from '../../../shared/api.ts';
 import { HomeworkCard } from '../../components/Homework.tsx';
+import { StudentRequests } from '../../components/StudentRequests.tsx';
 import { isLive, JoinButton, StudentSessionRow } from '../../components/Sessions.tsx';
 import { Badge, ButtonLink, Card, EmptyState, ErrorBox, Loading, SectionTitle } from '../../components/ui.tsx';
 import { useAuth } from '../../lib/auth.tsx';
@@ -26,7 +27,15 @@ export default function StudentHome() {
         <p className="mt-1 text-ink-soft">Here's what's coming up for you.</p>
       </div>
 
-      {next ? (
+      {!data.courses.length ? (
+        <Card className="bg-linear-to-br from-amber-50 to-white">
+          <p className="text-sm font-semibold text-amber-800">Welcome to Abugida Education!</p>
+          <p className="mt-1 text-xl font-bold">We're finding the right mentor for you</p>
+          <p className="mt-1 max-w-2xl text-ink-soft">
+            Our team is reviewing your request. As soon as you're paired, you (and your parent) will get a notification and an email, and your classes will appear here.
+          </p>
+        </Card>
+      ) : next ? (
         <Card className={isLive(next) ? 'border-sun bg-linear-to-br from-amber-50 to-white ring-2 ring-sun/40' : 'bg-linear-to-br from-brand-50 to-white'}>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -42,6 +51,8 @@ export default function StudentHome() {
       ) : (
         <EmptyState icon={<CalendarDays className="size-8" />} title="No classes in the next 7 days" />
       )}
+
+      {data.requests.some((r) => r.status === 'open') && <StudentRequests requests={data.requests.filter((r) => r.status === 'open')} />}
 
       {data.openQuizzes.length > 0 && (
         <div className="flex flex-col gap-2">

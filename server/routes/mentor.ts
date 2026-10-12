@@ -6,6 +6,7 @@ import type {
   HomeworkWithStats,
   MentorCourseDetail,
   MentorOverview,
+  MentorProfile,
   MentorSessionDetail,
   QuizResults,
   QuizWithStats,
@@ -13,7 +14,7 @@ import type {
 } from '../../shared/api.ts';
 import type { AttendanceMark, Attachment, ClassSession, Course, Homework, Quiz, QuizAttempt, QuizQuestion, SessionReport, Settings, Submission } from '../../shared/types.ts';
 import { isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
-import { requireRole, type UserRecord } from '../auth.ts';
+import { requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, forbidden, h, HttpError, httpUrl, isoDate, jsonField, notFound, num, str } from '../http.ts';
@@ -21,6 +22,8 @@ import { courseForTeacher, coursesFor, homeworkForTeacher, quizForTeacher, sessi
 import { AiUnavailableError } from '../services/ai.ts';
 import { currentCurriculum, curriculumEditPermission, curriculumVersions, curriculumWindow, saveCurriculum } from '../services/curriculum.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
+import { committedHours } from '../services/matching.ts';
+import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
 import { attachRecording } from '../services/recordings.ts';
@@ -89,6 +92,36 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       reason: permission.reason,
     };
   }
+
+  async function mentorProfile(user: UserRecord): Promise<MentorProfile> {
+    const [settings, courses] = await Promise.all([getSettings(deps.store), deps.store.find<Course>(C.courses, { mentorId: user.id })]);
+    return { user: toPublicUser(user), subjectOptions: settings.subjectOptions, committedHours: committedHours(user.id, courses) };
+  }
+
+  // Mentors keep the details used for pairing up to date: subjects, grades, availability and capacity.
+  router.get(
+    '/profile',
+    h(async (req, res) => {
+      if (req.user!.role !== 'mentor') throw forbidden('Only mentors have a teaching profile.');
+      res.json(await mentorProfile(req.user!));
+    }),
+  );
+
+  router.put(
+    '/profile',
+    h(async (req, res) => {
+      const user = req.user!;
+      if (user.role !== 'mentor') throw forbidden('Only mentors have a teaching profile.');
+      const body = (req.body || {}) as Record<string, unknown>;
+      const allowed = ['subjects', 'minGrade', 'maxGrade', 'availability', 'weeklyCapacityHours', 'timezone'];
+      const changes: Partial<UserRecord> = {};
+      applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'mentor', { timezone: user.timezone });
+      const minGrade = changes.minGrade ?? user.minGrade;
+      const maxGrade = changes.maxGrade ?? user.maxGrade;
+      if (minGrade !== undefined && maxGrade !== undefined && minGrade > maxGrade) throw badRequest('The lowest grade must not be above the highest grade.');
+      res.json(await mentorProfile((await deps.store.patch<UserRecord>(C.users, user.id, changes))!));
+    }),
+  );
 
   router.get(
     '/overview',

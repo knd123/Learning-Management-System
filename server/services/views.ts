@@ -99,6 +99,8 @@ export function rosterStudent(user: UserRecord): RosterStudent {
     displayName: user.displayName,
     username: user.username,
     grade: user.grade,
+    schoolName: user.schoolName,
+    notes: user.notes,
     driveFolderUrl: user.driveFolderUrl,
     hasGoogleAccount: Boolean(user.googleEmail),
   };

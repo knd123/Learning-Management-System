@@ -5,6 +5,8 @@ import {
   CalendarDays,
   ClipboardList,
   FileStack,
+  GraduationCap,
+  Handshake,
   Home,
   KeyRound,
   LayoutDashboard,
@@ -13,6 +15,7 @@ import {
   PlayCircle,
   Settings,
   Sparkles,
+  UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -20,6 +23,7 @@ import type { ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router';
 import type { Role } from '../../shared/types.ts';
 import { useAuth } from '../lib/auth.tsx';
+import { NotificationBell } from './Notifications.tsx';
 
 interface NavItem {
   to: string;
@@ -36,13 +40,17 @@ const NAV: Record<Role, NavItem[]> = {
     { to: '/student/recordings', label: 'Recordings', icon: PlayCircle },
     { to: '/student/quizzes', label: 'Quizzes', icon: Sparkles },
     { to: '/student/progress', label: 'My progress', icon: BarChart3 },
+    { to: '/student/profile', label: 'My profile', icon: UserRound },
   ],
   mentor: [
     { to: '/mentor', label: 'Dashboard', icon: LayoutDashboard, end: true },
     { to: '/mentor/schedule', label: 'Schedule', icon: CalendarDays },
+    { to: '/mentor/profile', label: 'Availability & subjects', icon: UserRound },
   ],
   admin: [
     { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true },
+    { to: '/admin/matches', label: 'Match requests', icon: Handshake },
+    { to: '/admin/mentors', label: 'Mentors', icon: GraduationCap },
     { to: '/admin/users', label: 'People', icon: Users },
     { to: '/admin/classes', label: 'Classes', icon: BookOpenCheck },
     { to: '/admin/curricula', label: 'Curricula', icon: FileStack },
@@ -82,9 +90,12 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh lg:flex">
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-sand-200 bg-white px-4 py-5 lg:flex">
-        <Link to="/" className="mb-8 px-2">
-          <Logo />
-        </Link>
+        <div className="mb-8 flex items-center justify-between gap-2 pl-2">
+          <Link to="/">
+            <Logo />
+          </Link>
+          <NotificationBell align="left" />
+        </div>
         <nav className="flex flex-1 flex-col gap-1" aria-label="Main">
           {items.map((item) => (
             <NavLink
@@ -134,6 +145,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <Logo />
           </Link>
           <div className="flex items-center gap-1">
+            <NotificationBell />
             <Link to="/account" className="rounded-lg p-2 text-ink-soft hover:bg-sand-100" aria-label="Change password">
               <KeyRound className="size-5" />
             </Link>

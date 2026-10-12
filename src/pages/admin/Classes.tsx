@@ -1,12 +1,13 @@
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import type { AdminCourseRow } from '../../../shared/api.ts';
 import type { ClassType, Course, PublicUser, ScheduleSlot } from '../../../shared/types.ts';
+import { ScheduleEditor } from '../../components/ScheduleEditor.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
 import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { browserTimeZone, fmtSlot, localYmd, tzAbbrev, WEEKDAYS } from '../../lib/format.ts';
+import { browserTimeZone, fmtSlot, localYmd, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 export default function AdminClasses() {
@@ -135,7 +136,6 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
     if (type === 'one_on_one') setStudentIds(studentIds.includes(id) ? [] : [id]);
     else setStudentIds(studentIds.includes(id) ? studentIds.filter((s) => s !== id) : [...studentIds, id]);
   };
-  const setSlot = (i: number, patch: Partial<ScheduleSlot>) => setSchedule(schedule.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const q = studentQuery.trim().toLowerCase();
   const studentList = (students.data || []).filter((s) => s.active && (!q || s.displayName.toLowerCase().includes(q) || s.username.includes(q)));
 
@@ -209,33 +209,7 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
 
         <div>
           <p className="mb-2 text-sm font-medium">Weekly schedule</p>
-          <div className="flex flex-col gap-2">
-            {schedule.map((slot, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-2">
-                <Select value={slot.weekday} onChange={(e) => setSlot(i, { weekday: Number(e.target.value) })} className="w-36" aria-label="Day">
-                  {WEEKDAYS.map((d, n) => (
-                    <option key={d} value={n}>
-                      {d}
-                    </option>
-                  ))}
-                </Select>
-                <Input type="time" value={slot.startTime} onChange={(e) => setSlot(i, { startTime: e.target.value })} className="w-32" aria-label="Start time" required />
-                <Select value={slot.durationMinutes} onChange={(e) => setSlot(i, { durationMinutes: Number(e.target.value) })} className="w-32" aria-label="Length">
-                  {[30, 45, 60, 75, 90, 120].map((m) => (
-                    <option key={m} value={m}>
-                      {m} min
-                    </option>
-                  ))}
-                </Select>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setSchedule(schedule.filter((_, j) => j !== i))} aria-label="Remove time">
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-            ))}
-            <Button type="button" variant="secondary" size="sm" className="self-start" onClick={() => setSchedule([...schedule, { weekday: 3, startTime: schedule[0]?.startTime || '16:00', durationMinutes: schedule[0]?.durationMinutes || 60 }])}>
-              <Plus className="size-4" /> Add a weekly time
-            </Button>
-          </div>
+          <ScheduleEditor value={schedule} onChange={setSchedule} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

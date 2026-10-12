@@ -124,18 +124,21 @@ export function Field({ label, hint, children, className }: { label: string; hin
   );
 }
 
-const control = 'w-full rounded-xl border border-sand-300 bg-white px-3 text-sm text-ink placeholder:text-ink-muted focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:bg-sand-50';
+const control = 'rounded-xl border border-sand-300 bg-white px-3 text-sm text-ink placeholder:text-ink-muted focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:bg-sand-50';
+
+/** Controls fill their container unless the caller gives them a width (w-32, max-w-xs…). */
+const width = (className?: string) => (/(^|\s)w-/.test(className || '') ? '' : 'w-full');
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={clsx(control, 'h-10', className)} {...props} />;
+  return <input className={clsx(control, width(className), 'h-10', className)} {...props} />;
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={clsx(control, 'min-h-24 py-2 leading-relaxed', className)} {...props} />;
+  return <textarea className={clsx(control, width(className), 'min-h-24 py-2 leading-relaxed', className)} {...props} />;
 }
 
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={clsx(control, 'h-10 pr-8', className)} {...props} />;
+  return <select className={clsx(control, width(className), 'h-10 pr-8', className)} {...props} />;
 }
 
 export function Checkbox({ label, checked, onChange, hint }: { label: ReactNode; checked: boolean; onChange(v: boolean): void; hint?: ReactNode }) {

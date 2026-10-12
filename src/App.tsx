@@ -6,6 +6,12 @@ import { Loading } from './components/ui.tsx';
 import { homePath, useAuth } from './lib/auth.tsx';
 import AccountPage from './pages/Account.tsx';
 import LoginPage from './pages/Login.tsx';
+import SignupPage from './pages/Signup.tsx';
+import AdminMatch from './pages/admin/MatchDetail.tsx';
+import AdminMatches from './pages/admin/Matches.tsx';
+import AdminMentors from './pages/admin/Mentors.tsx';
+import MentorProfilePage from './pages/mentor/Profile.tsx';
+import StudentProfilePage from './pages/student/Profile.tsx';
 import AdminClasses from './pages/admin/Classes.tsx';
 import AdminCurricula from './pages/admin/Curricula.tsx';
 import AdminEmails from './pages/admin/Emails.tsx';
@@ -44,6 +50,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
       <Route path="/" element={loading ? <Loading /> : <Navigate to={user ? homePath(user) : '/login'} replace />} />
       <Route path="/account" element={<Protected><AccountPage /></Protected>} />
 
@@ -56,6 +63,7 @@ export default function App() {
       <Route path="/student/quizzes" element={<Protected roles={['student']}><StudentQuizzes /></Protected>} />
       <Route path="/student/quizzes/:id" element={<Protected roles={['student']}><StudentQuiz /></Protected>} />
       <Route path="/student/progress" element={<Protected roles={['student']}><StudentProgress /></Protected>} />
+      <Route path="/student/profile" element={<Protected roles={['student']}><StudentProfilePage /></Protected>} />
 
       <Route path="/mentor" element={<Protected roles={['mentor', 'admin']}><MentorHome /></Protected>} />
       <Route path="/mentor/schedule" element={<Protected roles={['mentor', 'admin']}><MentorSchedule /></Protected>} />
@@ -64,8 +72,12 @@ export default function App() {
       <Route path="/mentor/homework/:id" element={<Protected roles={['mentor', 'admin']}><MentorHomework /></Protected>} />
       <Route path="/mentor/quizzes/:id" element={<Protected roles={['mentor', 'admin']}><MentorQuiz /></Protected>} />
       <Route path="/mentor/students/:id" element={<Protected roles={['mentor', 'admin']}><MentorStudent /></Protected>} />
+      <Route path="/mentor/profile" element={<Protected roles={['mentor']}><MentorProfilePage /></Protected>} />
 
       <Route path="/admin" element={<Protected roles={['admin']}><AdminHome /></Protected>} />
+      <Route path="/admin/matches" element={<Protected roles={['admin']}><AdminMatches /></Protected>} />
+      <Route path="/admin/matches/:id" element={<Protected roles={['admin']}><AdminMatch /></Protected>} />
+      <Route path="/admin/mentors" element={<Protected roles={['admin']}><AdminMentors /></Protected>} />
       <Route path="/admin/users" element={<Protected roles={['admin']}><AdminUsers /></Protected>} />
       <Route path="/admin/classes" element={<Protected roles={['admin']}><AdminClasses /></Protected>} />
       <Route path="/admin/curricula" element={<Protected roles={['admin']}><AdminCurricula /></Protected>} />

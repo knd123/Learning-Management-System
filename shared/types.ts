@@ -2,6 +2,14 @@
 
 export type Role = 'student' | 'mentor' | 'admin';
 
+/** A weekly time window when someone is free, as wall-clock times in their own timezone. */
+export interface AvailabilityWindow {
+  /** 0 = Sunday ... 6 = Saturday. */
+  weekday: number;
+  start: string; // HH:MM
+  end: string; // HH:MM
+}
+
 /** A user as returned by the API (never includes credentials). */
 export interface PublicUser {
   id: string;
@@ -14,14 +22,27 @@ export interface PublicUser {
   mustChangePassword?: boolean;
   createdAt: string;
   lastLoginAt?: string;
+  /** Students: subjects they want tutoring in. Mentors: subjects they teach. */
+  subjects?: string[];
+  /** Weekly availability (students and mentors), in `timezone`. */
+  availability?: AvailabilityWindow[];
   // Student-only fields
   grade?: number;
+  schoolName?: string;
+  city?: string;
+  state?: string;
+  hoursPerWeek?: number;
+  /** Special needs or anything the team should know. Shared with the student's mentors. */
+  notes?: string;
   parentName?: string;
   parentEmails?: string[];
+  parentPhone?: string;
   driveFolderUrl?: string;
   googleEmail?: string;
   // Mentor-only fields
-  subjects?: string[];
+  minGrade?: number;
+  maxGrade?: number;
+  weeklyCapacityHours?: number;
 }
 
 export interface ScheduleSlot {
@@ -51,9 +72,57 @@ export interface Course {
   endDate?: string; // YYYY-MM-DD
   /** When true, mentors get recording-upload reminders after each class. */
   requiresRecording: boolean;
+  /** Tutoring hours per week agreed at pairing (counts against mentor capacity). */
+  weeklyHours?: number;
+  /** Match request this class was created from, if any. */
+  matchRequestId?: string;
   active: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type MatchItemStatus = 'pending' | 'approved' | 'declined';
+
+/** One subject a student needs a mentor for. */
+export interface MatchItem {
+  id: string;
+  subject: string;
+  hoursPerWeek: number;
+  status: MatchItemStatus;
+  /** The platform's best suggestion when the request was made. */
+  suggestedMentorId?: string;
+  /** Mentor approved by the team. */
+  mentorId?: string;
+  /** The 1-on-1 class created on approval. */
+  courseId?: string;
+  note?: string;
+  decidedAt?: string;
+  decidedBy?: string;
+}
+
+/** A student's request for mentor pairing (at sign-up or after changing subjects). */
+export interface MatchRequest {
+  id: string;
+  studentId: string;
+  kind: 'new_student' | 'subject_change';
+  status: 'open' | 'closed';
+  items: MatchItem[];
+  /** Subjects the student asked to drop (subject changes only). */
+  removedSubjects: string[];
+  createdAt: string;
+  updatedAt: string;
+  closedAt?: string;
+}
+
+/** In-app notification shown under the bell icon. */
+export interface AppNotification {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  link?: string;
+  createdAt: string;
+  readAt?: string;
 }
 
 export type Attachment =
@@ -277,6 +346,9 @@ export type EmailKind =
   | 'recording_reminder'
   | 'parent_report'
   | 'curriculum_window'
+  | 'new_student'
+  | 'subject_change'
+  | 'pairing'
   | 'test';
 
 export interface EmailLog {
@@ -308,6 +380,12 @@ export interface Settings {
   reportDay: number;
   reportDelivery: 'auto' | 'review';
   supportEmail?: string;
+  /** Team inbox for new sign-ups and subject-change requests. */
+  adminNotificationEmail: string;
+  /** Lets students create their own account from the sign-in page. */
+  allowStudentSignup: boolean;
+  /** Subjects offered on the sign-up form and used for mentor matching. */
+  subjectOptions: string[];
   updatedAt: string;
 }
 

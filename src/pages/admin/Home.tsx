@@ -1,6 +1,7 @@
 import { CheckCircle2, CircleAlert, Play } from 'lucide-react';
 import { useState } from 'react';
 import type { AdminOverview } from '../../../shared/api.ts';
+import { Link } from 'react-router';
 import { Button, ButtonLink, Card, ErrorBox, Loading, PageHeader, SectionTitle, StatTile, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtDateTime } from '../../lib/format.ts';
@@ -42,6 +43,17 @@ export default function AdminHome() {
   return (
     <>
       <PageHeader title="Overview" subtitle="Abugida Education at a glance." actions={<ButtonLink to="/admin/users" variant="secondary">Add people</ButtonLink>} />
+      {counts.openMatchRequests > 0 && (
+        <Link to="/admin/matches" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 hover:bg-amber-100">
+          <span>
+            <span className="block font-semibold text-amber-900">
+              {counts.openMatchRequests} student request{counts.openMatchRequests > 1 ? 's are' : ' is'} waiting for a mentor
+            </span>
+            <span className="text-sm text-amber-800">Suggested mentors are ready — review and approve the pairings.</span>
+          </span>
+          <span className="font-semibold text-amber-900">Review →</span>
+        </Link>
+      )}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <StatTile label="Active students" value={counts.students} />
         <StatTile label="Active mentors" value={counts.mentors} />

@@ -1,10 +1,12 @@
 import { Eye, EyeOff } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router';
+import type { PublicConfig } from '../../shared/api.ts';
 import { Logo } from '../components/Shell.tsx';
 import { Button, ErrorBox, Field, Input } from '../components/ui.tsx';
 import { errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
+import { useApi } from '../lib/useApi.ts';
 
 export default function LoginPage() {
   const { user, login } = useAuth();
@@ -15,6 +17,7 @@ export default function LoginPage() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const config = useApi<PublicConfig>('/api/auth/config');
 
   if (user) return <Navigate to={homePath(user)} replace />;
 
@@ -72,7 +75,16 @@ export default function LoginPage() {
               Sign in
             </Button>
           </form>
-          <p className="mt-8 text-sm text-ink-muted">Forgot your password? Ask your mentor or the Abugida team to reset it for you.</p>
+          {config.data?.allowStudentSignup && (
+            <div className="mt-8 rounded-2xl border border-sand-200 bg-white p-4">
+              <p className="font-semibold">New student?</p>
+              <p className="mt-1 text-sm text-ink-soft">Create an account and tell us what you need — we'll pair you with a mentor.</p>
+              <Link to="/signup" className="mt-3 inline-flex h-10 items-center rounded-xl bg-sun px-4 text-sm font-semibold text-ink shadow-sm hover:brightness-95">
+                Create a student account
+              </Link>
+            </div>
+          )}
+          <p className="mt-6 text-sm text-ink-muted">Forgot your password? Ask your mentor or the Abugida team to reset it for you.</p>
         </div>
       </div>
     </div>
