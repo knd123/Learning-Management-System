@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import {
+  BadgeCheck,
   BarChart3,
   BookOpenCheck,
   CalendarDays,
@@ -23,6 +24,7 @@ import type { ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router';
 import type { Role } from '../../shared/types.ts';
 import { useAuth } from '../lib/auth.tsx';
+import { FeedbackPrompt } from './FeedbackPrompt.tsx';
 import { NotificationBell } from './Notifications.tsx';
 
 interface NavItem {
@@ -42,6 +44,7 @@ const NAV: Record<Role, NavItem[]> = {
     { to: '/student/progress', label: 'My progress', icon: BarChart3 },
     { to: '/student/profile', label: 'My profile', icon: UserRound },
   ],
+  parent: [{ to: '/parent', label: 'My children', icon: Home, end: true }],
   mentor: [
     { to: '/mentor', label: 'Dashboard', icon: LayoutDashboard, end: true },
     { to: '/mentor/schedule', label: 'Schedule', icon: CalendarDays },
@@ -50,6 +53,7 @@ const NAV: Record<Role, NavItem[]> = {
   admin: [
     { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true },
     { to: '/admin/matches', label: 'Match requests', icon: Handshake },
+    { to: '/admin/approvals', label: 'Approvals', icon: BadgeCheck },
     { to: '/admin/mentors', label: 'Mentors', icon: GraduationCap },
     { to: '/admin/users', label: 'People', icon: Users },
     { to: '/admin/classes', label: 'Classes', icon: BookOpenCheck },
@@ -60,7 +64,7 @@ const NAV: Record<Role, NavItem[]> = {
   ],
 };
 
-const ROLE_LABEL: Record<Role, string> = { student: 'Student', mentor: 'Mentor', admin: 'Abugida team' };
+const ROLE_LABEL: Record<Role, string> = { student: 'Student', parent: 'Parent', mentor: 'Mentor', admin: 'Abugida team' };
 
 export function Logo({ className }: { className?: string }) {
   return (
@@ -170,6 +174,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">{children}</main>
+      {user.role === 'student' && <FeedbackPrompt />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { h, HttpError, notFound } from './http.ts';
 import { adminRoutes } from './routes/admin.ts';
 import { authRoutes } from './routes/auth.ts';
 import { mentorRoutes } from './routes/mentor.ts';
+import { parentRoutes } from './routes/parent.ts';
 import { studentRoutes } from './routes/student.ts';
 import { createUpload } from './routes/upload.ts';
 import { canDownload, contentDisposition, type StoredFile } from './services/files.ts';
@@ -61,11 +62,12 @@ export function createApp(deps: Deps) {
   app.use('/api/auth', authRoutes(deps));
   app.use('/api/student', studentRoutes(deps, upload));
   app.use('/api/mentor', mentorRoutes(deps, upload));
+  app.use('/api/parent', parentRoutes(deps));
   app.use('/api/admin', adminRoutes(deps));
 
   app.get(
     '/api/notifications',
-    requireRole('student', 'mentor', 'admin'),
+    requireRole('student', 'parent', 'mentor', 'admin'),
     h(async (req, res) => {
       res.json(await notificationsFor(deps, req.user!.id));
     }),
@@ -73,7 +75,7 @@ export function createApp(deps: Deps) {
 
   app.post(
     '/api/notifications/read',
-    requireRole('student', 'mentor', 'admin'),
+    requireRole('student', 'parent', 'mentor', 'admin'),
     h(async (req, res) => {
       await markRead(deps, req.user!.id, typeof req.body?.id === 'string' ? req.body.id : undefined);
       res.json(await notificationsFor(deps, req.user!.id));
@@ -82,7 +84,7 @@ export function createApp(deps: Deps) {
 
   app.get(
     '/api/files/:id',
-    requireRole('student', 'mentor', 'admin'),
+    requireRole('student', 'parent', 'mentor', 'admin'),
     h(async (req, res) => {
       const file = await deps.store.get<StoredFile>(C.files, req.params.id);
       if (!file || !(await canDownload(deps, req.user!, file))) throw notFound('File');

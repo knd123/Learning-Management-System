@@ -1,6 +1,6 @@
 // Types shared by the API server and the React client.
 
-export type Role = 'student' | 'mentor' | 'admin';
+export type Role = 'student' | 'parent' | 'mentor' | 'admin';
 
 /** A weekly time window when someone is free, as wall-clock times in their own timezone. */
 export interface AvailabilityWindow {
@@ -43,6 +43,14 @@ export interface PublicUser {
   minGrade?: number;
   maxGrade?: number;
   weeklyCapacityHours?: number;
+  academicLevel?: string;
+  /** Self-registered mentors wait for the team's approval before they can be paired. */
+  mentorStatus?: 'pending' | 'approved' | 'declined';
+  // Mentor and parent contact
+  phone?: string;
+  // Parent-only fields
+  /** Students this parent may follow (approved by the team). */
+  linkedStudentIds?: string[];
 }
 
 export interface ScheduleSlot {
@@ -255,7 +263,12 @@ export interface StudentQuizView {
   title: string;
   status: QuizStatus;
   closesAt: string;
+  /** Empty until the student starts the timed, proctored sitting. */
   questions: Array<Pick<QuizQuestion, 'id' | 'prompt' | 'options' | 'topic'> & Partial<Pick<QuizQuestion, 'answerIndex' | 'explanation'>>>;
+  questionCount: number;
+  timeLimitMinutes: number;
+  /** Present while a sitting is in progress (e.g. after a page refresh). */
+  session?: { startedAt: string; deadline: string; /** Measured on the server, so a wrong device clock can't stretch the time. */ remainingSeconds: number; answers: number[] };
   attempt?: QuizAttempt;
 }
 
@@ -270,12 +283,101 @@ export interface QuizAttempt {
   courseId: string;
   studentId: string;
   month: string;
+  /** -1 = unanswered (time ran out). */
   answers: number[];
   correct: number;
   total: number;
   score: number; // 0-100
   topicBreakdown: Record<string, TopicScore>;
   submittedAt: string;
+  /** Summary of the proctored sitting (absent for quizzes taken before proctoring). */
+  proctoring?: ProctoringSummary;
+}
+
+export type ProctorEventType =
+  | 'started'
+  | 'resumed'
+  | 'tab_hidden'
+  | 'window_blur'
+  | 'fullscreen_exit'
+  | 'camera_off'
+  | 'no_face'
+  | 'multiple_faces'
+  | 'copy_paste'
+  | 'auto_submitted';
+
+export interface ProctorEvent {
+  type: ProctorEventType;
+  at: string;
+  detail?: string;
+}
+
+export interface ProctoringSummary {
+  startedAt: string;
+  durationSeconds: number;
+  autoSubmitted: boolean;
+  snapshotCount: number;
+  /** Counts of integrity events (tab switches, leaving full screen, camera off…). */
+  flags: Partial<Record<ProctorEventType, number>>;
+}
+
+/** A timed, webcam-proctored sitting of a monthly quiz. */
+export interface QuizSession {
+  id: string; // `${quizId}__${studentId}`
+  quizId: string;
+  courseId: string;
+  studentId: string;
+  status: 'active' | 'submitted';
+  consentAt: string;
+  startedAt: string;
+  deadline: string;
+  answers: number[];
+  events: ProctorEvent[];
+  snapshots: Array<{ fileId: string; at: string }>;
+  submittedAt?: string;
+}
+
+/** A student's 1–5 star rating after a class. */
+export interface ClassFeedback {
+  id: string; // `${sessionId}__${studentId}`
+  sessionId: string;
+  courseId: string;
+  studentId: string;
+  mentorId: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+/** A parent asking to follow their child (and possibly registering siblings). */
+export interface ParentLinkRequest {
+  id: string;
+  parentId: string;
+  status: 'pending' | 'approved' | 'declined';
+  children: Array<{ name: string; grade?: number; isSibling: boolean; suggestedStudentId?: string; linkedStudentId?: string }>;
+  siblingDiscount: boolean;
+  discountPercent: number;
+  note?: string;
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+}
+
+/** Gift card for two months in a row of top monthly-quiz scores. */
+export interface RewardRequest {
+  id: string; // `${studentId}__${courseId}__${month}`
+  studentId: string;
+  courseId: string;
+  subject: string;
+  months: string[];
+  scores: number[];
+  /** Integrity events recorded while the qualifying quizzes were taken. */
+  integrityFlags: number;
+  status: 'pending' | 'approved' | 'declined';
+  note?: string;
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
 }
 
 export interface ReportMetrics {
@@ -349,6 +451,11 @@ export type EmailKind =
   | 'new_student'
   | 'subject_change'
   | 'pairing'
+  | 'class_feedback'
+  | 'mentor_application'
+  | 'parent_request'
+  | 'reward'
+  | 'account'
   | 'test';
 
 export interface EmailLog {
@@ -386,6 +493,14 @@ export interface Settings {
   allowStudentSignup: boolean;
   /** Subjects offered on the sign-up form and used for mentor matching. */
   subjectOptions: string[];
+  allowMentorSignup: boolean;
+  allowParentSignup: boolean;
+  siblingDiscountPercent: number;
+  quizTimeLimitMinutes: number;
+  /** Webcam snapshots from proctored quizzes are deleted after this many days. */
+  proctoringRetentionDays: number;
+  /** A gift card request is created when monthly quiz scores are above this two months in a row. */
+  rewardScoreAbove: number;
   updatedAt: string;
 }
 

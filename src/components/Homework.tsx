@@ -25,9 +25,10 @@ export function HomeworkStatusBadge({ status }: { status: HomeworkStatus }) {
   }
 }
 
-export function HomeworkCard({ homework, compact }: { homework: HomeworkView; compact?: boolean }) {
-  return (
-    <Link to={`/student/homework/${homework.id}`} className="block rounded-2xl border border-sand-200 bg-white p-4 hover:border-brand-300">
+/** Homework summary; links to the student's homework page unless `linked` is false (parents). */
+export function HomeworkCard({ homework, compact, linked = true }: { homework: HomeworkView; compact?: boolean; linked?: boolean }) {
+  const body = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-semibold">{homework.title}</p>
@@ -49,8 +50,15 @@ export function HomeworkCard({ homework, compact }: { homework: HomeworkView; co
             <Paperclip className="size-3" /> {homework.attachments.length}
           </span>
         )}
+        {homework.submission?.submittedAt && <span>Handed in {fmtDateTime(homework.submission.submittedAt)}</span>}
         {typeof homework.submission?.score === 'number' && <span className="font-semibold text-emerald-700">Grade: {homework.submission.score}%</span>}
       </div>
+    </>
+  );
+  if (!linked) return <div className="rounded-2xl border border-sand-200 bg-white p-4">{body}</div>;
+  return (
+    <Link to={`/student/homework/${homework.id}`} className="block rounded-2xl border border-sand-200 bg-white p-4 hover:border-brand-300">
+      {body}
     </Link>
   );
 }

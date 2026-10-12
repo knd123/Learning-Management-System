@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { ClassSession, Course, Homework, Quiz, QuizAttempt, Settings, StudentQuizView, TopicScore } from '../../shared/types.ts';
+import type { ClassSession, Course, Homework, Quiz, QuizAttempt, QuizSession, Settings, StudentQuizView, TopicScore } from '../../shared/types.ts';
 import { addDaysYmd, addMonths, monthInZone, zonedTimeToUtc } from '../../shared/time.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
@@ -66,7 +66,7 @@ export async function generateMonthlyQuiz(
     subject: course.subject,
     gradeLevel: course.gradeLevel,
     month,
-    questionCount: settings.quizQuestionCount,
+    questionCount: Math.min(10, settings.quizQuestionCount),
     homework: homework.map((h) => ({ title: h.title, instructions: h.instructions })),
     sessionTopics,
     curriculum: curriculum?.content,
@@ -104,9 +104,20 @@ export function gradeAttempt(quiz: Quiz, answers: number[]): Pick<QuizAttempt, '
   return { correct, total, score: total ? Math.round((100 * correct) / total) : 0, topicBreakdown };
 }
 
-/** Hides answers and explanations until the student has submitted. */
-export function studentQuizView(quiz: Quiz, courseTitle: string, now: Date, attempt?: QuizAttempt | null): StudentQuizView {
+/**
+ * What a student sees of a quiz: no questions before the timed sitting starts,
+ * questions without answers during it, and answers + explanations afterwards.
+ */
+export function studentQuizView(
+  quiz: Quiz,
+  courseTitle: string,
+  now: Date,
+  attempt: QuizAttempt | null | undefined,
+  session: QuizSession | null | undefined,
+  timeLimitMinutes: number,
+): StudentQuizView {
   const reveal = Boolean(attempt);
+  const showQuestions = reveal || session?.status === 'active';
   return {
     id: quiz.id,
     courseId: quiz.courseId,
@@ -115,13 +126,21 @@ export function studentQuizView(quiz: Quiz, courseTitle: string, now: Date, atte
     title: quiz.title,
     status: effectiveStatus(quiz, now),
     closesAt: quiz.closesAt,
-    questions: quiz.questions.map((q) => ({
-      id: q.id,
-      prompt: q.prompt,
-      options: q.options,
-      topic: q.topic,
-      ...(reveal ? { answerIndex: q.answerIndex, explanation: q.explanation } : {}),
-    })),
+    questionCount: quiz.questions.length,
+    timeLimitMinutes,
+    questions: showQuestions
+      ? quiz.questions.map((q) => ({
+          id: q.id,
+          prompt: q.prompt,
+          options: q.options,
+          topic: q.topic,
+          ...(reveal ? { answerIndex: q.answerIndex, explanation: q.explanation } : {}),
+        }))
+      : [],
+    session:
+      !attempt && session?.status === 'active'
+        ? { startedAt: session.startedAt, deadline: session.deadline, remainingSeconds: Math.max(0, Math.round((new Date(session.deadline).getTime() - now.getTime()) / 1000)), answers: session.answers }
+        : undefined,
     attempt: attempt || undefined,
   };
 }

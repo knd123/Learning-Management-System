@@ -187,11 +187,13 @@ Topics covered in class this month: ${input.sessionTopics.length ? input.session
 ${input.curriculum ? `Class curriculum for context (use it to pick the right level and terminology, but focus on what was taught this month):\n${clip(input.curriculum, 6000)}` : ''}
 
 Write exactly ${input.questionCount} multiple-choice questions with 4 options each and one correct answer (answerIndex is 0-based).
-- Language and difficulty must suit a grade ${input.gradeLevel} student.
-- Mix recall, understanding and application questions; vary which option is correct.
+This is a monthly assessment taken under exam conditions in 30 minutes, without notes or help:
+- Make it slightly MORE challenging than the homework: ask students to apply what they practised to new situations, combine steps, or reason about why — avoid pure recall or copying a homework item.
+- Every question must still be answerable in about 3 minutes by a well-prepared grade ${input.gradeLevel} student, with language suited to that grade.
+- Use plausible distractors based on common mistakes; vary which option is correct.
 - "topic" is a short skill label (2-4 words) reused across related questions, so results can be grouped by skill.
 - "explanation" is one or two friendly sentences shown to the student after they submit.`;
-    const raw = await this.json<unknown>(prompt, questionSchema, 'You are an experienced K-12 teacher who writes clear, accurate, age-appropriate assessment questions.');
+    const raw = await this.json<unknown>(prompt, questionSchema, 'You are an experienced K-12 teacher who writes clear, accurate, age-appropriate assessment questions that test understanding and application, not memorisation.');
     return validateQuestions(raw, input.questionCount);
   }
 

@@ -194,7 +194,8 @@ describe('a month in the life of a 1-on-1 class', () => {
 
     const quizzes = await student.get('/api/student/quizzes');
     assert.equal(quizzes.length, 1);
-    const quiz = await student.get(`/api/student/quizzes/${quizzes[0].id}`);
+    assert.equal((await student.get(`/api/student/quizzes/${quizzes[0].id}`)).questions.length, 0); // hidden until the sitting starts
+    const quiz = await student.post(`/api/student/quizzes/${quizzes[0].id}/start`, { consent: true });
     assert.equal(quiz.questions[0].answerIndex, undefined); // answers hidden before submitting
     const answers = quiz.questions.map((_: unknown, i: number) => (i < 8 ? i % 4 : (i + 1) % 4));
     const graded = await student.post(`/api/student/quizzes/${quiz.id}/attempt`, { answers });

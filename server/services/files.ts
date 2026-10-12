@@ -6,7 +6,7 @@ import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest } from '../http.ts';
 
-export type FilePurpose = 'homework' | 'submission' | 'slides' | 'curriculum';
+export type FilePurpose = 'homework' | 'submission' | 'slides' | 'curriculum' | 'proctoring';
 
 export interface StoredFile {
   id: string;
@@ -97,7 +97,14 @@ export async function canDownload(deps: Deps, user: UserRecord, file: StoredFile
   const course = await deps.store.get<Course>(C.courses, file.courseId);
   if (!course) return false;
   if (user.role === 'mentor') return course.mentorId === user.id;
-  if (!course.studentIds.includes(user.id)) return false;
+  if (user.role === 'parent') {
+    // Parents see their children's homework, handed-in work and shared slides.
+    const children = user.linkedStudentIds || [];
+    if (!course.studentIds.some((id) => children.includes(id))) return false;
+    if (file.purpose === 'submission') return children.includes(file.uploadedBy);
+    if (file.purpose === 'homework') return true;
+  }
+  if (user.role === 'student' && !course.studentIds.includes(user.id)) return false;
   switch (file.purpose) {
     case 'homework':
       return true;

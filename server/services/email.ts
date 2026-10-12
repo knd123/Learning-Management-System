@@ -105,3 +105,16 @@ ${bodyHtml}
 export function emailButton(href: string, label: string): string {
   return `<p style="margin:24px 0"><a href="${escapeHtml(href)}" style="background:#0f5e57;color:#ffffff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block">${escapeHtml(label)}</a></p>`;
 }
+
+/** Bulleted list for email bodies. */
+export function emailList(items: string[]): string {
+  return `<ul style="line-height:1.6;margin:0 0 16px;padding-left:20px">${items.map((i) => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`;
+}
+
+/** Two-column key/value table for email bodies; empty values are skipped. */
+export function emailTable(pairs: Array<[string, string | undefined]>): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:10px;margin:0 0 16px;font-size:14px">${pairs
+    .filter(([, v]) => v)
+    .map(([k, v]) => `<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;color:#55605c;width:40%">${escapeHtml(k)}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${escapeHtml(v!)}</td></tr>`)
+    .join('')}</table>`;
+}

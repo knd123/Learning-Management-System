@@ -1,17 +1,19 @@
 import { Router } from 'express';
 import type { HomeworkView, StudentCourse, StudentCourseDetail, StudentOverview, StudentProfile } from '../../shared/api.ts';
-import type { Attachment, ClassSession, Course, Homework, Quiz, QuizAttempt, Submission } from '../../shared/types.ts';
+import type { Attachment, ClassSession, Course, Homework, Quiz, QuizAttempt, QuizSession, Submission } from '../../shared/types.ts';
 import { ONE_DAY } from '../../shared/time.ts';
 import { requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, h, HttpError, jsonField, notFound, str } from '../http.ts';
 import { courseForStudent, coursesFor, usersById } from '../services/access.ts';
+import { pendingFeedback, submitFeedback } from '../services/feedback.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
 import { createMatchRequest, emailAdminSubjectChange, studentRequests } from '../services/pairing.ts';
 import { applyProfile, subjectChanges } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
-import { attemptIdFor, effectiveStatus, gradeAttempt, studentQuizView } from '../services/quizzes.ts';
+import { activeSession, addSnapshot, finalizeSession, isExpired, MAX_SNAPSHOT_BYTES, MAX_SNAPSHOTS, recordEvents, saveAnswers, startSession } from '../services/proctoring.ts';
+import { attemptIdFor, effectiveStatus, studentQuizView } from '../services/quizzes.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { homeworkView, quizSummary, sessionView } from '../services/views.ts';
@@ -243,44 +245,101 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
     }),
   );
 
+  async function quizFor(req: import('express').Request): Promise<{ quiz: Quiz; course: Course }> {
+    const quiz = await deps.store.get<Quiz>(C.quizzes, req.params.id);
+    if (!quiz || quiz.status === 'draft') throw notFound('Quiz');
+    return { quiz, course: await courseForStudent(deps, req.user!, quiz.courseId) };
+  }
+
+  async function quizView(quiz: Quiz, course: Course, studentId: string) {
+    const settings = await getSettings(deps.store);
+    const id = attemptIdFor(quiz.id, studentId);
+    let [attempt, session] = await Promise.all([deps.store.get<QuizAttempt>(C.attempts, id), deps.store.get<QuizSession>(C.quizSessions, id)]);
+    // A sitting whose time ran out is graded with the answers saved so far.
+    if (!attempt && session?.status === 'active' && isExpired(session, deps.now())) {
+      attempt = await finalizeSession(deps, quiz, session, null);
+      session = null;
+    }
+    return studentQuizView(quiz, course.title, deps.now(), attempt, session, settings.quizTimeLimitMinutes);
+  }
+
   router.get(
     '/quizzes/:id',
     h(async (req, res) => {
-      const quiz = await deps.store.get<Quiz>(C.quizzes, req.params.id);
-      if (!quiz || quiz.status === 'draft') throw notFound('Quiz');
-      const course = await courseForStudent(deps, req.user!, quiz.courseId);
-      const attempt = await deps.store.get<QuizAttempt>(C.attempts, attemptIdFor(quiz.id, req.user!.id));
-      res.json(studentQuizView(quiz, course.title, deps.now(), attempt));
+      const { quiz, course } = await quizFor(req);
+      res.json(await quizView(quiz, course, req.user!.id));
+    }),
+  );
+
+  // Monthly quizzes are taken under exam conditions: a timed sitting with the webcam on.
+  router.post(
+    '/quizzes/:id/start',
+    h(async (req, res) => {
+      const { quiz, course } = await quizFor(req);
+      if (req.body?.consent !== true) throw badRequest('Please agree to webcam monitoring to start the quiz.');
+      await startSession(deps, quiz, req.user!, await getSettings(deps.store));
+      res.json(await quizView(quiz, course, req.user!.id));
+    }),
+  );
+
+  router.post(
+    '/quizzes/:id/progress',
+    h(async (req, res) => {
+      const { quiz } = await quizFor(req);
+      await saveAnswers(deps, quiz, await activeSession(deps, quiz, req.user!.id), req.body?.answers);
+      res.json({ ok: true });
+    }),
+  );
+
+  router.post(
+    '/quizzes/:id/events',
+    h(async (req, res) => {
+      const { quiz } = await quizFor(req);
+      await recordEvents(deps, await activeSession(deps, quiz, req.user!.id), req.body?.events);
+      res.json({ ok: true });
+    }),
+  );
+
+  router.post(
+    '/quizzes/:id/snapshot',
+    upload.single('image'),
+    h(async (req, res) => {
+      const { quiz, course } = await quizFor(req);
+      const session = await activeSession(deps, quiz, req.user!.id);
+      const file = req.file;
+      if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) throw badRequest('Snapshot must be an image.');
+      if (file.size > MAX_SNAPSHOT_BYTES) throw badRequest('Snapshot is too large.');
+      if (session.snapshots.length >= MAX_SNAPSHOTS || isExpired(session, deps.now())) return void res.json({ ok: true, stored: false });
+      const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+      const saved = await saveUpload(deps, { ...file, originalname: `snapshot-${Date.now()}.${ext}` }, { uploadedBy: req.user!.id, purpose: 'proctoring', courseId: course.id, relatedId: session.id });
+      await addSnapshot(deps, session, saved.fileId);
+      res.json({ ok: true, stored: true });
     }),
   );
 
   router.post(
     '/quizzes/:id/attempt',
     h(async (req, res) => {
-      const quiz = await deps.store.get<Quiz>(C.quizzes, req.params.id);
-      if (!quiz || quiz.status === 'draft') throw notFound('Quiz');
-      const course = await courseForStudent(deps, req.user!, quiz.courseId);
-      const now = deps.now();
-      if (effectiveStatus(quiz, now) !== 'published') throw badRequest('This quiz is closed.');
-      const answers = req.body?.answers;
-      if (!Array.isArray(answers) || answers.length !== quiz.questions.length) throw badRequest('Please answer every question.');
-      const clean = answers.map((a: unknown, i: number) => {
-        const n = Number(a);
-        if (!Number.isInteger(n) || n < 0 || n >= quiz.questions[i].options.length) throw badRequest('Please answer every question.');
-        return n;
-      });
-      const attempt: QuizAttempt = {
-        id: attemptIdFor(quiz.id, req.user!.id),
-        quizId: quiz.id,
-        courseId: quiz.courseId,
-        studentId: req.user!.id,
-        month: quiz.month,
-        answers: clean,
-        ...gradeAttempt(quiz, clean),
-        submittedAt: now.toISOString(),
-      };
-      if (!(await deps.store.createIfAbsent(C.attempts, attempt))) throw new HttpError(409, 'You have already taken this quiz.');
-      res.json(studentQuizView(quiz, course.title, now, attempt));
+      const { quiz, course } = await quizFor(req);
+      if (await deps.store.get<QuizAttempt>(C.attempts, attemptIdFor(quiz.id, req.user!.id))) throw new HttpError(409, 'You have already taken this quiz.');
+      const session = await activeSession(deps, quiz, req.user!.id);
+      await finalizeSession(deps, quiz, session, req.body?.answers ?? []);
+      res.json(await quizView(quiz, course, req.user!.id));
+    }),
+  );
+
+  // The post-class rating pop-up: one finished class at a time.
+  router.get(
+    '/feedback/pending',
+    h(async (req, res) => {
+      res.json({ pending: await pendingFeedback(deps, req.user!) });
+    }),
+  );
+
+  router.post(
+    '/feedback',
+    h(async (req, res) => {
+      res.status(201).json(await submitFeedback(deps, req.user!, (req.body || {}) as Record<string, unknown>));
     }),
   );
 

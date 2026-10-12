@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { AppNotification } from '../../shared/types.ts';
+import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 
@@ -21,4 +22,10 @@ export async function markRead(deps: Deps, userId: string, id?: string): Promise
   for (const n of all) {
     if (!n.readAt && (!id || n.id === id)) await deps.store.patch<AppNotification>(C.notifications, n.id, { readAt: now });
   }
+}
+
+/** Notifies every active Abugida team member (admin). */
+export async function notifyAdmins(deps: Deps, title: string, body: string, link?: string): Promise<void> {
+  const admins = await deps.store.find<UserRecord>(C.users, { role: 'admin', active: true });
+  for (const admin of admins) await notify(deps, admin.id, title, body, link);
 }

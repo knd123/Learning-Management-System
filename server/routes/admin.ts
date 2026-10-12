@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import type { AdminCourseRow, AdminOverview, CurriculumRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ReportDetail, ReportRow } from '../../shared/api.ts';
-import type { ClassSession, ClassType, Course, EmailLog, MatchRequest, ParentReport, ReportNarrative, Role, ScheduleSlot, Settings } from '../../shared/types.ts';
+import type { AdminCourseRow, AdminOverview, ApprovalCounts, CurriculumRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ParentRequestRow, ReportDetail, ReportRow, RewardRow } from '../../shared/api.ts';
+import type { ClassFeedback, ClassSession, Course, EmailLog, MatchRequest, ParentLinkRequest, ParentReport, RewardRequest, ReportNarrative, Role, ScheduleSlot, Settings } from '../../shared/types.ts';
 import { isValidHm, isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
 import { generatePassword, hashPassword, requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -11,6 +11,8 @@ import { usersById } from '../services/access.ts';
 import { curriculumVersions } from '../services/curriculum.ts';
 import { sendEmail } from '../services/email.ts';
 import { runScheduledJobs, type JobResult } from '../services/jobs.ts';
+import { approveParentRequest, declineParentRequest, decideMentor, isApprovedMentor } from '../services/accounts.ts';
+import { decideReward } from '../services/rewards.ts';
 import { committedHours } from '../services/matching.ts';
 import { approveMatchItem, closeMatchRequest, createMatchRequest, declineMatchItem, loadRequest, planSuggestions, requestDetail } from '../services/pairing.ts';
 import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../services/profiles.ts';
@@ -42,16 +44,38 @@ export function adminRoutes(deps: Deps): Router {
 
   const ensureUniqueUsername = (username: string, exceptId?: string) => assertUsernameAvailable(deps.store, username, exceptId);
 
+  async function approvalCounts(): Promise<ApprovalCounts> {
+    const [mentors, parents, rewards] = await Promise.all([
+      deps.store.find<UserRecord>(C.users, { role: 'mentor', mentorStatus: 'pending' }),
+      deps.store.find<ParentLinkRequest>(C.parentRequests, { status: 'pending' }),
+      deps.store.find<RewardRequest>(C.rewards, { status: 'pending' }),
+    ]);
+    return { mentors: mentors.length, parents: parents.length, rewards: rewards.length };
+  }
+
+  /** Validates students chosen for a parent and adds the parent's email to their report recipients. */
+  async function linkStudents(parent: Pick<UserRecord, 'email'>, ids: unknown): Promise<string[]> {
+    const list = Array.isArray(ids) ? [...new Set(ids.map(String))] : [];
+    const students = await usersById(deps, list);
+    for (const id of list) {
+      const student = students.get(id);
+      if (student?.role !== 'student') throw badRequest('One of the selected students could not be found.');
+      if (parent.email && !student.parentEmails?.includes(parent.email)) await deps.store.patch<UserRecord>(C.users, id, { parentEmails: [...(student.parentEmails || []), parent.email] });
+    }
+    return list;
+  }
+
   router.get(
     '/overview',
     h(async (_req, res) => {
       const now = deps.now();
       const settings = await getSettings(deps.store);
-      const [users, courses, lastRun, openRequests] = await Promise.all([
+      const [users, courses, lastRun, openRequests, approvals] = await Promise.all([
         deps.store.find<UserRecord>(C.users, { active: true }),
         deps.store.find<Course>(C.courses, { active: true }),
         deps.store.get<{ id: string; result: JobResult }>(C.meta, 'last_job_run'),
         deps.store.find<MatchRequest>(C.matchRequests, { status: 'open' }),
+        approvalCounts(),
       ]);
       const sessionLists = await Promise.all(courses.map((c) => deps.store.find<ClassSession>(C.sessions, { courseId: c.id })));
       const courseById = new Map(courses.map((c) => [c.id, c]));
@@ -80,6 +104,7 @@ export function adminRoutes(deps: Deps): Router {
           pendingRecordings,
           openMatchRequests: openRequests.length,
         },
+        approvals,
         status: { aiEnabled: deps.ai.enabled, emailLive: deps.mailer.live, driveEnabled: Boolean(deps.drive), dataBackend: deps.dataBackend, appUrl: deps.appUrl },
         lastJobRun: lastRun ? { ranAt: lastRun.result.ranAt, notes: lastRun.result.notes } : undefined,
       };
@@ -101,7 +126,7 @@ export function adminRoutes(deps: Deps): Router {
     h(async (req, res) => {
       const body = req.body || {};
       const role = body.role as Role;
-      if (!['student', 'mentor', 'admin'].includes(role)) throw badRequest('Choose a role: student, mentor or admin.');
+      if (!['student', 'parent', 'mentor', 'admin'].includes(role)) throw badRequest('Choose a role: student, parent, mentor or admin.');
       const username = normalizeUsername(str(body.username, 'Username', { required: true, max: 40 }));
       await ensureUniqueUsername(username);
       const password = str(body.password, 'Password', { max: 200 }) || generatePassword();
@@ -122,6 +147,7 @@ export function adminRoutes(deps: Deps): Router {
       // Defaults make required fields (name, and email for staff) fail validation when missing.
       applyProfile(user, { displayName: '', ...(role === 'student' ? {} : { email: '' }), ...body }, role, { timezone: settings.timezone, admin: true });
       if (role === 'student' && user.grade === undefined) throw badRequest('Grade is required for students.');
+      if (role === 'parent') user.linkedStudentIds = await linkStudents(user, body.linkedStudentIds);
       await deps.store.put(C.users, user);
       // Students added by the team with subjects join the pairing queue like self-sign-ups.
       if (role === 'student' && user.subjects?.length && body.createMatchRequest !== false) {
@@ -149,6 +175,7 @@ export function adminRoutes(deps: Deps): Router {
         const maxGrade = changes.maxGrade ?? user.maxGrade;
         if (minGrade !== undefined && maxGrade !== undefined && minGrade > maxGrade) throw badRequest('The lowest grade must not be above the highest grade.');
       }
+      if (user.role === 'parent' && body.linkedStudentIds !== undefined) changes.linkedStudentIds = await linkStudents({ email: changes.email ?? user.email }, body.linkedStudentIds);
       if (body.active !== undefined) {
         if (user.id === req.user!.id && body.active === false) throw badRequest('You cannot deactivate your own account.');
         changes.active = Boolean(body.active);
@@ -177,10 +204,8 @@ export function adminRoutes(deps: Deps): Router {
     if (!existing || body.title !== undefined) out.title = str(body.title, 'Class name', { required: true, max: 120 });
     if (!existing || body.subject !== undefined) out.subject = str(body.subject, 'Subject', { required: true, max: 80 });
     if (!existing || body.gradeLevel !== undefined) out.gradeLevel = num(body.gradeLevel, 'Grade', { min: 3, max: 12, required: true });
-    if (!existing || body.type !== undefined) {
-      if (!['one_on_one', 'group'].includes(String(body.type))) throw badRequest('Class type must be 1-on-1 or group.');
-      out.type = body.type as ClassType;
-    }
+    // Every class at Abugida is 1-on-1.
+    out.type = 'one_on_one';
     if (!existing || body.mentorId !== undefined) {
       const mentor = await deps.store.get<UserRecord>(C.users, String(body.mentorId || ''));
       if (!mentor || mentor.role !== 'mentor') throw badRequest('Choose a mentor for this class.');
@@ -209,9 +234,8 @@ export function adminRoutes(deps: Deps): Router {
     if (body.requiresRecording !== undefined) out.requiresRecording = Boolean(body.requiresRecording);
     if (body.active !== undefined) out.active = Boolean(body.active);
 
-    const type = out.type ?? existing?.type;
     const studentIds = out.studentIds ?? existing?.studentIds ?? [];
-    if (type === 'one_on_one' && studentIds.length > 1) throw badRequest('A 1-on-1 class can only have one student.');
+    if (studentIds.length !== 1) throw badRequest('Every class is 1-on-1: choose exactly one student.');
     const start = out.startDate ?? existing?.startDate;
     const end = out.endDate === undefined && 'endDate' in out ? undefined : (out.endDate ?? existing?.endDate);
     if (start && end && end < start) throw badRequest('End date must be after the start date.');
@@ -242,7 +266,7 @@ export function adminRoutes(deps: Deps): Router {
       const course: Course = {
         ...(input as Course),
         id: crypto.randomUUID().slice(0, 12),
-        requiresRecording: input.requiresRecording ?? input.type === 'one_on_one',
+        requiresRecording: input.requiresRecording ?? true,
         active: input.active ?? true,
         createdAt: now,
         updatedAt: now,
@@ -374,7 +398,7 @@ export function adminRoutes(deps: Deps): Router {
       const rows: MatchRequestRow[] = requests.slice(0, 200).map((request) => {
         const student = students.get(request.studentId);
         // Open requests show today's best pick; decided subjects show the approved mentor.
-        const plan = student && status === 'open' ? planSuggestions(student, request.items.filter((i) => i.status === 'pending'), mentors.filter((m) => m.active), courses, now) : new Map();
+        const plan = student && status === 'open' ? planSuggestions(student, request.items.filter((i) => i.status === 'pending'), mentors.filter(isApprovedMentor), courses, now) : new Map();
         const mentorNames: Record<string, string> = {};
         for (const i of request.items) {
           const id = i.mentorId || plan.get(i.id)?.find((c: MentorCandidate) => c.fit !== 'unavailable')?.mentorId;
@@ -435,14 +459,22 @@ export function adminRoutes(deps: Deps): Router {
   router.get(
     '/mentors',
     h(async (_req, res) => {
-      const [mentors, courses] = await Promise.all([deps.store.find<UserRecord>(C.users, { role: 'mentor' }), deps.store.find<Course>(C.courses, { active: true })]);
+      const [mentors, courses, feedback] = await Promise.all([
+        deps.store.find<UserRecord>(C.users, { role: 'mentor' }),
+        deps.store.find<Course>(C.courses, { active: true }),
+        deps.store.find<ClassFeedback>(C.feedback),
+      ]);
+      const since = new Date(deps.now().getTime() - 90 * ONE_DAY).toISOString();
       const rows: MentorDirectoryRow[] = mentors
         .sort((a, b) => Number(b.active) - Number(a.active) || a.displayName.localeCompare(b.displayName))
         .map((m) => {
           const mine = courses.filter((c) => c.mentorId === m.id);
           const committed = committedHours(m.id, courses);
+          const ratings = feedback.filter((f) => f.mentorId === m.id && f.createdAt >= since).map((f) => f.rating);
           return {
             mentor: toPublicUser(m),
+            averageRating: ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null,
+            ratingCount: ratings.length,
             committedHours: committed,
             remainingHours: Math.round(((m.weeklyCapacityHours ?? 0) - committed) * 10) / 10,
             activeClasses: mine.length,
@@ -450,6 +482,101 @@ export function adminRoutes(deps: Deps): Router {
           };
         });
       res.json(rows);
+    }),
+  );
+
+  // --- Approvals: mentor applications, parent access, gift cards -------------------
+
+  router.get(
+    '/approvals/counts',
+    h(async (_req, res) => {
+      res.json(await approvalCounts());
+    }),
+  );
+
+  router.get(
+    '/approvals/mentors',
+    h(async (req, res) => {
+      const mentors = await deps.store.find<UserRecord>(C.users, { role: 'mentor' });
+      const wanted = req.query.status === 'decided' ? ['approved', 'declined'] : ['pending'];
+      res.json(mentors.filter((m) => wanted.includes(m.mentorStatus || '')).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toPublicUser));
+    }),
+  );
+
+  router.post(
+    '/approvals/mentors/:id',
+    h(async (req, res) => {
+      const decision = req.body?.decision;
+      if (decision !== 'approve' && decision !== 'decline') throw badRequest('Choose approve or decline.');
+      const mentor = await decideMentor(deps, req.params.id, decision === 'approve', str(req.body?.note, 'Note', { max: 1000 }));
+      res.json(toPublicUser(mentor));
+    }),
+  );
+
+  router.get(
+    '/approvals/parents',
+    h(async (req, res) => {
+      const all = await deps.store.find<ParentLinkRequest>(C.parentRequests);
+      const requests = all.filter((r) => (req.query.status === 'decided' ? r.status !== 'pending' : r.status === 'pending')).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const people = await usersById(deps, requests.flatMap((r) => [r.parentId, ...r.children.flatMap((c) => [c.suggestedStudentId, c.linkedStudentId])]).filter((x): x is string => Boolean(x)));
+      const rows: ParentRequestRow[] = requests
+        .filter((r) => people.has(r.parentId))
+        .map((request) => {
+          const parent = people.get(request.parentId)!;
+          return {
+            request,
+            parent: toPublicUser(parent),
+            children: request.children.map((c) => {
+              const s = c.suggestedStudentId ? people.get(c.suggestedStudentId) : undefined;
+              return {
+                ...c,
+                suggestedStudent: s ? { id: s.id, displayName: s.displayName, grade: s.grade, schoolName: s.schoolName, parentEmailMatches: Boolean(parent.email && s.parentEmails?.includes(parent.email)) } : undefined,
+                linkedStudentName: c.linkedStudentId ? people.get(c.linkedStudentId)?.displayName : undefined,
+              };
+            }),
+          };
+        });
+      res.json(rows);
+    }),
+  );
+
+  router.post(
+    '/approvals/parents/:id',
+    h(async (req, res) => {
+      const request = await deps.store.get<ParentLinkRequest>(C.parentRequests, req.params.id);
+      if (!request) throw notFound('Request');
+      if (req.body?.decision === 'approve') {
+        const links = (req.body?.links || {}) as Record<number, string | null>;
+        res.json(await approveParentRequest(deps, req.user!, request, links));
+      } else if (req.body?.decision === 'decline') {
+        res.json(await declineParentRequest(deps, req.user!, request, str(req.body?.note, 'Note', { max: 1000 })));
+      } else throw badRequest('Choose approve or decline.');
+    }),
+  );
+
+  router.get(
+    '/approvals/rewards',
+    h(async (req, res) => {
+      const all = await deps.store.find<RewardRequest>(C.rewards);
+      const rewards = all.filter((r) => (req.query.status === 'decided' ? r.status !== 'pending' : r.status === 'pending')).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const [people, courses] = await Promise.all([usersById(deps, rewards.map((r) => r.studentId)), deps.store.find<Course>(C.courses)]);
+      const titles = new Map(courses.map((c) => [c.id, c.title]));
+      const rows: RewardRow[] = rewards.map((reward) => {
+        const s = people.get(reward.studentId);
+        return { reward, studentName: s?.displayName || 'Former student', grade: s?.grade, courseTitle: titles.get(reward.courseId) || reward.subject, parentEmails: s?.parentEmails || [] };
+      });
+      res.json(rows);
+    }),
+  );
+
+  router.post(
+    '/approvals/rewards/:id',
+    h(async (req, res) => {
+      const reward = await deps.store.get<RewardRequest>(C.rewards, req.params.id);
+      if (!reward) throw notFound('Request');
+      const decision = req.body?.decision;
+      if (decision !== 'approve' && decision !== 'decline') throw badRequest('Choose approve or decline.');
+      res.json(await decideReward(deps, req.user!, reward, decision === 'approve', str(req.body?.note, 'Note', { max: 1000 })));
     }),
   );
 
@@ -499,7 +626,7 @@ export function adminRoutes(deps: Deps): Router {
         curriculumWindowDays: num(b.curriculumWindowDays ?? current.curriculumWindowDays, 'Curriculum window days', { min: 1, max: 90 })!,
         curriculumWindowOverrideUntil: b.curriculumWindowOverrideUntil === undefined ? current.curriculumWindowOverrideUntil : str(b.curriculumWindowOverrideUntil, 'Window override') ? new Date(b.curriculumWindowOverrideUntil).toISOString() : undefined,
         quizGenerationDay: num(b.quizGenerationDay ?? current.quizGenerationDay, 'Quiz generation day', { min: 1, max: 28 })!,
-        quizQuestionCount: num(b.quizQuestionCount ?? current.quizQuestionCount, 'Questions per quiz', { min: 3, max: 30 })!,
+        quizQuestionCount: num(b.quizQuestionCount ?? current.quizQuestionCount, 'Questions per quiz', { min: 3, max: 10 })!,
         quizAutoPublish: b.quizAutoPublish === undefined ? current.quizAutoPublish : Boolean(b.quizAutoPublish),
         reportDay: num(b.reportDay ?? current.reportDay, 'Report day', { min: 1, max: 28 })!,
         reportDelivery: b.reportDelivery === 'review' ? 'review' : b.reportDelivery === 'auto' ? 'auto' : current.reportDelivery,
@@ -507,6 +634,12 @@ export function adminRoutes(deps: Deps): Router {
         adminNotificationEmail: b.adminNotificationEmail === undefined ? current.adminNotificationEmail : email(b.adminNotificationEmail, 'Team inbox email', true)!,
         allowStudentSignup: b.allowStudentSignup === undefined ? current.allowStudentSignup : Boolean(b.allowStudentSignup),
         subjectOptions: b.subjectOptions === undefined ? current.subjectOptions : parseSubjects(b.subjectOptions, 'Subject', true),
+        allowMentorSignup: b.allowMentorSignup === undefined ? current.allowMentorSignup : Boolean(b.allowMentorSignup),
+        allowParentSignup: b.allowParentSignup === undefined ? current.allowParentSignup : Boolean(b.allowParentSignup),
+        siblingDiscountPercent: num(b.siblingDiscountPercent ?? current.siblingDiscountPercent, 'Sibling discount', { min: 0, max: 50 })!,
+        quizTimeLimitMinutes: num(b.quizTimeLimitMinutes ?? current.quizTimeLimitMinutes, 'Quiz time limit', { min: 10, max: 60 })!,
+        proctoringRetentionDays: num(b.proctoringRetentionDays ?? current.proctoringRetentionDays, 'Snapshot retention', { min: 1, max: 365 })!,
+        rewardScoreAbove: num(b.rewardScoreAbove ?? current.rewardScoreAbove, 'Gift card score', { min: 0, max: 99 })!,
         updatedAt: deps.now().toISOString(),
       };
       await deps.store.put(C.settings, next);

@@ -7,6 +7,11 @@ import { homePath, useAuth } from './lib/auth.tsx';
 import AccountPage from './pages/Account.tsx';
 import LoginPage from './pages/Login.tsx';
 import SignupPage from './pages/Signup.tsx';
+import SignupMentorPage from './pages/SignupMentor.tsx';
+import SignupParentPage from './pages/SignupParent.tsx';
+import ParentHome from './pages/parent/Home.tsx';
+import ParentStudent from './pages/parent/StudentPage.tsx';
+import AdminApprovals from './pages/admin/Approvals.tsx';
 import AdminMatch from './pages/admin/MatchDetail.tsx';
 import AdminMatches from './pages/admin/Matches.tsx';
 import AdminMentors from './pages/admin/Mentors.tsx';
@@ -51,6 +56,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      <Route path="/signup/mentor" element={<SignupMentorPage />} />
+      <Route path="/signup/parent" element={<SignupParentPage />} />
       <Route path="/" element={loading ? <Loading /> : <Navigate to={user ? homePath(user) : '/login'} replace />} />
       <Route path="/account" element={<Protected><AccountPage /></Protected>} />
 
@@ -65,6 +72,9 @@ export default function App() {
       <Route path="/student/progress" element={<Protected roles={['student']}><StudentProgress /></Protected>} />
       <Route path="/student/profile" element={<Protected roles={['student']}><StudentProfilePage /></Protected>} />
 
+      <Route path="/parent" element={<Protected roles={['parent']}><ParentHome /></Protected>} />
+      <Route path="/parent/students/:id" element={<Protected roles={['parent']}><ParentStudent /></Protected>} />
+
       <Route path="/mentor" element={<Protected roles={['mentor', 'admin']}><MentorHome /></Protected>} />
       <Route path="/mentor/schedule" element={<Protected roles={['mentor', 'admin']}><MentorSchedule /></Protected>} />
       <Route path="/mentor/classes/:id" element={<Protected roles={['mentor', 'admin']}><MentorClass /></Protected>} />
@@ -75,6 +85,7 @@ export default function App() {
       <Route path="/mentor/profile" element={<Protected roles={['mentor']}><MentorProfilePage /></Protected>} />
 
       <Route path="/admin" element={<Protected roles={['admin']}><AdminHome /></Protected>} />
+      <Route path="/admin/approvals" element={<Protected roles={['admin']}><AdminApprovals /></Protected>} />
       <Route path="/admin/matches" element={<Protected roles={['admin']}><AdminMatches /></Protected>} />
       <Route path="/admin/matches/:id" element={<Protected roles={['admin']}><AdminMatch /></Protected>} />
       <Route path="/admin/mentors" element={<Protected roles={['admin']}><AdminMentors /></Protected>} />

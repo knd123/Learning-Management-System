@@ -7,12 +7,13 @@ import type {
   MentorCourseDetail,
   MentorOverview,
   MentorProfile,
+  MentorSessionView,
   MentorSessionDetail,
   QuizResults,
   QuizWithStats,
   ReviewItem,
 } from '../../shared/api.ts';
-import type { AttendanceMark, Attachment, ClassSession, Course, Homework, Quiz, QuizAttempt, QuizQuestion, SessionReport, Settings, Submission } from '../../shared/types.ts';
+import type { AttendanceMark, Attachment, ClassFeedback, ClassSession, Course, Homework, Quiz, QuizAttempt, QuizQuestion, QuizSession, SessionReport, Settings, Submission } from '../../shared/types.ts';
 import { isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
 import { requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -25,7 +26,7 @@ import { linkAttachments, saveUpload } from '../services/files.ts';
 import { committedHours } from '../services/matching.ts';
 import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
-import { effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
+import { attemptIdFor, effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
 import { attachRecording } from '../services/recordings.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
@@ -93,6 +94,16 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     };
   }
 
+  const feedbackFor = (courseId: string) => deps.store.find<ClassFeedback>(C.feedback, { courseId });
+
+  /** Adds students' post-class ratings to each session. */
+  function withFeedback(views: MentorSessionView[], feedback: ClassFeedback[], people: Map<string, UserRecord>): MentorSessionView[] {
+    return views.map((v) => {
+      const mine = feedback.filter((f) => f.sessionId === v.id);
+      return mine.length ? { ...v, feedback: mine.map((f) => ({ rating: f.rating, comment: f.comment, createdAt: f.createdAt, studentName: people.get(f.studentId)?.displayName || 'Student' })) } : v;
+    });
+  }
+
   async function mentorProfile(user: UserRecord): Promise<MentorProfile> {
     const [settings, courses] = await Promise.all([getSettings(deps.store), deps.store.find<Course>(C.courses, { mentorId: user.id })]);
     return { user: toPublicUser(user), subjectOptions: settings.subjectOptions, committedHours: committedHours(user.id, courses) };
@@ -152,7 +163,33 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
           courseTitle: courseById.get(s.courseId)?.title || '',
           studentName: people.get(s.studentId)?.displayName || 'Student',
         }));
+      const allWork = submissionLists
+        .flat()
+        .filter((sub) => homeworkById.has(sub.homeworkId))
+        .map((sub) => ({
+          submission: sub,
+          homeworkTitle: homeworkById.get(sub.homeworkId)!.title,
+          courseTitle: courseById.get(sub.courseId)?.title || '',
+          studentName: people.get(sub.studentId)?.displayName || 'Student',
+        }));
+      const monthAgo = new Date(now.getTime() - 30 * ONE_DAY).toISOString();
+      const studentIds = [...new Set(courses.flatMap((c) => c.studentIds))];
       const overview: MentorOverview = {
+        approved: user.role === 'admin' || user.mentorStatus !== 'pending',
+        students: studentIds
+          .map((id) => people.get(id))
+          .filter((u): u is UserRecord => Boolean(u))
+          .sort((a, b) => a.displayName.localeCompare(b.displayName))
+          .map((u) => {
+            const work = allWork.filter((w) => w.submission.studentId === u.id);
+            return {
+              student: { ...rosterStudent(u), city: u.city, state: u.state, hoursPerWeek: u.hoursPerWeek, subjects: u.subjects },
+              classes: courses.filter((c) => c.studentIds.includes(u.id)).map((c) => ({ courseId: c.id, title: c.title, subject: c.subject })),
+              submissionsToReview: toReview.filter((r) => r.submission.studentId === u.id).length,
+              lastSubmissionAt: work.map((w) => w.submission.updatedAt).sort().pop(),
+            };
+          }),
+        recentWork: allWork.filter((w) => w.submission.updatedAt >= monthAgo).sort((a, b) => b.submission.updatedAt.localeCompare(a.submission.updatedAt)).slice(0, 30),
         courses: courses.map((course, i) => {
           const next = upcoming.find(({ session }) => session.courseId === course.id && session.status !== 'cancelled');
           const mine = recentViews.filter((v) => v.courseId === course.id);
@@ -212,7 +249,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         course,
         mentorName: people.get(course.mentorId)?.displayName || 'Mentor',
         students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map(rosterStudent),
-        sessions: sessions.map((s) => mentorSessionView(s, course, now, people, settings.recordingAccessDays)).reverse(),
+        sessions: withFeedback(sessions.map((s) => mentorSessionView(s, course, now, people, settings.recordingAccessDays)).reverse(), await feedbackFor(course.id), people),
         homework,
         quizzes,
         curriculum,
@@ -242,7 +279,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const people = await usersById(deps, course.studentIds);
       const homeworkId = session.report?.homeworkId;
       const detail: MentorSessionDetail = {
-        session: mentorSessionView(session, course, deps.now(), people, settings.recordingAccessDays),
+        session: withFeedback([mentorSessionView(session, course, deps.now(), people, settings.recordingAccessDays)], await feedbackFor(course.id), people)[0],
         course,
         students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map(rosterStudent),
         homework: homeworkId ? (await deps.store.get<Homework>(C.homework, homeworkId)) || undefined : undefined,
@@ -584,6 +621,18 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     }),
   );
 
+  // Webcam snapshots and integrity events from a student's proctored sitting.
+  router.get(
+    '/quizzes/:id/proctoring/:studentId',
+    h(async (req, res) => {
+      const { quiz } = await quizForTeacher(deps, req.user!, req.params.id);
+      const id = attemptIdFor(quiz.id, req.params.studentId);
+      const [session, attempt] = await Promise.all([deps.store.get<QuizSession>(C.quizSessions, id), deps.store.get<QuizAttempt>(C.attempts, id)]);
+      if (!session && !attempt) throw notFound('Quiz sitting');
+      res.json({ session, attempt });
+    }),
+  );
+
   router.patch(
     '/quizzes/:id',
     h(async (req, res) => {
@@ -594,7 +643,8 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       if (req.body?.questions !== undefined) {
         if (attempts.length) throw new HttpError(409, 'Students have already taken this quiz, so its questions cannot change.');
         if (!Array.isArray(req.body.questions) || !req.body.questions.length) throw badRequest('A quiz needs at least one question.');
-        changes.questions = (req.body.questions as QuizQuestion[]).slice(0, 40).map((q) => {
+        if (req.body.questions.length > 10) throw badRequest('A monthly quiz has at most 10 questions.');
+        changes.questions = (req.body.questions as QuizQuestion[]).map((q) => {
           const options = Array.isArray(q.options) ? q.options.map((o) => String(o).trim()).filter(Boolean) : [];
           const answerIndex = Number(q.answerIndex);
           if (!String(q.prompt || '').trim() || options.length < 2) throw badRequest('Every question needs a prompt and at least two options.');

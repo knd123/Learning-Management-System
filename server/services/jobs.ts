@@ -6,6 +6,7 @@ import type { Deps } from '../deps.ts';
 import { firstName } from './access.ts';
 import { curriculumWindow } from './curriculum.ts';
 import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
+import { finalizeExpiredSessions, purgeOldSnapshots } from './proctoring.ts';
 import { generateMonthlyQuiz, homeworkInMonth, quizIdFor, topicsInMonth } from './quizzes.ts';
 import { revokeExpiredDriveAccess, sendRecordingReminders } from './recordings.ts';
 import { generateParentReport, reportIdFor, sendParentReport } from './reports.ts';
@@ -19,6 +20,8 @@ export interface JobResult {
   driveAccessRevoked: number;
   curriculumWindowEmails: number;
   quizzesGenerated: number;
+  quizSittingsClosed: number;
+  snapshotsPurged: number;
   reportsGenerated: number;
   reportsSent: number;
   notes: string[];
@@ -145,6 +148,8 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
     driveAccessRevoked: 0,
     curriculumWindowEmails: 0,
     quizzesGenerated: 0,
+    quizSittingsClosed: 0,
+    snapshotsPurged: 0,
     reportsGenerated: 0,
     reportsSent: 0,
     notes: [],
@@ -166,6 +171,12 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
     }],
     ['curriculum', () => announceCurriculumWindow(deps, result)],
     ['quizzes', () => generateDueQuizzes(deps, courses, result)],
+    ['quiz sittings', async () => {
+      result.quizSittingsClosed = await finalizeExpiredSessions(deps);
+    }],
+    ['snapshot retention', async () => {
+      result.snapshotsPurged = await purgeOldSnapshots(deps, settings);
+    }],
     ['reports', () => generateDueReports(deps, result)],
   ];
   for (const [name, step] of steps) {

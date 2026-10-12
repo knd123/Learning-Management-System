@@ -42,6 +42,10 @@ export const C = {
   meta: 'meta',
   matchRequests: 'matchRequests',
   notifications: 'notifications',
+  feedback: 'classFeedback',
+  quizSessions: 'quizSessions',
+  parentRequests: 'parentRequests',
+  rewards: 'rewards',
 } as const;
 
 function matches(doc: Record<string, unknown>, where: Where = {}, options: FindOptions = {}): boolean {

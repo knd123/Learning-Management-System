@@ -85,8 +85,11 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
   if (has('displayName')) target.displayName = str(body.displayName, 'Full name', { required: true, max: 100 });
   if (has('email')) target.email = parseEmail(body.email, 'Email', req || role !== 'student');
   if (body.timezone !== undefined) target.timezone = parseTimezone(body.timezone, opts.timezone);
-  if (has('subjects')) target.subjects = parseSubjects(body.subjects, 'Subject', req);
-  if (has('availability')) target.availability = parseAvailability(body.availability, req);
+  if (role === 'student' || role === 'mentor') {
+    if (has('subjects')) target.subjects = parseSubjects(body.subjects, 'Subject', req);
+    if (has('availability')) target.availability = parseAvailability(body.availability, req);
+  }
+  if ((role === 'mentor' || role === 'parent') && has('phone')) target.phone = parsePhone(body.phone, 'Phone number', req && role === 'parent');
 
   if (role === 'student') {
     if (has('grade')) target.grade = num(body.grade, 'Grade', { min: 3, max: 12, required: true });
@@ -107,12 +110,23 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
   if (role === 'mentor') {
     if (body.minGrade !== undefined) target.minGrade = num(body.minGrade, 'Lowest grade', { min: 3, max: 12 });
     if (body.maxGrade !== undefined) target.maxGrade = num(body.maxGrade, 'Highest grade', { min: 3, max: 12 });
-    if (body.weeklyCapacityHours !== undefined) target.weeklyCapacityHours = num(body.weeklyCapacityHours, 'Weekly capacity', { min: 0, max: 80 });
+    if (has('weeklyCapacityHours')) target.weeklyCapacityHours = num(body.weeklyCapacityHours, 'Hours per week you can teach', { min: req ? 0.5 : 0, max: 80, required: req });
+    if (has('academicLevel')) target.academicLevel = str(body.academicLevel, 'Academic level', { required: req, max: 120 }) || undefined;
     const min = target.minGrade;
     const max = target.maxGrade;
     if (min !== undefined && max !== undefined && min > max) throw badRequest('The lowest grade must not be above the highest grade.');
   }
 }
+
+export const ACADEMIC_LEVELS = [
+  'High school graduate',
+  'Undergraduate student',
+  "Bachelor's degree",
+  'Graduate student',
+  "Master's degree",
+  'Doctorate (PhD / EdD)',
+  'Certified teacher',
+];
 
 /** Subjects added and removed between two lists (ignoring case). */
 export function subjectChanges(before: string[] = [], after: string[] = []): { added: string[]; removed: string[] } {

@@ -179,7 +179,7 @@ export function rankMentors(input: RankInput): MentorCandidate[] {
 
   const out: MentorCandidate[] = [];
   for (const mentor of mentors) {
-    if (!mentor.active || mentor.role !== 'mentor' || !teaches(mentor, subject)) continue;
+    if (!mentor.active || mentor.role !== 'mentor' || mentor.mentorStatus === 'pending' || mentor.mentorStatus === 'declined' || !teaches(mentor, subject)) continue;
     const mentorCourses = courses.filter((c) => c.active && c.mentorId === mentor.id);
     const mentorBusy = mentorCourses.flatMap((c) => scheduleIntervals(c.schedule, c.timezone, ref));
     const mentorFree = subtract(availabilityIntervals(mentor.availability, mentor.timezone, ref), mentorBusy);

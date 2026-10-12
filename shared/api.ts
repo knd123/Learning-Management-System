@@ -11,10 +11,12 @@ import type {
   Homework,
   MatchItem,
   MatchRequest,
+  ParentLinkRequest,
   ParentReport,
   PublicUser,
   Quiz,
   QuizAttempt,
+  RewardRequest,
   QuizStatus,
   ScheduleSlot,
   SessionReport,
@@ -40,8 +42,19 @@ export interface SessionView {
   attended?: boolean;
 }
 
+/** A finished class waiting for the student's rating. */
+export interface PendingFeedback {
+  sessionId: string;
+  courseTitle: string;
+  subject: string;
+  mentorName: string;
+  startAt: string;
+  endAt: string;
+}
+
 /** Mentor-side view of a session: adds report, recording and reminder details. */
 export interface MentorSessionView extends SessionView {
+  feedback?: Array<{ rating: number; comment: string; studentName: string; createdAt: string }>;
   studentNames: string[];
   report?: SessionReport;
   recordingUrl?: string;
@@ -120,7 +133,11 @@ export interface StudentProfile {
 export interface PublicConfig {
   organizationName: string;
   allowStudentSignup: boolean;
+  allowMentorSignup: boolean;
+  allowParentSignup: boolean;
+  siblingDiscountPercent: number;
   subjectOptions: string[];
+  academicLevels: string[];
 }
 
 export interface MentorCandidate {
@@ -168,6 +185,8 @@ export interface MatchRequestDetail {
 
 export interface MentorDirectoryRow {
   mentor: PublicUser;
+  averageRating: number | null;
+  ratingCount: number;
   committedHours: number;
   remainingHours: number;
   activeClasses: number;
@@ -220,7 +239,20 @@ export interface ReviewItem {
   studentName: string;
 }
 
+/** A student assigned to the mentor, with the profile details mentors need. */
+export interface MentorStudentCard {
+  student: RosterStudent & { city?: string; state?: string; hoursPerWeek?: number; subjects?: string[] };
+  classes: Array<{ courseId: string; title: string; subject: string }>;
+  submissionsToReview: number;
+  lastSubmissionAt?: string;
+}
+
 export interface MentorOverview {
+  /** False while a self-registered mentor waits for the team's approval. */
+  approved: boolean;
+  students: MentorStudentCard[];
+  /** Homework handed in during the last 30 days (reviewed or not). */
+  recentWork: ReviewItem[];
   courses: MentorCourseSummary[];
   upcoming: MentorSessionView[];
   pendingReports: MentorSessionView[];
@@ -294,6 +326,7 @@ export interface SystemStatus {
 
 export interface AdminOverview {
   counts: { students: number; mentors: number; classes: number; sessionsThisWeek: number; pendingReports: number; pendingRecordings: number; openMatchRequests: number };
+  approvals: ApprovalCounts;
   status: SystemStatus;
   lastJobRun?: { ranAt: string; notes: string[] };
 }
@@ -324,3 +357,53 @@ export interface ReportDetail {
 }
 
 export type { EmailLog, Settings };
+
+export interface ApprovalCounts {
+  mentors: number;
+  parents: number;
+  rewards: number;
+}
+
+export interface ParentRequestRow {
+  request: ParentLinkRequest;
+  parent: PublicUser;
+  children: Array<
+    ParentLinkRequest['children'][number] & {
+      suggestedStudent?: { id: string; displayName: string; grade?: number; schoolName?: string; parentEmailMatches: boolean };
+      linkedStudentName?: string;
+    }
+  >;
+}
+
+export interface RewardRow {
+  reward: RewardRequest;
+  studentName: string;
+  grade?: number;
+  courseTitle: string;
+  parentEmails: string[];
+}
+
+export interface ParentChildSummary {
+  student: { id: string; displayName: string; grade?: number; schoolName?: string };
+  classes: Array<{ courseId: string; title: string; subject: string; mentorName: string; schedule: ScheduleSlot[]; timezone: string }>;
+  nextSession?: SessionView;
+  homework: { assigned: number; submitted: number; toDo: number; late: number };
+  latestQuiz?: { subject: string; month: string; score: number };
+  attendance: { held: number; attended: number };
+}
+
+export interface ParentOverview {
+  /** Names in the parent's request while the team is still confirming them. */
+  pendingNames: string[];
+  children: ParentChildSummary[];
+}
+
+export interface ParentChildDetail {
+  summary: ParentChildSummary;
+  upcoming: SessionView[];
+  recent: SessionView[];
+  homework: HomeworkView[];
+  progress: import('./types.ts').StudentProgress;
+  quizzes: Array<{ id: string; title: string; month: string; courseTitle: string; score?: number; submittedAt?: string }>;
+  reports: Array<{ id: string; month: string; sentAt?: string }>;
+}

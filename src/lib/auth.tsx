@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { PublicUser } from '../../shared/types.ts';
+import type { PublicUser, Role } from '../../shared/types.ts';
 import { api } from './api.ts';
 
 interface AuthState {
   user: PublicUser | null;
   loading: boolean;
-  login(username: string, password: string): Promise<PublicUser>;
+  login(username: string, password: string, as?: Role): Promise<PublicUser>;
   logout(): Promise<void>;
   setUser(user: PublicUser): void;
 }
@@ -27,8 +27,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('abugida:signed-out', onSignedOut);
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const r = await api.post<{ user: PublicUser }>('/api/auth/login', { username, password });
+  const login = useCallback(async (username: string, password: string, as?: Role) => {
+    const r = await api.post<{ user: PublicUser }>('/api/auth/login', { username, password, as });
     setUser(r.user);
     return r.user;
   }, []);
@@ -48,5 +48,5 @@ export function useAuth(): AuthState {
 }
 
 export function homePath(user: PublicUser): string {
-  return user.role === 'student' ? '/student' : user.role === 'mentor' ? '/mentor' : '/admin';
+  return user.role === 'student' ? '/student' : user.role === 'parent' ? '/parent' : user.role === 'mentor' ? '/mentor' : '/admin';
 }

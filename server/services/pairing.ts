@@ -7,7 +7,8 @@ import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, notFound } from '../http.ts';
 import { firstName, usersById } from './access.ts';
-import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
+import { isApprovedMentor } from './accounts.ts';
+import { emailButton, emailLayout, emailList as list, emailTable as rows, escapeHtml, sendEmail } from './email.ts';
 import type { MentorCandidate } from '../../shared/api.ts';
 import { rankMentors } from './matching.ts';
 import { notify } from './notifications.ts';
@@ -87,7 +88,7 @@ async function matchingContext(deps: Deps) {
     deps.store.find<UserRecord>(C.users, { role: 'mentor', active: true }),
     deps.store.find<Course>(C.courses, { active: true }),
   ]);
-  return { mentors, courses };
+  return { mentors: mentors.filter(isApprovedMentor), courses };
 }
 
 /**
@@ -179,7 +180,7 @@ export async function approveMatchItem(deps: Deps, admin: UserRecord, request: M
   if (item.status !== 'pending') throw badRequest('This subject has already been decided.');
   const [student, mentor] = await Promise.all([deps.store.get<UserRecord>(C.users, request.studentId), deps.store.get<UserRecord>(C.users, input.mentorId)]);
   if (!student) throw notFound('Student');
-  if (!mentor || mentor.role !== 'mentor' || !mentor.active) throw badRequest('Choose an active mentor.');
+  if (!mentor || !isApprovedMentor(mentor)) throw badRequest('Choose an active, approved mentor.');
 
   const now = deps.now();
   const course: Course = {
@@ -253,17 +254,6 @@ export async function studentRequests(deps: Deps, studentId: string): Promise<St
     removedSubjects: r.removedSubjects,
     items: r.items.map((i) => ({ id: i.id, subject: i.subject, hoursPerWeek: i.hoursPerWeek, status: i.status, mentorName: i.mentorId ? people.get(i.mentorId)?.displayName : undefined })),
   }));
-}
-
-function list(items: string[]): string {
-  return `<ul style="line-height:1.6;margin:0 0 16px;padding-left:20px">${items.map((i) => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`;
-}
-
-function rows(pairs: Array<[string, string | undefined]>): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:10px;margin:0 0 16px;font-size:14px">${pairs
-    .filter(([, v]) => v)
-    .map(([k, v]) => `<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;color:#55605c;width:40%">${escapeHtml(k)}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${escapeHtml(v!)}</td></tr>`)
-    .join('')}</table>`;
 }
 
 async function announcePairing(deps: Deps, student: UserRecord, mentor: UserRecord, course: Course, settings: Settings) {
