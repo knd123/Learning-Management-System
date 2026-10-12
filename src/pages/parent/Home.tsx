@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import type { ParentChildSummary, ParentOverview } from '../../../shared/api.ts';
 import { Badge, Card, EmptyState, ErrorBox, Loading, Notice } from '../../components/ui.tsx';
 import { useAuth } from '../../lib/auth.tsx';
+import { ContactEmail } from '../../lib/contact.tsx';
 import { fmtDay, fmtRelative, fmtSlot, fmtTimeRange, firstName, greeting, monthLabel, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
@@ -26,7 +27,7 @@ export default function ParentHome() {
           <p className="font-semibold">The Abugida team is confirming your request</p>
           <p className="mt-0.5">
             You asked to follow {data.pendingNames.join(', ')}. Once the team confirms you're their parent, their classes, homework and progress will appear here and we'll email
-            you.
+            you. Questions? Email <ContactEmail />.
           </p>
         </Notice>
       )}
@@ -40,7 +41,7 @@ export default function ParentHome() {
       ) : (
         !data.pendingNames.length && (
           <EmptyState icon={<UsersRound className="size-8" />} title="No students linked yet">
-            Contact the Abugida team at info@abugidaeducation.com and we'll link your account to your child's profile.
+            Email the Abugida team at <ContactEmail className="text-brand-700" /> and we'll link your account to your child's profile.
           </EmptyState>
         )
       )}

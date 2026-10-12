@@ -13,6 +13,7 @@ import { api, errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
 import { browserTimeZone } from '../lib/format.ts';
 import { useApi } from '../lib/useApi.ts';
+import { ContactEmail } from '../lib/contact.tsx';
 
 const STEPS = ['About you', 'Tutoring needs', 'Parent & account'];
 
@@ -258,7 +259,9 @@ export default function SignupPage() {
           </Link>
         </div>
         {config.data && !config.data.allowStudentSignup ? (
-          <Notice>Online sign-up is currently closed. Please contact the Abugida team to create your account.</Notice>
+          <Notice>
+            Online sign-up is currently closed. Email <ContactEmail email={config.data.contactEmail} /> to create your account.
+          </Notice>
         ) : (
           <Card className="p-6 sm:p-8">
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Create your student account</h1>

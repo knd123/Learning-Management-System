@@ -10,6 +10,7 @@ import { api, errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
 import { browserTimeZone } from '../lib/format.ts';
 import { useApi } from '../lib/useApi.ts';
+import { ContactEmail } from '../lib/contact.tsx';
 import { suggestUsername } from './Signup.tsx';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -81,7 +82,13 @@ export default function SignupParentPage() {
     <SignupLayout
       title="Create a parent account"
       subtitle="Follow your child's classes, homework and progress. The Abugida team confirms every parent before sharing a student's information."
-      closed={config.data && !config.data.allowParentSignup ? 'Parent sign-up is currently closed. Please contact the Abugida team.' : null}
+      closed={
+        config.data && !config.data.allowParentSignup ? (
+          <>
+            Parent sign-up is currently closed. Email <ContactEmail email={config.data.contactEmail} /> and we'll set up your account.
+          </>
+        ) : null
+      }
     >
       <form onSubmit={submit} className="flex flex-col gap-6" noValidate>
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -152,7 +159,9 @@ export default function SignupParentPage() {
               <Button type="button" variant="secondary" size="sm" className="self-start" onClick={() => setSiblings([...siblings, { name: '', grade: '' }])}>
                 <Plus className="size-4" /> Add another sibling
               </Button>
-              <p className="text-sm text-ink-soft">The Abugida team will contact you about the {discount}% sibling discount and how to sign each sibling up.</p>
+              <p className="text-sm text-ink-soft">
+                The Abugida team will contact you about the {discount}% sibling discount and how to sign each sibling up. Questions? Email <ContactEmail email={config.data?.contactEmail} className="text-brand-700" />.
+              </p>
             </div>
           )}
         </section>

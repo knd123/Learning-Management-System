@@ -10,6 +10,7 @@ import { Badge, Button, Card, EmptyState, ErrorBox, ExternalButton, Field, Input
 import { api, errorMessage } from '../../lib/api.ts';
 import { currentMonth, fmtDate, fmtDateTime, fmtSlot, monthLabel, shiftMonth, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
+import { ContactEmail } from '../../lib/contact.tsx';
 
 type Tab = 'overview' | 'sessions' | 'homework' | 'quizzes' | 'curriculum';
 
@@ -282,7 +283,9 @@ function QuizzesTab({ data, onChange }: { data: MentorCourseDetail; onChange(): 
           )}
         </Card>
       ) : (
-        <Notice>AI is not configured yet, so quizzes can't be generated. Ask the Abugida team to add a Gemini API key.</Notice>
+        <Notice>
+          AI is not configured yet, so quizzes can't be generated. Email the Abugida team at <ContactEmail /> to turn it on.
+        </Notice>
       )}
       {data.quizzes.length ? (
         <div className="flex flex-col gap-2">

@@ -255,4 +255,32 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     const result = await res.json();
     assert.equal(result.snapshotsPurged, 1);
   });
+
+  it('points everyone to the one company email address', async () => {
+    const company = 'info@abugidaeducation.com';
+    assert.equal((await new Client(h).get('/api/auth/config')).contactEmail, company);
+    // Every email the app sent in this suite is answered at the company address.
+    assert.ok(h.mailer.sent.length > 10);
+    assert.ok(h.mailer.sent.every((e) => e.replyTo === company));
+    assert.ok(!h.mailer.sent.some((e) => /hello@|no-reply@/.test(`${e.text} ${e.html || ''}`)));
+
+    // Closed sign-ups say where to write.
+    await admin.put('/api/admin/settings', { allowParentSignup: false });
+    const closed = await new Client(h).post('/api/auth/signup/parent', { displayName: 'X' }, 403);
+    assert.match(closed.error, /info@abugidaeducation\.com/);
+    await admin.put('/api/admin/settings', { allowParentSignup: true });
+
+    // A declined parent request tells the family where to write.
+    const { user } = await new Client(h).post<{ user: PublicUser }>('/api/auth/signup/parent', { displayName: 'Tigist Alemu', email: 'tigist@example.org', phone: '+1 240 555 0190', studentName: 'Nobody Here', username: 'tigist', password: 'tigist-pass-1' }, 201);
+    const [row] = (await admin.get<ParentRequestRow[]>('/api/admin/approvals/parents')).filter((r) => r.parent.id === user.id);
+    await admin.post(`/api/admin/approvals/parents/${row.request.id}`, { decision: 'decline', note: '' });
+    const declined = h.mailer.sent.at(-1)!;
+    assert.deepEqual(declined.to, ['tigist@example.org']);
+    assert.match(declined.text, /Questions\? Email us at info@abugidaeducation\.com/);
+    assert.equal(declined.replyTo, company);
+
+    // An old separate support address is retired.
+    await h.store.patch(C.settings, 'global', { supportEmail: 'hello@abugida.education' });
+    assert.equal((await admin.get('/api/admin/settings')).supportEmail, undefined);
+  });
 });

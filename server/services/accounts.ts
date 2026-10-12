@@ -179,8 +179,8 @@ export async function declineParentRequest(deps: Deps, admin: UserRecord, reques
     await sendEmail(deps, 'account', {
       to: [parent.email],
       subject: `About your ${settings.organizationName} parent request`,
-      text: `Hello ${parent.displayName},\n\nWe could not confirm the student profile in your request.${note ? `\n\n${note}` : ''}${settings.supportEmail ? `\n\nPlease contact us at ${settings.supportEmail}.` : ''}`,
-      html: emailLayout('About your parent request', `<p style="line-height:1.6">Hello ${escapeHtml(parent.displayName)},</p><p style="line-height:1.6">We could not confirm the student profile in your request.</p>${note ? `<p style="line-height:1.6">${escapeHtml(note)}</p>` : ''}${settings.supportEmail ? `<p style="line-height:1.6">Please contact us at ${escapeHtml(settings.supportEmail)}.</p>` : ''}`, settings.organizationName),
+      text: `Hello ${parent.displayName},\n\nWe could not confirm the student profile in your request.${note ? `\n\n${note}` : ''}\n\nQuestions? Email us at ${settings.adminNotificationEmail}.`,
+      html: emailLayout('About your parent request', `<p style="line-height:1.6">Hello ${escapeHtml(parent.displayName)},</p><p style="line-height:1.6">We could not confirm the student profile in your request.</p>${note ? `<p style="line-height:1.6">${escapeHtml(note)}</p>` : ''}<p style="line-height:1.6">Questions? Email us at ${escapeHtml(settings.adminNotificationEmail)}.</p>`, settings.organizationName),
     }, request.id);
   }
   return updated;

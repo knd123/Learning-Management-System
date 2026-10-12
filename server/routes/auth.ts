@@ -78,6 +78,7 @@ export function authRoutes(deps: Deps): Router {
         siblingDiscountPercent: settings.siblingDiscountPercent,
         subjectOptions: settings.subjectOptions,
         academicLevels: ACADEMIC_LEVELS,
+        contactEmail: settings.adminNotificationEmail,
       };
       res.json(config);
     }),
@@ -88,7 +89,7 @@ export function authRoutes(deps: Deps): Router {
     '/signup',
     h(async (req, res) => {
       const settings = await getSettings(deps.store);
-      if (!settings.allowStudentSignup) throw new HttpError(403, 'Online sign-up is closed. Please contact the Abugida team.');
+      if (!settings.allowStudentSignup) throw new HttpError(403, `Online sign-up is closed. Please email ${settings.adminNotificationEmail} to create an account.`);
       const { user: student, body } = await newAccount(req, 'student', settings.timezone);
       applyProfile(student, { ...body, parentEmails: body.parentEmails ?? body.parentEmail }, 'student', { timezone: settings.timezone, intake: true });
       countSignup(req);
@@ -126,7 +127,7 @@ export function authRoutes(deps: Deps): Router {
     '/signup/mentor',
     h(async (req, res) => {
       const settings = await getSettings(deps.store);
-      if (!settings.allowMentorSignup) throw new HttpError(403, 'Mentor sign-up is closed. Please contact the Abugida team.');
+      if (!settings.allowMentorSignup) throw new HttpError(403, `Mentor sign-up is closed. Please email ${settings.adminNotificationEmail}.`);
       const { user, body } = await newAccount(req, 'mentor', settings.timezone);
       applyProfile(user, body, 'mentor', { timezone: settings.timezone, intake: true });
       user.mentorStatus = 'pending';
@@ -143,7 +144,7 @@ export function authRoutes(deps: Deps): Router {
     '/signup/parent',
     h(async (req, res) => {
       const settings = await getSettings(deps.store);
-      if (!settings.allowParentSignup) throw new HttpError(403, 'Parent sign-up is closed. Please contact the Abugida team.');
+      if (!settings.allowParentSignup) throw new HttpError(403, `Parent sign-up is closed. Please email ${settings.adminNotificationEmail}.`);
       const { user, body } = await newAccount(req, 'parent', settings.timezone);
       applyProfile(user, body, 'parent', { timezone: settings.timezone, intake: true });
       const studentName = str(body.studentName, "Student's full name", { required: true, max: 100 });

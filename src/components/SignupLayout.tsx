@@ -4,7 +4,7 @@ import { Logo } from './Shell.tsx';
 import { Card, Notice } from './ui.tsx';
 
 /** Page frame shared by the student, parent and mentor sign-up forms. */
-export function SignupLayout({ title, subtitle, closed, children }: { title: string; subtitle: string; closed?: string | null; children: ReactNode }) {
+export function SignupLayout({ title, subtitle, closed, children }: { title: string; subtitle: string; closed?: ReactNode; children: ReactNode }) {
   return (
     <div className="min-h-dvh px-4 py-8 sm:py-12">
       <div className="mx-auto w-full max-w-2xl">

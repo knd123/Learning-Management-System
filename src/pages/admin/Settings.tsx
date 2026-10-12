@@ -54,8 +54,8 @@ export default function AdminSettings() {
         <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <h2 className="font-semibold sm:col-span-2">Organization</h2>
           <Field label="Name">{(id) => <Input id={id} value={form.organizationName} onChange={(e) => set({ organizationName: e.target.value })} />}</Field>
-          <Field label="Support email" hint="Shown to parents at the bottom of reports.">
-            {(id) => <Input id={id} type="email" value={form.supportEmail || ''} onChange={(e) => set({ supportEmail: e.target.value })} />}
+          <Field label="Abugida email" hint="The company's one email address. Team notifications (sign-ups, subject changes, class ratings, gift cards) go here, replies to the app's emails come here, and students, parents and mentors are told to write to it.">
+            {(id) => <Input id={id} type="email" value={form.adminNotificationEmail} onChange={(e) => set({ adminNotificationEmail: e.target.value })} />}
           </Field>
           <Field label="Home timezone" hint="Decides when months and quarters start for quizzes, reports and curricula." className="sm:col-span-2">
             {(id) => <TimezoneSelect id={id} value={form.timezone} onChange={(timezone) => set({ timezone })} />}
@@ -71,9 +71,6 @@ export default function AdminSettings() {
           </div>
           <Field label="Sibling discount (% off per sibling)" hint="Offered on the parent sign-up form.">
             {(id) => <Input id={id} type="number" min={0} max={50} value={form.siblingDiscountPercent} onChange={(e) => set({ siblingDiscountPercent: Number(e.target.value) })} />}
-          </Field>
-          <Field label="Team inbox" hint="Gets an email for every sign-up, subject change, class rating and gift card request." className="sm:col-span-2">
-            {(id) => <Input id={id} type="email" value={form.adminNotificationEmail} onChange={(e) => set({ adminNotificationEmail: e.target.value })} />}
           </Field>
           <Field label="Subjects offered" hint="Shown on the sign-up form and used to match students with mentors. Click to remove, or add new ones." className="sm:col-span-2">
             {() => <SubjectPicker options={[]} value={form.subjectOptions} onChange={(subjectOptions) => set({ subjectOptions })} />}

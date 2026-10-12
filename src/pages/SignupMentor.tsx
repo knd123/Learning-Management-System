@@ -11,6 +11,7 @@ import { api, errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
 import { browserTimeZone } from '../lib/format.ts';
 import { useApi } from '../lib/useApi.ts';
+import { ContactEmail } from '../lib/contact.tsx';
 import { suggestUsername } from './Signup.tsx';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -86,7 +87,13 @@ export default function SignupMentorPage() {
     <SignupLayout
       title="Apply to be a mentor"
       subtitle="Tell us what you teach and when you're free. The Abugida team reviews every application before pairing you with students."
-      closed={config.data && !config.data.allowMentorSignup ? 'Mentor sign-up is currently closed. Please contact the Abugida team.' : null}
+      closed={
+        config.data && !config.data.allowMentorSignup ? (
+          <>
+            Mentor sign-up is currently closed. Email <ContactEmail email={config.data.contactEmail} /> to apply.
+          </>
+        ) : null
+      }
     >
       <form onSubmit={submit} className="flex flex-col gap-6" noValidate>
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">

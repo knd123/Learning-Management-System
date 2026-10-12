@@ -4,6 +4,7 @@ import type { MentorOverview, MentorStudentCard, ReviewItem } from '../../../sha
 import { MentorSessionRow } from '../../components/MentorSessions.tsx';
 import { Badge, ButtonLink, Card, EmptyState, ErrorBox, Loading, Notice, PageHeader, SectionTitle } from '../../components/ui.tsx';
 import { useAuth } from '../../lib/auth.tsx';
+import { ContactEmail } from '../../lib/contact.tsx';
 import { fmtDateTime, fmtRelative, firstName, greeting } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
@@ -38,7 +39,7 @@ export default function MentorHome() {
               <Link to="/mentor/profile" className="font-semibold underline">
                 availability and subjects
               </Link>{' '}
-              up to date — we use them to find the right students for you.
+              up to date — we use them to find the right students for you. Questions? Email <ContactEmail />.
             </p>
           </Notice>
         )}

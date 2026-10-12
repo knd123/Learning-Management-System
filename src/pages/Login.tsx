@@ -7,6 +7,7 @@ import { Logo } from '../components/Shell.tsx';
 import { Button, ErrorBox, Field, Input } from '../components/ui.tsx';
 import { errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
+import { ContactEmail } from '../lib/contact.tsx';
 import { useApi } from '../lib/useApi.ts';
 
 type Mode = 'student' | 'parent' | 'mentor' | 'team';
@@ -148,7 +149,9 @@ export default function LoginPage() {
               </Link>
             </div>
           )}
-          <p className="mt-6 text-sm text-ink-muted">Forgot your password? Ask your mentor or the Abugida team to reset it for you.</p>
+          <p className="mt-6 text-sm text-ink-muted">
+            Forgot your password? Email <ContactEmail email={config.data?.contactEmail} className="text-brand-700" /> and the Abugida team will reset it for you.
+          </p>
           {mode !== 'team' && (
             <button type="button" onClick={() => setMode('team')} className="mt-4 text-xs font-semibold text-ink-muted underline hover:text-ink">
               Abugida team? Sign in here

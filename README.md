@@ -20,7 +20,7 @@ Every class is **1-on-1**: one mentor, one student.
    - **Tutoring needs:** subjects, hours of tutoring per week, availability for each day of the week, and additional notes (special needs).
    - **Parent and login:** the parent's phone and email, then a username and password.
 
-   The student lands on their dashboard right away, with no mentor yet. The team inbox (`info@abugidaeducation.com` by default) gets an email with all the details.
+   The student lands on their dashboard right away, with no mentor yet. The Abugida email, `info@abugidaeducation.com`, gets an email with all the details.
 2. **The platform suggests mentors** for each subject under **Admin → Match requests**. Mentors are ranked by:
    - whether they teach the subject and the student's grade;
    - how much free time both share each week, after their existing classes, across timezones;
@@ -28,7 +28,7 @@ Every class is **1-on-1**: one mentor, one student.
 
    A mentor who covers several of the requested subjects scores higher. The scarcest subject is planned first so suggested class times never collide. Proposed weekly class times are filled in for you.
 3. **Nothing is final until an admin approves.** Approving creates the 1-on-1 class (it appears on both schedules), sends an in-app notification to the student and the mentor, and emails the student, the mentor and the parent.
-4. **Students can change their subjects later** from **My profile**. The team inbox gets an email with the student's name and what they want to add or drop. New subjects go back into the pairing queue.
+4. **Students can change their subjects later** from **My profile**. `info@abugidaeducation.com` gets an email with the student's name and what they want to add or drop. New subjects go back into the pairing queue.
 
 **Admin → Mentors** lists every mentor with their subjects, grade range, weekly availability and capacity (used / total hours), with filters by subject, grade and free capacity.
 
@@ -57,7 +57,7 @@ After each class ends, the student sees a pop-up with two questions:
 
 ### Starbucks gift cards
 
-When a student scores **above 90%** on the monthly quiz **two months in a row in the same class**, the platform creates a gift card request. It appears under **Admin → Approvals → Gift cards** and in an email to the team inbox, together with any proctoring flags from those two quizzes. Approving it congratulates the student in the app and emails the student and parents, with an optional message such as how the card will be delivered. Buying and sending the card happens outside the app. The threshold is a setting.
+When a student scores **above 90%** on the monthly quiz **two months in a row in the same class**, the platform creates a gift card request. It appears under **Admin → Approvals → Gift cards** and in an email to `info@abugidaeducation.com`, together with any proctoring flags from those two quizzes. Approving it congratulates the student in the app and emails the student and parents, with an optional message such as how the card will be delivered. Buying and sending the card happens outside the app. The threshold is a setting.
 
 Time-based work runs automatically:
 
@@ -123,7 +123,7 @@ done
 
 # 4. Deploy (builds the Dockerfile in this repo)
 gcloud run deploy abugida-lms --source . --region $REGION --allow-unauthenticated \
-  --set-env-vars "DATA_BACKEND=firestore,FILE_BACKEND=gcs,STORAGE_BUCKET=$PROJECT-lms-files,FIREBASE_PROJECT_ID=$PROJECT,ADMIN_USERNAME=admin,ADMIN_EMAIL=team@your-domain.com,SMTP_HOST=smtp.gmail.com,SMTP_PORT=587,SMTP_USER=no-reply@your-domain.com,EMAIL_FROM=Abugida Education <no-reply@your-domain.com>,APP_URL=https://learn.your-domain.com" \
+  --set-env-vars "DATA_BACKEND=firestore,FILE_BACKEND=gcs,STORAGE_BUCKET=$PROJECT-lms-files,FIREBASE_PROJECT_ID=$PROJECT,ADMIN_USERNAME=admin,ADMIN_EMAIL=info@abugidaeducation.com,SMTP_HOST=smtp.gmail.com,SMTP_PORT=587,SMTP_USER=info@abugidaeducation.com,EMAIL_FROM=Abugida Education <info@abugidaeducation.com>,APP_URL=https://learn.your-domain.com" \
   --set-secrets "SESSION_SECRET=lms-session-secret:latest,CRON_SECRET=lms-cron-secret:latest,ADMIN_PASSWORD=lms-admin-password:latest,SMTP_PASS=lms-smtp-pass:latest,GEMINI_API_KEY=lms-gemini-key:latest"
 
 # 5. Run reminders / quizzes / reports every 10 minutes
@@ -155,8 +155,8 @@ The built-in scheduler handles reminders, quizzes and reports (`INTERNAL_SCHEDUL
 ## First-day checklist
 
 1. **Settings.**
-   - Set the organization timezone (it defines month and quarter boundaries) and the support email.
-   - Check the **team inbox** (`info@abugidaeducation.com`) and the list of **subjects offered** on the sign-up form.
+   - Set the organization timezone (it defines month and quarter boundaries).
+   - Check the **Abugida email** (`info@abugidaeducation.com`) and the list of **subjects offered** on the sign-up form.
    - Choose whether students, parents and mentors may sign up themselves, and whether parent reports are sent automatically or after review.
    - Check the sibling discount (8%), the quiz time limit (30 minutes), the gift card threshold (above 90%) and how long webcam photos are kept (30 days).
 2. **Mentors.** Share `APP_URL/signup/mentor` with new mentors and approve them under **Approvals**, or add each mentor yourself with their email (for reminders and pairing emails), subjects, grade range, **weekly availability** and **weekly capacity in hours**. Mentors can also keep these up to date themselves under "Availability & subjects".
@@ -171,10 +171,18 @@ The built-in scheduler handles reminders, quizzes and reports (`INTERNAL_SCHEDUL
 
 ## Email setup
 
-Any SMTP service works:
+Abugida Education has one email address, **info@abugidaeducation.com**, and the app uses only that one:
 
-- **Google Workspace.** Create `no-reply@your-domain`, turn on 2-step verification, create an app password, and use `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USER=no-reply@…`, `SMTP_PASS=<app password>`. Gmail limits sending to about 2,000 messages a day, which is plenty here.
-- **SendGrid, Mailgun, Amazon SES, Resend.** Use their SMTP credentials. These are better for deliverability at scale.
+- Every email the app sends comes from it (`EMAIL_FROM`), and replies go back to it.
+- Every message that tells students, parents or mentors how to reach the team (forgotten passwords, closed sign-ups, parent access, pairing and report emails) shows it.
+- Team notifications go to it: new sign-ups, subject changes, mentor applications, parent requests, class ratings and gift cards.
+
+The address is set under **Settings → Abugida email**, which is pre-filled with `info@abugidaeducation.com`.
+
+Any SMTP service can send the email:
+
+- **Google Workspace.** For `info@abugidaeducation.com`, turn on 2-step verification, create an app password, and use `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USER=info@abugidaeducation.com`, `SMTP_PASS=<app password>`. Gmail limits sending to about 2,000 messages a day, which is plenty here.
+- **SendGrid, Mailgun, Amazon SES, Resend.** Use their SMTP credentials with `info@abugidaeducation.com` as a verified sender. These are better for deliverability at scale.
 
 ## Google Drive integration (optional)
 

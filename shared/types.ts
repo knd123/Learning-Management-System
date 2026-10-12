@@ -486,8 +486,8 @@ export interface Settings {
   quizAutoPublish: boolean;
   reportDay: number;
   reportDelivery: 'auto' | 'review';
-  supportEmail?: string;
   /** Team inbox for new sign-ups and subject-change requests. */
+  /** The company's one email address: team notifications go here and everyone is told to write to it. */
   adminNotificationEmail: string;
   /** Lets students create their own account from the sign-in page. */
   allowStudentSignup: boolean;

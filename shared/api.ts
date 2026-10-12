@@ -138,6 +138,8 @@ export interface PublicConfig {
   siblingDiscountPercent: number;
   subjectOptions: string[];
   academicLevels: string[];
+  /** The Abugida team's email address shown wherever people are told to get in touch. */
+  contactEmail: string;
 }
 
 export interface MentorCandidate {

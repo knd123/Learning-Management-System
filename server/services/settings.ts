@@ -41,6 +41,8 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export async function getSettings(store: Store): Promise<Settings> {
-  const saved = await store.get<Settings>(C.settings, 'global');
-  return { ...DEFAULT_SETTINGS, ...(saved || {}) };
+  const saved = await store.get<Settings & { supportEmail?: string }>(C.settings, 'global');
+  // Older installs kept a separate support address; the company now has one email.
+  const { supportEmail: _retired, ...rest } = saved || {};
+  return { ...DEFAULT_SETTINGS, ...rest };
 }

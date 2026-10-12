@@ -3,12 +3,15 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import type { EmailKind, EmailLog } from '../../shared/types.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
+import { getSettings } from './settings.ts';
 
 export interface OutgoingEmail {
   to: string[];
   subject: string;
   text: string;
   html?: string;
+  /** Where replies go: the company email address. */
+  replyTo?: string;
 }
 
 export interface Mailer {
@@ -34,7 +37,7 @@ export class SmtpMailer implements Mailer {
   }
 
   async send(email: OutgoingEmail): Promise<void> {
-    await this.transport.sendMail({ from: this.from, to: email.to.join(', '), subject: email.subject, text: email.text, html: email.html });
+    await this.transport.sendMail({ from: this.from, replyTo: email.replyTo, to: email.to.join(', '), subject: email.subject, text: email.text, html: email.html });
   }
 }
 
@@ -73,7 +76,8 @@ export async function sendEmail(
     log.error = 'No recipient email address on file.';
   } else {
     try {
-      await deps.mailer.send({ ...email, to });
+      const { adminNotificationEmail } = await getSettings(deps.store);
+      await deps.mailer.send({ ...email, to, replyTo: email.replyTo || adminNotificationEmail });
       log.status = deps.mailer.live ? 'sent' : 'logged';
     } catch (err) {
       log.status = 'failed';

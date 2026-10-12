@@ -83,7 +83,7 @@ ${courseRows ? `<h2 style="font-size:16px;margin:0 0 8px">Monthly quiz results</
 <h2 style="font-size:16px;margin:0 0 8px">Strengths</h2><ul style="margin:0 0 18px;padding-left:20px;line-height:1.5">${list(report.narrative.strengths)}</ul>
 <h2 style="font-size:16px;margin:0 0 8px">Areas to focus on</h2><ul style="margin:0 0 18px;padding-left:20px;line-height:1.5">${list(report.narrative.focusAreas)}</ul>
 <h2 style="font-size:16px;margin:0 0 8px">How you can help at home</h2><ul style="margin:0 0 18px;padding-left:20px;line-height:1.5">${list(report.narrative.recommendations)}</ul>
-${settings.supportEmail ? `<p style="color:#55605c;font-size:13px">Questions? Reply to this email or contact us at ${escapeHtml(settings.supportEmail)}.</p>` : ''}`,
+<p style="color:#55605c;font-size:13px">Questions? Reply to this email or write to us at ${escapeHtml(settings.adminNotificationEmail)}.</p>`,
     settings.organizationName,
   );
 

@@ -318,7 +318,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
                 {(id) => <Input id={id} type="url" value={driveFolderUrl} onChange={(e) => setDriveFolderUrl(e.target.value)} placeholder="https://drive.google.com/drive/folders/…" />}
               </Field>
               <Field label="Student's Google account (optional)" hint="Used to give the student time-limited access to recordings on Drive." className="sm:col-span-2">
-                {(id) => <Input id={id} type="email" value={googleEmail} onChange={(e) => setGoogleEmail(e.target.value)} placeholder="student@gmail.com" />}
+                {(id) => <Input id={id} type="email" value={googleEmail} onChange={(e) => setGoogleEmail(e.target.value)} placeholder="The student's Gmail address" />}
               </Field>
             </div>
             {!user && <Checkbox label="Add to the mentor-pairing queue" hint="Creates a match request with suggested mentors for the subjects above." checked={queueForPairing} onChange={setQueueForPairing} />}

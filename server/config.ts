@@ -48,7 +48,7 @@ export const config = {
     user: env.SMTP_USER || '',
     pass: env.SMTP_PASS || '',
   },
-  emailFrom: env.EMAIL_FROM || 'Abugida Education <no-reply@abugida.education>',
+  emailFrom: env.EMAIL_FROM || 'Abugida Education <info@abugidaeducation.com>',
 
   cronSecret: env.CRON_SECRET || '',
   internalScheduler: bool(env.INTERNAL_SCHEDULER, true),

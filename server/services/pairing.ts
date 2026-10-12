@@ -282,10 +282,10 @@ async function announcePairing(deps: Deps, student: UserRecord, mentor: UserReco
     await sendEmail(deps, 'pairing', {
       to: student.parentEmails,
       subject: `${firstName(student.displayName)} has been paired with a ${course.subject} mentor`,
-      text: [`Hello${student.parentName ? ` ${student.parentName}` : ''},`, '', `${student.displayName} has been paired with ${mentor.displayName} for ${course.subject} tutoring (${hours}).`, '', 'Weekly class times:', ...timesText.map((t) => `- ${t}`), '', 'You will also receive a progress report by email every month.', settings.supportEmail ? `Questions? Contact us at ${settings.supportEmail}.` : '', '', `— ${org}`].join('\n'),
+      text: [`Hello${student.parentName ? ` ${student.parentName}` : ''},`, '', `${student.displayName} has been paired with ${mentor.displayName} for ${course.subject} tutoring (${hours}).`, '', 'Weekly class times:', ...timesText.map((t) => `- ${t}`), '', 'You will also receive a progress report by email every month.', `Questions? Email us at ${settings.adminNotificationEmail}.`, '', `— ${org}`].join('\n'),
       html: emailLayout(
         `${firstName(student.displayName)} has a mentor`,
-        `<p style="line-height:1.6">Hello${student.parentName ? ` ${escapeHtml(student.parentName)}` : ''},</p><p style="line-height:1.6"><strong>${escapeHtml(student.displayName)}</strong> has been paired with <strong>${escapeHtml(mentor.displayName)}</strong> for <strong>${escapeHtml(course.subject)}</strong> tutoring (${escapeHtml(hours)}).</p><p style="margin:0 0 6px;font-weight:600">Weekly class times</p>${list(timesText)}<p style="line-height:1.6">You will also receive a progress report by email every month.</p>${settings.supportEmail ? `<p style="color:#55605c;font-size:13px">Questions? Contact us at ${escapeHtml(settings.supportEmail)}.</p>` : ''}`,
+        `<p style="line-height:1.6">Hello${student.parentName ? ` ${escapeHtml(student.parentName)}` : ''},</p><p style="line-height:1.6"><strong>${escapeHtml(student.displayName)}</strong> has been paired with <strong>${escapeHtml(mentor.displayName)}</strong> for <strong>${escapeHtml(course.subject)}</strong> tutoring (${escapeHtml(hours)}).</p><p style="margin:0 0 6px;font-weight:600">Weekly class times</p>${list(timesText)}<p style="line-height:1.6">You will also receive a progress report by email every month.</p><p style="color:#55605c;font-size:13px">Questions? Email us at ${escapeHtml(settings.adminNotificationEmail)}.</p>`,
         org,
       ),
     }, course.id);

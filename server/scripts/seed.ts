@@ -75,14 +75,14 @@ async function main() {
   // Only the store and clock are used by the helpers called below.
   const deps = { store, now: () => now, ai: new DisabledAi(), mailer: new LogMailer() } as unknown as Deps;
 
-  const settings: Settings = { ...DEFAULT_SETTINGS, timezone: TZ, supportEmail: 'hello@abugida.education', updatedAt: now.toISOString() };
+  const settings: Settings = { ...DEFAULT_SETTINGS, timezone: TZ, updatedAt: now.toISOString() };
   await store.put(C.settings, settings);
 
-  await user(store, { username: 'admin', role: 'admin', displayName: 'Abugida Admin', email: 'team@abugida.education' }, 'admin1234');
+  await user(store, { username: 'admin', role: 'admin', displayName: 'Abugida Admin', email: 'info@abugidaeducation.com' }, 'admin1234');
   const wk = (days: number[], start: string, end: string) => days.map((weekday) => ({ weekday, start, end }));
-  const sara = await user(store, { username: 'sara.bekele', role: 'mentor', displayName: 'Sara Bekele', email: 'sara@abugida.education', academicLevel: "Master's degree", phone: '+1 202 555 0101', subjects: ['Math', 'Physics'], minGrade: 5, maxGrade: 12, weeklyCapacityHours: 12, availability: [...wk([1, 3], '15:00', '20:00'), ...wk([6], '09:00', '13:00')] }, 'mentor1234');
-  const daniel = await user(store, { username: 'daniel.haile', role: 'mentor', displayName: 'Daniel Haile', email: 'daniel@abugida.education', academicLevel: "Bachelor's degree", subjects: ['English / Language Arts', 'Reading', 'Writing'], minGrade: 3, maxGrade: 9, weeklyCapacityHours: 10, availability: wk([2, 4], '15:00', '20:00') }, 'mentor1234');
-  await user(store, { username: 'hana.girma', role: 'mentor', displayName: 'Hana Girma', email: 'hana@abugida.education', academicLevel: 'Doctorate (PhD / EdD)', subjects: ['Chemistry', 'Biology', 'Math'], minGrade: 8, maxGrade: 12, weeklyCapacityHours: 8, availability: [...wk([2, 4], '16:00', '20:00'), ...wk([0], '13:00', '17:00')] }, 'mentor1234');
+  const sara = await user(store, { username: 'sara.bekele', role: 'mentor', displayName: 'Sara Bekele', email: 'sara.bekele@example.com', academicLevel: "Master's degree", phone: '+1 202 555 0101', subjects: ['Math', 'Physics'], minGrade: 5, maxGrade: 12, weeklyCapacityHours: 12, availability: [...wk([1, 3], '15:00', '20:00'), ...wk([6], '09:00', '13:00')] }, 'mentor1234');
+  const daniel = await user(store, { username: 'daniel.haile', role: 'mentor', displayName: 'Daniel Haile', email: 'daniel.haile@example.com', academicLevel: "Bachelor's degree", subjects: ['English / Language Arts', 'Reading', 'Writing'], minGrade: 3, maxGrade: 9, weeklyCapacityHours: 10, availability: wk([2, 4], '15:00', '20:00') }, 'mentor1234');
+  await user(store, { username: 'hana.girma', role: 'mentor', displayName: 'Hana Girma', email: 'hana.girma@example.com', academicLevel: 'Doctorate (PhD / EdD)', subjects: ['Chemistry', 'Biology', 'Math'], minGrade: 8, maxGrade: 12, weeklyCapacityHours: 8, availability: [...wk([2, 4], '16:00', '20:00'), ...wk([0], '13:00', '17:00')] }, 'mentor1234');
   const folder = (n: string) => `https://drive.google.com/drive/folders/demo-${n}`;
   const intake = (school: string, city: string, state: string, subjects: string[], hoursPerWeek: number, availability: ReturnType<typeof wk>, parentPhone: string) => ({ schoolName: school, city, state, subjects, hoursPerWeek, availability, parentPhone });
   const abeba = await user(store, { username: 'abeba', role: 'student', displayName: 'Abeba Tesfaye', email: 'abeba@example.com', grade: 5, parentName: 'Hanna Tesfaye', parentEmails: ['hanna.parent@example.com'], driveFolderUrl: folder('abeba'), ...intake('Riverside Elementary', 'Silver Spring', 'MD', ['Math'], 2, wk([1, 3], '15:30', '18:30'), '+1 301 555 0142') }, 'abeba123');
