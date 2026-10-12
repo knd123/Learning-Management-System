@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Segoe UI", system-ui, -apple-system, "Noto Sans", "Noto Sans Ethiopic", sans-serif;
+  --color-brand-50: #eef8f6;
+  --color-brand-100: #d5efea;
+  --color-brand-200: #ade0d6;
+  --color-brand-300: #7ccabd;
+  --color-brand-400: #4aae9f;
+  --color-brand-500: #2b9284;
+  --color-brand-600: #1c766b;
+  --color-brand-700: #0f5e57;
+  --color-brand-800: #0d4b46;
+  --color-brand-900: #0b3d3a;
+  --color-sand-50: #fbfaf6;
+  --color-sand-100: #f4f1ea;
+  --color-sand-200: #e9e4d8;
+  --color-sand-300: #d8d0bf;
+  --color-sand-400: #b3aa96;
+  --color-ink: #1f2a2a;
+  --color-ink-soft: #55605c;
+  --color-ink-muted: #7b847f;
+  --color-sun: #f6c453;
+
+  /* Chart tokens (validated reference palette, light mode). */
+  --color-chart-surface: #fcfcfb;
+  --color-chart-grid: #e1e0d9;
+  --color-chart-axis: #c3c2b7;
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-sand-100 text-ink antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+}

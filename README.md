@@ -1,0 +1,161 @@
+# Abugida Education — Learning Management System
+
+A web app for Abugida Education's students (grades 3–12), mentors and team.
+
+| Who | What they can do |
+| --- | --- |
+| **Students** | Sign in with a **username**. See all their classes, the weekly schedule and each class link, and join with one tap (attendance is logged). Hand in homework (text, photos, files, links) and see grades and feedback. Rewatch class recordings for **7 days** after each class. Take the **monthly quiz** and follow their progress by skill. |
+| **Mentors** | See all their classes on one dashboard. Assign the class link and homework (optionally drafted by AI from the curriculum). Submit the **post-class report** (date, duration, PowerPoint, homework, topics, attendance). Add the recording link after uploading to the student's Google Drive folder. They get **email reminders 12h and 24h after class** until the recording is added. They also review homework, check and publish monthly quizzes, and upload or update each class's **curriculum once per quarter**. |
+| **Abugida team (admins)** | Create logins and classes with weekly schedules. Read every curriculum (curricula are never shown to students). Review the **AI-written monthly parent reports** and the email log, and change settings. |
+
+Time-based work runs automatically:
+
+- **Recording reminders.** Mentors get an email 12 and 24 hours after each class whose recording is missing. The email links to the student's Drive folder and to the page where they paste the link.
+- **Recording access.** Students see each recording in the app only for the viewing window (7 days by default). With Google Drive integration on, their Drive access to the file also expires.
+- **Monthly quizzes.** On the 20th of each month (configurable), the AI builds a quiz for each class from that month's homework, the topics in the class reports, and the curriculum. Quizzes can publish automatically or wait for the mentor to review.
+- **Parent reports.** On the 1st of each month, a report is prepared for every student from attendance, homework and quiz results (the AI writes the text from the actual numbers) and emailed to the parents. In "review" mode it waits for the team to send it.
+- **Curriculum window.** At the start of each quarter, mentors get an email that the curriculum window is open (14 days by default; admins can extend it).
+
+---
+
+## Run it on your computer
+
+Requires Node.js 22+.
+
+```bash
+npm install
+cp .env.example .env          # optional for local use
+npm run seed:demo             # demo classes, homework, quizzes and reports
+npm run dev                   # http://localhost:3000
+```
+
+Demo logins: `admin / admin1234`, mentors `sara.bekele / mentor1234`, `daniel.haile / mentor1234`, students `abeba / abeba123`, `yonas / yonas123`, `liya / liya1234`, `meron / meron123`.
+
+Without SMTP settings, emails are not sent. They appear under **Admin → Emails** instead. Without a `GEMINI_API_KEY`, parent reports use a standard template and AI quiz and homework generation is turned off.
+
+## Go live (recommended: Google Cloud Run + Firestore)
+
+This setup needs no servers to maintain. It runs in the same Google Cloud project as your Firebase/AI Studio app, so no service-account keys are needed.
+
+```bash
+PROJECT=your-gcp-project          # e.g. your existing Firebase project id
+REGION=europe-west1               # pick the region closest to your students
+gcloud config set project $PROJECT
+gcloud services enable run.googleapis.com firestore.googleapis.com cloudscheduler.googleapis.com secretmanager.googleapis.com cloudbuild.googleapis.com
+
+# 1. Database + file storage (skip whatever already exists)
+gcloud firestore databases create --location=$REGION          # Native mode
+gcloud storage buckets create gs://$PROJECT-lms-files --location=$REGION --uniform-bucket-level-access
+
+# 2. Secrets
+printf "$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" | gcloud secrets create lms-session-secret --data-file=-
+printf "$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")" | gcloud secrets create lms-cron-secret --data-file=-
+printf 'choose-a-strong-admin-password' | gcloud secrets create lms-admin-password --data-file=-
+printf 'your-smtp-password' | gcloud secrets create lms-smtp-pass --data-file=-
+printf 'your-gemini-api-key' | gcloud secrets create lms-gemini-key --data-file=-
+
+# 3. Permissions for the Cloud Run service account
+SA=$(gcloud projects describe $PROJECT --format='value(projectNumber)')-compute@developer.gserviceaccount.com
+gcloud projects add-iam-policy-binding $PROJECT --member=serviceAccount:$SA --role=roles/datastore.user
+gcloud storage buckets add-iam-policy-binding gs://$PROJECT-lms-files --member=serviceAccount:$SA --role=roles/storage.objectAdmin
+for s in lms-session-secret lms-cron-secret lms-admin-password lms-smtp-pass lms-gemini-key; do
+  gcloud secrets add-iam-policy-binding $s --member=serviceAccount:$SA --role=roles/secretmanager.secretAccessor
+done
+
+# 4. Deploy (builds the Dockerfile in this repo)
+gcloud run deploy abugida-lms --source . --region $REGION --allow-unauthenticated \
+  --set-env-vars "DATA_BACKEND=firestore,FILE_BACKEND=gcs,STORAGE_BUCKET=$PROJECT-lms-files,FIREBASE_PROJECT_ID=$PROJECT,ADMIN_USERNAME=admin,ADMIN_EMAIL=team@your-domain.com,SMTP_HOST=smtp.gmail.com,SMTP_PORT=587,SMTP_USER=no-reply@your-domain.com,EMAIL_FROM=Abugida Education <no-reply@your-domain.com>,APP_URL=https://learn.your-domain.com" \
+  --set-secrets "SESSION_SECRET=lms-session-secret:latest,CRON_SECRET=lms-cron-secret:latest,ADMIN_PASSWORD=lms-admin-password:latest,SMTP_PASS=lms-smtp-pass:latest,GEMINI_API_KEY=lms-gemini-key:latest"
+
+# 5. Run reminders / quizzes / reports every 10 minutes
+URL=$(gcloud run services describe abugida-lms --region $REGION --format='value(status.url)')
+gcloud scheduler jobs create http lms-tick --location=$REGION --schedule="*/10 * * * *" \
+  --uri="$URL/api/cron/tick" --http-method=POST \
+  --headers="x-cron-secret=$(gcloud secrets versions access latest --secret=lms-cron-secret)"
+```
+
+Then:
+
+1. Set `APP_URL` to the final address. Map a custom domain with `gcloud run domain-mappings create` or the Cloud Run console. Reminder emails link to `APP_URL`.
+2. Paste `firestore.rules` into Firebase console → Firestore → Rules, and `storage.rules` into Storage → Rules. The app only uses the server-side Admin SDK, so these rules lock out direct client access.
+3. Sign in as `admin` and work through the **first-day checklist** below.
+
+> Using the existing AI Studio Firebase project? Its Firestore database has a custom ID. Add `FIRESTORE_DATABASE_ID=<that id>` to the env vars, or create a dedicated `(default)` database for the LMS (cleaner).
+
+### Simpler alternative: one server with a disk
+
+On any VM, Render, Railway or Fly.io instance with a persistent disk:
+
+```bash
+npm ci && npm run build
+NODE_ENV=production DATA_BACKEND=file DATA_DIR=/var/lib/abugida SESSION_SECRET=... ADMIN_USERNAME=admin ADMIN_PASSWORD=... npm start
+```
+
+The built-in scheduler handles reminders, quizzes and reports (`INTERNAL_SCHEDULER=true`). Back up `DATA_DIR` daily. Run only **one** instance with this setup.
+
+## First-day checklist
+
+1. **Settings.** Set the organization timezone (it defines month and quarter boundaries), the support email, and whether parent reports are sent automatically or after review.
+2. **People → Mentors.** Add each mentor with their email, which receives the recording reminders.
+3. **People → Students.** Add each student with their grade, parent email(s) (for monthly reports) and the link to **their Google Drive folder** (where recordings go). The app generates easy-to-type passwords; copy the login details and send them to the parent.
+4. **Classes.** Create each class: mentor, student(s), weekly times and timezone. Upcoming classes appear on everyone's schedule right away.
+5. **Mentors** sign in, add the class link for each class, and upload the curriculum for each class. The Q4 window is open now. You can extend it in Settings, and a class's first curriculum can be uploaded at any time.
+6. Send a **test email** from Admin → Emails to confirm SMTP works.
+
+## Email setup
+
+Any SMTP service works:
+
+- **Google Workspace.** Create `no-reply@your-domain`, turn on 2-step verification, create an app password, and use `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USER=no-reply@…`, `SMTP_PASS=<app password>`. Gmail limits sending to about 2,000 messages a day, which is plenty here.
+- **SendGrid, Mailgun, Amazon SES, Resend.** Use their SMTP credentials. These are better for deliverability at scale.
+
+## Google Drive integration (optional)
+
+By default, mentors upload the recording to the student's Drive folder and paste the link into the app. The app shows it to the student for 7 days and then hides it.
+
+To also expire students' **Drive** access automatically:
+
+1. Set `GOOGLE_DRIVE_ENABLED=true`.
+2. Share each student's Drive folder with the server's service account (the Cloud Run service account above) as **Editor**.
+3. Add each student's Google account under People → Student → "Student's Google account".
+
+When a mentor saves a recording link, those students get view access that expires at the end of the viewing window. A background job also removes it as a safety net.
+
+## AI features
+
+These use Google Gemini (`GEMINI_API_KEY`, model `GEMINI_MODEL`, default `gemini-flash-latest`):
+
+- **Monthly quizzes** come from the month's homework, the class report topics and the curriculum. They are multiple-choice, grade-appropriate and tagged by skill so progress can be tracked per skill. Mentors can edit any question before or after publishing until a student has taken the quiz.
+- **Homework drafts.** The "Draft with AI" button on the homework form uses the curriculum and recent topics.
+- **Parent reports.** The AI writes the summary, strengths, focus areas and suggestions *only from the computed numbers*. If AI is off or fails, a clear template is used, so reports are never blocked.
+- **Curriculum PDFs.** If a mentor uploads only a PDF, the AI extracts an outline so quizzes can use it.
+
+## Development
+
+```bash
+npm run dev         # API + React with hot reload on :3000
+npm test            # API and unit tests (in-memory database)
+npm run typecheck
+npm run build       # → dist/client (React) + dist/server (API)
+```
+
+Run the same tests against Firestore with the [Firestore emulator](https://firebase.google.com/docs/emulator-suite):
+`FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 TEST_STORE=firestore npm test`
+
+```
+server/            Express API (TypeScript)
+  routes/          auth, student, mentor, admin endpoints
+  services/        schedules, recordings & reminders, quizzes, reports, curricula, AI, email, Drive, jobs
+  db/              storage layer: Firestore (production) or JSON file (local)
+shared/            types and timezone helpers used by server and client
+src/               React app (Vite + Tailwind)
+tests/             node:test suites
+```
+
+Security notes:
+
+- Passwords are hashed with scrypt.
+- Sessions are HTTP-only, SameSite cookies, and every write needs a same-origin header.
+- Students can only reach their own classes. Curricula and other students' work are never served to them.
+- Uploaded files are streamed through the API with permission checks.
+- Login attempts are rate-limited.

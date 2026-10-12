@@ -1,0 +1,11 @@
+rules_version = '2';
+// The web app never talks to Firestore directly: every read and write goes
+// through the API server (Firebase Admin SDK), which enforces permissions.
+// So browsers and other clients get no access at all.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

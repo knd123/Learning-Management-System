@@ -175,6 +175,7 @@ export interface MentorSessionDetail {
   students: RosterStudent[];
   homework?: Homework;
   recordingAccessDays: number;
+  aiEnabled: boolean;
 }
 
 export interface HomeworkReview {

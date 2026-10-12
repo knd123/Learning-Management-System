@@ -214,6 +214,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map(rosterStudent),
         homework: homeworkId ? (await deps.store.get<Homework>(C.homework, homeworkId)) || undefined : undefined,
         recordingAccessDays: settings.recordingAccessDays,
+        aiEnabled: deps.ai.enabled,
       };
       res.json(detail);
     }),

@@ -3,7 +3,10 @@ import { PassThrough, type Readable } from 'node:stream';
 import type { Server } from 'node:http';
 import { createApp } from '../server/app.ts';
 import { hashPassword, type UserRecord } from '../server/auth.ts';
-import { C, MemoryStore } from '../server/db/store.ts';
+import crypto from 'node:crypto';
+import { initializeApp } from 'firebase-admin/app';
+import { C, MemoryStore, type Store } from '../server/db/store.ts';
+import { FirestoreStore } from '../server/db/firestoreStore.ts';
 import type { Deps } from '../server/deps.ts';
 import type { BlobStore } from '../server/files/blobStore.ts';
 import { templateNarrative, type AiService, type GeneratedQuestion, type QuizGenInput, type ReportGenInput } from '../server/services/ai.ts';
@@ -64,9 +67,15 @@ export class FakeDrive implements DriveService {
   }
 }
 
+/** A Firestore store on the local emulator, isolated by a throwaway project id. */
+export function firestoreTestStore(projectId: string): Store {
+  const app = initializeApp({ projectId }, projectId);
+  return new FirestoreStore(app, '(default)');
+}
+
 export interface Harness {
   deps: Deps;
-  store: MemoryStore;
+  store: Store;
   mailer: LogMailer;
   ai: FakeAi;
   drive: FakeDrive;
@@ -77,7 +86,8 @@ export interface Harness {
 }
 
 export async function startHarness(start: string, opts: { ai?: AiService } = {}): Promise<Harness> {
-  const store = new MemoryStore();
+  // TEST_STORE=firestore (with FIRESTORE_EMULATOR_HOST set) runs the API tests on Firestore.
+  const store: Store = process.env.TEST_STORE === 'firestore' ? firestoreTestStore(`demo-${crypto.randomUUID().slice(0, 8)}`) : new MemoryStore();
   const mailer = new LogMailer();
   const ai = new FakeAi();
   const drive = new FakeDrive();

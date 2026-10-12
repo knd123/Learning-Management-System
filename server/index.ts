@@ -6,30 +6,14 @@ import express from 'express';
 import { createApp } from './app.ts';
 import { hashPassword, type UserRecord } from './auth.ts';
 import { config } from './config.ts';
-import { C, MemoryStore, type Store } from './db/store.ts';
+import { C, type Store } from './db/store.ts';
 import type { Deps } from './deps.ts';
-import { GcsBlobStore, LocalBlobStore, type BlobStore } from './files/blobStore.ts';
 import { DisabledAi, GeminiAi } from './services/ai.ts';
 import { GoogleDriveService } from './services/drive.ts';
 import { LogMailer, SmtpMailer } from './services/email.ts';
 import { runScheduledJobs } from './services/jobs.ts';
 import { getSettings } from './services/settings.ts';
-
-async function buildStorage(): Promise<{ store: Store; blobs: BlobStore }> {
-  if (config.dataBackend === 'firestore' || config.fileBackend === 'gcs') {
-    const { initializeApp, getApps } = await import('firebase-admin/app');
-    const app = getApps()[0] || initializeApp({ projectId: config.firebaseProjectId, storageBucket: config.storageBucket });
-    const { FirestoreStore } = await import('./db/firestoreStore.ts');
-    return {
-      store: config.dataBackend === 'firestore' ? new FirestoreStore(app, config.firestoreDatabaseId) : new MemoryStore(path.join(config.dataDir, 'db.json')),
-      blobs: config.fileBackend === 'gcs' ? new GcsBlobStore(app, config.storageBucket) : new LocalBlobStore(path.join(config.dataDir, 'uploads')),
-    };
-  }
-  return {
-    store: config.dataBackend === 'memory' ? new MemoryStore() : new MemoryStore(path.join(config.dataDir, 'db.json')),
-    blobs: new LocalBlobStore(path.join(config.dataDir, 'uploads')),
-  };
-}
+import { buildStorage } from './storage.ts';
 
 /** Creates the first admin account from ADMIN_USERNAME / ADMIN_PASSWORD when none exists. */
 async function bootstrapAdmin(store: Store) {
