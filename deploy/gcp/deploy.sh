@@ -12,14 +12,17 @@
 #     contents, or base64 of it). It needs the Owner role on an existing project.
 #
 # Other credentials (environment variables; never commit them):
-#   SMTP_APP_PASSWORD  Optional. App password for info@abugidaeducation.com. Without it
-#                      emails are only recorded in Admin → Emails.
+#   SMTP_APP_PASSWORD  Optional. Password for info@abugidaeducation.com on SMTP_HOST (a Google
+#                      app password for Gmail). Without it emails are only recorded in
+#                      Admin → Emails.
 #   GEMINI_API_KEY     Optional. Turns on AI quizzes, homework drafts and report writing.
 #
 # Settings (environment variables with defaults):
 #   PROJECT=abugida-lms (or the key's project)  REGION=us-east4  DOMAIN=learn.abugidaeducation.com
 #   SERVICE=abugida-lms     COMPANY_EMAIL=info@abugidaeducation.com
 #   ORG_TIMEZONE=America/New_York
+#   SMTP_HOST=smtp.gmail.com  SMTP_PORT=587  SMTP_SECURE=false
+#     (GoDaddy mail: SMTP_HOST=smtpout.secureserver.net SMTP_PORT=465 SMTP_SECURE=true)
 #   DRY_RUN=1  prints the commands without touching Google Cloud.
 set -euo pipefail
 
@@ -28,6 +31,9 @@ DOMAIN="${DOMAIN:-learn.abugidaeducation.com}"
 SERVICE="${SERVICE:-abugida-lms}"
 COMPANY_EMAIL="${COMPANY_EMAIL:-info@abugidaeducation.com}"
 ORG_TIMEZONE="${ORG_TIMEZONE:-America/New_York}"
+SMTP_HOST="${SMTP_HOST:-smtp.gmail.com}"
+SMTP_PORT="${SMTP_PORT:-587}"
+SMTP_SECURE="${SMTP_SECURE:-false}"
 DRY_RUN="${DRY_RUN:-}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -163,10 +169,14 @@ SECRETS=(lms-session-secret lms-cron-secret lms-admin-password)
 SECRET_ENV="SESSION_SECRET=lms-session-secret:latest,CRON_SECRET=lms-cron-secret:latest,ADMIN_PASSWORD=lms-admin-password:latest"
 EMAIL_ENV=""
 if [ -n "${SMTP_APP_PASSWORD:-}" ]; then
-  put_secret lms-smtp-pass "${SMTP_APP_PASSWORD// /}" # Google shows app passwords with spaces
+  if [ "$SMTP_HOST" = smtp.gmail.com ]; then
+    put_secret lms-smtp-pass "${SMTP_APP_PASSWORD// /}" # Google shows app passwords with spaces
+  else
+    put_secret lms-smtp-pass "$SMTP_APP_PASSWORD"
+  fi
   SECRETS+=(lms-smtp-pass)
   SECRET_ENV+=",SMTP_PASS=lms-smtp-pass:latest"
-  EMAIL_ENV="|SMTP_HOST=smtp.gmail.com|SMTP_PORT=587|SMTP_USER=$COMPANY_EMAIL"
+  EMAIL_ENV="|SMTP_HOST=$SMTP_HOST|SMTP_PORT=$SMTP_PORT|SMTP_SECURE=$SMTP_SECURE|SMTP_USER=$COMPANY_EMAIL"
 else
   note "No SMTP_APP_PASSWORD: emails will only be recorded in Admin → Emails."
 fi
@@ -221,10 +231,11 @@ CRON_SECRET="$([ -n "$DRY_RUN" ] && echo hidden || gcloud secrets versions acces
 SCHEDULE_ARGS=(--location="$REGION" --schedule="*/10 * * * *" --time-zone="Etc/UTC" --uri="$RUN_URL/api/cron/tick" --http-method=POST --attempt-deadline=900s --quiet)
 if exists gcloud scheduler jobs describe lms-tick --location="$REGION"; then
   echo "+ gcloud scheduler jobs update http lms-tick … (secret hidden)"
-  gcloud scheduler jobs update http lms-tick "${SCHEDULE_ARGS[@]}" --update-headers="x-cron-secret=$CRON_SECRET"
+  # The job description includes the secret header, so its output is not shown.
+  gcloud scheduler jobs update http lms-tick "${SCHEDULE_ARGS[@]}" --update-headers="x-cron-secret=$CRON_SECRET" >/dev/null
 else
   echo "+ gcloud scheduler jobs create http lms-tick … (secret hidden)"
-  [ -n "$DRY_RUN" ] || gcloud scheduler jobs create http lms-tick "${SCHEDULE_ARGS[@]}" --headers="x-cron-secret=$CRON_SECRET"
+  [ -n "$DRY_RUN" ] || gcloud scheduler jobs create http lms-tick "${SCHEDULE_ARGS[@]}" --headers="x-cron-secret=$CRON_SECRET" >/dev/null
 fi
 
 # --- 8. First-time app settings ---------------------------------------------------
@@ -245,9 +256,10 @@ fi
 
 # --- 9. Custom domain --------------------------------------------------------------
 step "Custom domain ($DOMAIN)"
-if exists gcloud run domain-mappings describe --domain "$DOMAIN" --region "$REGION"; then
+# Domain mappings for fully managed Cloud Run are only in `gcloud beta`.
+if exists gcloud beta run domain-mappings describe --domain "$DOMAIN" --region "$REGION"; then
   note "Domain mapping already exists."
-elif ! run gcloud run domain-mappings create --service "$SERVICE" --domain "$DOMAIN" --region "$REGION" --quiet; then
+elif ! run gcloud beta run domain-mappings create --service "$SERVICE" --domain "$DOMAIN" --region "$REGION" --quiet; then
   cat <<EOF
    The domain couldn't be connected (see the error above). Usually Google needs proof
    that this deployer may use ${DOMAIN#*.}:
@@ -260,7 +272,7 @@ EOF
 fi
 if [ -z "$DRY_RUN" ]; then
   note "Add these DNS records at your domain registrar (HTTPS starts working up to a day after they're in place):"
-  gcloud run domain-mappings describe --domain "$DOMAIN" --region "$REGION" \
+  gcloud beta run domain-mappings describe --domain "$DOMAIN" --region "$REGION" \
     --format='table[box](status.resourceRecords.name:label=NAME,status.resourceRecords.type:label=TYPE,status.resourceRecords.rrdata:label=VALUE)'
 fi
 

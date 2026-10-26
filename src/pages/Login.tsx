@@ -1,9 +1,8 @@
 import clsx from 'clsx';
-import { Eye, EyeOff, GraduationCap, HeartHandshake, UserRound } from 'lucide-react';
+import { Eye, EyeOff, FlaskConical, GraduationCap, HeartHandshake, Laptop, School, UserRound, Users } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import type { PublicConfig } from '../../shared/api.ts';
-import { Logo } from '../components/Shell.tsx';
 import { Button, ErrorBox, Field, Input } from '../components/ui.tsx';
 import { errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
@@ -33,6 +32,33 @@ const COPY: Record<Mode, { subtitle: string; signup?: { to: string; title: strin
   },
   team: { subtitle: 'Abugida team sign-in.' },
 };
+
+/**
+ * What Abugida offers: a list beside the form on wide screens, pills above it on phones.
+ * `pill` replaces the title on phones, where the "STEM lessons" headline isn't shown.
+ */
+const OFFER: Array<{ icon: typeof Users; title: string; pill?: string; text: string }> = [
+  { icon: Users, title: '1-on-1', text: 'One mentor, one student, every class.' },
+  { icon: Laptop, title: 'Online, on demand', text: 'Learn from home, at times that suit your family.' },
+  { icon: FlaskConical, title: 'Montessori-aligned Lessons', pill: 'Montessori-aligned STEM', text: 'Science, technology, engineering and math, the Montessori way.' },
+];
+
+function Brand({ onDark }: { onDark?: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span
+        className={clsx('grid shrink-0 place-items-center rounded-2xl font-bold', onDark ? 'size-14 bg-sun text-3xl text-brand-900' : 'size-12 bg-brand-700 text-2xl text-sun')}
+        aria-hidden
+      >
+        አ
+      </span>
+      <div className="leading-tight">
+        <p className={clsx('font-bold tracking-tight', onDark ? 'text-2xl' : 'text-xl text-ink')}>Abugida Education</p>
+        <p className={clsx('mt-0.5 font-medium', onDark ? 'text-sun' : 'text-sm text-brand-700')}>Education Reimagined</p>
+      </div>
+    </div>
+  );
+}
 
 function savedMode(): Mode {
   try {
@@ -91,18 +117,45 @@ export default function LoginPage() {
         <div className="absolute -right-24 -top-24 size-96 rounded-full bg-brand-700" aria-hidden />
         <div className="absolute -bottom-32 -left-16 size-80 rounded-full bg-brand-900" aria-hidden />
         <div className="relative">
-          <span className="grid size-14 place-items-center rounded-2xl bg-sun text-3xl font-bold text-brand-900">አ</span>
+          <Brand onDark />
         </div>
         <div className="relative max-w-md">
-          <h1 className="text-4xl font-bold leading-tight">Every class, homework and recording in one place.</h1>
-          <p className="mt-4 text-lg text-brand-100">For students, parents and mentors of Abugida Education — 1-on-1 mentorship for grades 3–12.</p>
+          <p className="inline-flex rounded-full bg-sun px-3 py-1 text-sm font-bold text-brand-900">Grades 3–12</p>
+          <h1 className="mt-4 text-4xl font-bold leading-tight">STEM lessons with a mentor of your own.</h1>
+          <ul className="mt-8 flex flex-col gap-5">
+            {OFFER.map((o) => (
+              <li key={o.title} className="flex gap-4">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-700 text-sun">
+                  <o.icon className="size-5" aria-hidden />
+                </span>
+                <span>
+                  <span className="block font-semibold">{o.title}</span>
+                  <span className="block text-brand-100">{o.text}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
-        <p className="relative text-sm text-brand-200">Abugida Education · Grades 3–12</p>
+        <p className="relative text-sm text-brand-200">Classes, homework, recordings and progress, all in one place.</p>
       </div>
 
       <div className="flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-sm">
-          <Logo className="mb-10 lg:hidden" />
+          <div className="mb-10 lg:hidden">
+            <Brand />
+            <ul className="mt-4 flex flex-wrap gap-1.5" aria-label="What we offer">
+              {OFFER.map((o) => (
+                <li key={o.title} className="inline-flex items-center gap-1.5 rounded-full border border-sand-200 bg-white px-2.5 py-1 text-xs font-semibold text-ink-soft">
+                  <o.icon className="size-3.5 text-brand-600" aria-hidden />
+                  {o.pill ?? o.title}
+                </li>
+              ))}
+              <li className="inline-flex items-center gap-1.5 rounded-full bg-sun px-2.5 py-1 text-xs font-bold text-ink">
+                <School className="size-3.5" aria-hidden />
+                Grades 3–12
+              </li>
+            </ul>
+          </div>
           <h2 className="text-3xl font-bold tracking-tight">Welcome back!</h2>
           <p className="mt-2 text-ink-soft">I am a…</p>
           <div role="tablist" aria-label="I am a" className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-sand-200/70 p-1">
