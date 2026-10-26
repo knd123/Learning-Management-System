@@ -1,5 +1,5 @@
 import { hoursBySubject, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
-import type { AvailabilityWindow, Role } from '../../shared/types.ts';
+import type { AvailabilityWindow, ParentContact, Role } from '../../shared/types.ts';
 import { isValidHm, isValidTimeZone } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
 import { badRequest, httpUrl, num, str } from '../http.ts';
@@ -47,6 +47,24 @@ export function parsePhone(value: unknown, field: string, required = false): str
   return s;
 }
 
+/** One or two parents or guardians, each with a name, email and phone. */
+export function parseParents(value: unknown, required: boolean): ParentContact[] {
+  if (value === undefined || value === null) value = [];
+  if (!Array.isArray(value)) throw badRequest('Parents must be a list.');
+  if (value.length > 2) throw badRequest('Add at most two parents or guardians.');
+  const out = value.map((p: Record<string, unknown> | null, i): ParentContact => {
+    const who = value.length > 1 ? `Parent ${i + 1}` : 'Parent';
+    return {
+      name: str(p?.name, `${who}'s full name`, { required: true, max: 100 }),
+      email: parseEmail(p?.email, `${who}'s email`, true)!,
+      phone: parsePhone(p?.phone, `${who}'s phone number`, true)!,
+    };
+  });
+  if (required && !out.length) throw badRequest("Add a parent or guardian's name, email and phone number.");
+  if (out.length === 2 && out[0].email === out[1].email) throw badRequest('Each parent needs their own email address.');
+  return out;
+}
+
 /** Subjects as typed or picked; duplicates (ignoring case) are dropped. */
 export function parseSubjects(value: unknown, field: string, required = false): string[] {
   const raw = Array.isArray(value) ? value : String(value || '').split(',');
@@ -87,6 +105,8 @@ export interface ProfileOptions {
   intake?: boolean;
   /** Admins may also set Drive folder and Google account. */
   admin?: boolean;
+  /** The account before this change; keeps report emails of parents the team linked. */
+  current?: UserRecord;
 }
 
 /**
@@ -123,9 +143,21 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
       throw badRequest('Enter the hours of tutoring per week for each subject.');
     }
     if (body.notes !== undefined) target.notes = str(body.notes, 'Additional notes', { max: 3000 }) || undefined;
-    if (body.parentName !== undefined) target.parentName = str(body.parentName, 'Parent name', { max: 100 }) || undefined;
-    if (has('parentPhone')) target.parentPhone = parsePhone(body.parentPhone, "Parent's phone number", req);
-    if (has('parentEmails')) target.parentEmails = parseEmailList(body.parentEmails, "Parent's email", req);
+    if (body.parents !== undefined || req) {
+      // Sign-up always lists parents; older forms send a single parent's fields instead.
+      const listed = body.parents ?? [{ name: body.parentName, email: parseEmailList(body.parentEmails ?? body.parentEmail, "Parent's email")[0], phone: body.parentPhone }];
+      const parents = parseParents(listed, !opts.admin);
+      const before = new Set((opts.current?.parents || []).map((p) => p.email));
+      const others = body.parents !== undefined && body.parentEmails !== undefined ? parseEmailList(body.parentEmails, 'Other report email') : (opts.current?.parentEmails || []).filter((e) => !before.has(e));
+      target.parents = parents;
+      target.parentName = parents[0]?.name;
+      target.parentPhone = parents[0]?.phone;
+      target.parentEmails = [...new Set([...parents.map((p) => p.email), ...others])];
+    } else {
+      if (body.parentName !== undefined) target.parentName = str(body.parentName, 'Parent name', { max: 100 }) || undefined;
+      if (has('parentPhone')) target.parentPhone = parsePhone(body.parentPhone, "Parent's phone number", req);
+      if (has('parentEmails')) target.parentEmails = parseEmailList(body.parentEmails, "Parent's email", req);
+    }
     if (opts.admin) {
       if (body.driveFolderUrl !== undefined) target.driveFolderUrl = httpUrl(body.driveFolderUrl, 'Google Drive folder') || undefined;
       if (body.googleEmail !== undefined) target.googleEmail = parseEmail(body.googleEmail, 'Student Google account');

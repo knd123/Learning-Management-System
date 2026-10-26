@@ -9,6 +9,7 @@ import { badRequest, h, HttpError, jsonField, notFound, str } from '../http.ts';
 import { courseForStudent, coursesFor, usersById } from '../services/access.ts';
 import { pendingFeedback, submitFeedback } from '../services/feedback.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
+import { connectParents } from '../services/invites.ts';
 import { applyHourChanges, cancelMentorRequest, createMatchRequest, emailAdminSubjectChange, findMentorView, requestMentor, studentRequests } from '../services/pairing.ts';
 import { applyProfile, hourChanges, subjectChanges } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
@@ -360,9 +361,9 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const user = req.user!;
       const settings = await getSettings(deps.store);
       const body = (req.body || {}) as Record<string, unknown>;
-      const allowed = ['displayName', 'email', 'grade', 'schoolName', 'city', 'state', 'subjects', 'subjectHours', 'hoursPerWeek', 'availability', 'timezone', 'notes', 'parentName', 'parentPhone', 'parentEmails'];
+      const allowed = ['displayName', 'email', 'grade', 'schoolName', 'city', 'state', 'subjects', 'subjectHours', 'hoursPerWeek', 'availability', 'timezone', 'notes', 'parents', 'parentName', 'parentPhone', 'parentEmails'];
       const changes: Partial<UserRecord> = {};
-      applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'student', { timezone: user.timezone });
+      applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'student', { timezone: user.timezone, current: user });
       if (changes.subjects && !changes.subjects.length) throw badRequest('Keep at least one subject.');
       if (changes.availability && !changes.availability.length) throw badRequest('Add at least one time you are available each week.');
       if (changes.parentEmails && !changes.parentEmails.length) throw badRequest("A parent's email is required.");
@@ -374,6 +375,8 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
         await emailAdminSubjectChange(deps, updated, added, removed, request);
       }
       await applyHourChanges(deps, updated, hourChanges(user, updated));
+      // A newly listed parent gets a link to a parent account (or is linked, if they have one).
+      if (changes.parents) await connectParents(deps, updated, (user.parents || []).map((p) => p.email));
       const profile: StudentProfile = { user: toPublicUser(updated), requests: await studentRequests(deps, user.id), subjectOptions: settings.subjectOptions };
       res.json(profile);
     }),

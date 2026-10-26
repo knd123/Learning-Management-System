@@ -2,21 +2,22 @@ import clsx from 'clsx';
 import { Check } from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router';
-import type { PublicConfig } from '../../shared/api.ts';
+import type { InviteInfo, PublicConfig } from '../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
-import type { AvailabilityWindow, PublicUser } from '../../shared/types.ts';
+import type { AvailabilityWindow, ParentContact, PublicUser } from '../../shared/types.ts';
 import { AvailabilityEditor } from '../components/Availability.tsx';
+import { EMPTY_PARENT, ParentsEditor, parentsProblem } from '../components/ParentsEditor.tsx';
 import { Logo } from '../components/Shell.tsx';
 import { SubjectHoursEditor, SubjectPicker } from '../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../components/TimezoneSelect.tsx';
 import { Button, Card, ErrorBox, Field, Input, Loading, Notice, Select, Textarea } from '../components/ui.tsx';
 import { api, errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
-import { browserTimeZone } from '../lib/format.ts';
+import { browserTimeZone, firstName } from '../lib/format.ts';
 import { useApi } from '../lib/useApi.ts';
 import { ContactEmail } from '../lib/contact.tsx';
 
-const STEPS = ['About you', 'Tutoring needs', 'Parent & account'];
+const STEPS = ['About you', 'Tutoring needs', 'Parents & account'];
 
 export interface IntakeForm {
   displayName: string;
@@ -31,9 +32,8 @@ export interface IntakeForm {
   timezone: string;
   availability: AvailabilityWindow[];
   notes: string;
-  parentName: string;
-  parentPhone: string;
-  parentEmail: string;
+  /** One or two parents or guardians. */
+  parents: ParentContact[];
 }
 
 export function suggestUsername(name: string): string {
@@ -68,10 +68,7 @@ export function intakeProblem(form: IntakeForm, step: number): string | null {
     if (!form.availability.length) return 'Add at least one time the student is available each week.';
     if (form.availability.some((w) => !w.start || !w.end || w.end <= w.start)) return 'Each available time must end after it starts.';
   }
-  if (step === 2) {
-    if (form.parentPhone.replace(/\D/g, '').length < 7) return 'Please enter the parent’s phone number.';
-    if (!EMAIL_RE.test(form.parentEmail.trim())) return 'Please enter the parent’s email address.';
-  }
+  if (step === 2) return parentsProblem(form.parents.length ? form.parents : [EMPTY_PARENT]);
   return null;
 }
 
@@ -91,8 +88,11 @@ function Stepper({ step }: { step: number }) {
   );
 }
 
-/** The intake fields shared by sign-up and the student's profile page. */
-export function IntakeFields({ form, set, step, subjectOptions }: { form: IntakeForm; set(patch: Partial<IntakeForm>): void; step: number | 'all'; subjectOptions: string[] }) {
+/**
+ * The intake fields shared by sign-up and the student's profile page. From an emailed set-up link,
+ * `fromInvite` keeps the email the link went to and the parent who registered the student.
+ */
+export function IntakeFields({ form, set, step, subjectOptions, fromInvite }: { form: IntakeForm; set(patch: Partial<IntakeForm>): void; step: number | 'all'; subjectOptions: string[]; fromInvite?: boolean }) {
   const show = (n: number) => step === 'all' || step === n;
   const section = (n: number, title: string, children: ReactNode) =>
     show(n) && (
@@ -110,7 +110,9 @@ export function IntakeFields({ form, set, step, subjectOptions }: { form: Intake
           <Field label="Student's full name" className="sm:col-span-2">
             {(id) => <Input id={id} value={form.displayName} onChange={(e) => set({ displayName: e.target.value })} autoComplete="name" required />}
           </Field>
-          <Field label="Email address">{(id) => <Input id={id} type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} autoComplete="email" required />}</Field>
+          <Field label="Student's email" hint={fromInvite ? 'Where the set-up link was sent.' : "If the student doesn't have their own email, use a parent's."}>
+            {(id) => <Input id={id} type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} autoComplete="email" readOnly={fromInvite} required />}
+          </Field>
           <Field label="Grade">
             {(id) => (
               <Select id={id} value={form.grade} onChange={(e) => set({ grade: e.target.value })}>
@@ -152,16 +154,14 @@ export function IntakeFields({ form, set, step, subjectOptions }: { form: Intake
       )}
       {section(
         2,
-        'Parent or guardian',
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Parent / guardian name (optional)" className="sm:col-span-2">
-            {(id) => <Input id={id} value={form.parentName} onChange={(e) => set({ parentName: e.target.value })} />}
-          </Field>
-          <Field label="Parent's phone number">{(id) => <Input id={id} type="tel" value={form.parentPhone} onChange={(e) => set({ parentPhone: e.target.value })} autoComplete="tel" required />}</Field>
-          <Field label="Parent's email" hint="Pairing updates and monthly progress reports go here.">
-            {(id) => <Input id={id} type="email" value={form.parentEmail} onChange={(e) => set({ parentEmail: e.target.value })} required />}
-          </Field>
-        </div>,
+        'Parents or guardians',
+        <>
+          <p className="-mt-1 text-sm text-ink-soft">
+            Add one or two parents or guardians. Each gets an email with a link to create their own parent account to follow the student's classes and progress. Pairing updates and monthly
+            reports go to them too.
+          </p>
+          <ParentsEditor value={form.parents} onChange={(parents) => set({ parents })} lockFirst={fromInvite} />
+        </>,
       )}
     </div>
   );
@@ -180,20 +180,20 @@ export function intakePayload(form: IntakeForm) {
     timezone: form.timezone,
     availability: form.availability,
     notes: form.notes,
-    parentName: form.parentName,
-    parentPhone: form.parentPhone,
-    parentEmails: [form.parentEmail],
+    parents: (form.parents.length ? form.parents : [EMPTY_PARENT]).map((p) => ({ name: p.name.trim(), email: p.email.trim(), phone: p.phone.trim() })),
   };
 }
 
-export default function SignupPage() {
+/** Student sign-up. With `invite`, the form completes a set-up link a parent's registration sent. */
+export default function SignupPage({ invite }: { invite?: { token: string; info: InviteInfo } }) {
   const { user, setUser } = useAuth();
   const navigate = useNavigate();
   const config = useApi<PublicConfig>('/api/auth/config');
+  const info = invite?.info;
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<IntakeForm>({
-    displayName: '',
-    email: '',
+    displayName: info?.name || '',
+    email: info?.email || '',
     schoolName: '',
     city: '',
     state: '',
@@ -203,20 +203,22 @@ export default function SignupPage() {
     timezone: browserTimeZone(),
     availability: [],
     notes: '',
-    parentName: '',
-    parentPhone: '',
-    parentEmail: '',
+    parents: info?.parent ? [info.parent] : [EMPTY_PARENT],
   });
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(info?.name ? suggestUsername(info.name) : '');
   const [usernameTouched, setUsernameTouched] = useState(false);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [website, setWebsite] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** A parent who set up their child's account stays signed in as themselves. */
+  const [doneFor, setDoneFor] = useState<PublicUser | null>(null);
 
-  if (user) return <Navigate to={homePath(user)} replace />;
+  if (user && !invite) return <Navigate to={homePath(user)} replace />;
   if (config.loading && !config.data) return <Loading />;
+  const forChild = Boolean(info?.sentToParent);
+  const childName = firstName(info?.name || form.displayName) || 'the student';
 
   const set = (patch: Partial<IntakeForm>) => {
     setForm((f) => ({ ...f, ...patch }));
@@ -244,7 +246,11 @@ export default function SignupPage() {
     if (password !== confirm) return setError('The passwords do not match.');
     setBusy(true);
     try {
-      const r = await api.post<{ user: PublicUser }>('/api/auth/signup', { ...intakePayload(form), username, password, website });
+      const body = { ...intakePayload(form), username, password, website };
+      const r = invite
+        ? await api.post<{ user: PublicUser; signedIn: boolean }>('/api/auth/invite/accept', { ...body, token: invite.token })
+        : { ...(await api.post<{ user: PublicUser }>('/api/auth/signup', body)), signedIn: true };
+      if (!r.signedIn) return setDoneFor(r.user);
       setUser(r.user);
       navigate('/student', { replace: true, state: { welcome: true } });
     } catch (err) {
@@ -269,19 +275,36 @@ export default function SignupPage() {
           <Notice>
             Online sign-up is currently closed. Email <ContactEmail email={config.data.contactEmail} /> to create your account.
           </Notice>
+        ) : doneFor ? (
+          <Card className="flex flex-col gap-4 p-6 sm:p-8">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{firstName(doneFor.displayName)}'s account is ready</h1>
+            <p className="text-ink-soft">
+              {firstName(doneFor.displayName)} can sign in with the username <strong className="text-ink">{doneFor.username}</strong> and the password you chose. Their classes and progress
+              also appear on your parent dashboard, and our team will be in touch about pairing them with a mentor.
+            </p>
+            <Link to={user?.role === 'parent' ? '/parent' : '/login'} className="self-start font-semibold text-brand-700 hover:underline">
+              {user?.role === 'parent' ? 'Back to my dashboard' : 'Go to sign in'}
+            </Link>
+          </Card>
         ) : (
           <Card className="p-6 sm:p-8">
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Create your student account</h1>
-            <p className="mb-6 mt-1 text-ink-soft">Tell us about the student and what they need — our team will pair them with the right mentor.</p>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{!invite ? 'Create your student account' : forChild ? `Set up ${childName}'s account` : 'Set up your student account'}</h1>
+            <p className="mb-6 mt-1 text-ink-soft">
+              {!invite
+                ? 'Tell us about the student and what they need — our team will pair them with the right mentor.'
+                : forChild
+                  ? `You registered ${childName}. Tell us about ${childName} and what they need, then choose their username and password.`
+                  : `${info?.parent?.name} registered you. Tell us what you'd like help with, then choose your username and password.`}
+            </p>
             <Stepper step={step} />
             <form onSubmit={next} className="flex flex-col gap-6" noValidate>
               {step < 2 ? (
-                <IntakeFields form={form} set={set} step={step} subjectOptions={config.data?.subjectOptions || []} />
+                <IntakeFields form={form} set={set} step={step} subjectOptions={config.data?.subjectOptions || []} fromInvite={Boolean(invite)} />
               ) : (
                 <>
-                  <IntakeFields form={form} set={set} step={2} subjectOptions={[]} />
+                  <IntakeFields form={form} set={set} step={2} subjectOptions={[]} fromInvite={Boolean(invite)} />
                   <section className="flex flex-col gap-4 border-t border-sand-200 pt-6">
-                    <h2 className="font-semibold">Login for the student</h2>
+                    <h2 className="font-semibold">{forChild ? `${childName}'s login` : 'Login for the student'}</h2>
                     <Field label="Username" hint="Used to sign in. Letters, numbers, dots or dashes.">
                       {(id) => (
                         <Input

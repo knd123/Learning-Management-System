@@ -6,6 +6,7 @@ import type { MatchItemDetail, MatchRequestDetail, MentorCandidate } from '../..
 import type { ScheduleSlot } from '../../../shared/types.ts';
 import { availabilityText } from '../../components/Availability.tsx';
 import { ScheduleEditor } from '../../components/ScheduleEditor.tsx';
+import { parentsOf } from '../../components/ParentsEditor.tsx';
 import { Badge, Button, Card, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtDateTime, fmtRelative, fmtSlot, localYmd, REQUEST_KIND_LABEL, tzAbbrev } from '../../lib/format.ts';
@@ -85,9 +86,12 @@ export default function AdminMatch() {
                   ['Subjects', student.subjects?.join(', ')],
                   ['Hours / week', student.hoursPerWeek ? String(student.hoursPerWeek) : undefined],
                   ['Timezone', student.timezone],
-                  ['Parent', student.parentName],
-                  ['Parent phone', student.parentPhone],
-                  ['Parent email', student.parentEmails?.join(', ')],
+                  ...parentsOf(student).flatMap((p, i, all): Array<[string, string]> => [
+                    [all.length > 1 ? `Parent ${i + 1}` : 'Parent', p.name],
+                    [all.length > 1 ? `Parent ${i + 1} phone` : 'Parent phone', p.phone],
+                    [all.length > 1 ? `Parent ${i + 1} email` : 'Parent email', p.email],
+                  ]),
+                  ['Report emails', student.parentEmails?.join(', ')],
                 ] as Array<[string, string | undefined]>
               )
                 .filter(([, v]) => v)

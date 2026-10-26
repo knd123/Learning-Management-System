@@ -10,7 +10,9 @@ import { announceMentorApplication, createParentRequest } from '../services/acco
 import type { GoogleIdentity } from '../services/google.ts';
 import { createMatchRequest, emailAdminNewStudent } from '../services/pairing.ts';
 import { completePasswordReset, findResetAccount, requestPasswordReset, SELF_SERVICE_ROLES } from '../services/passwordReset.ts';
-import { ACADEMIC_LEVELS, applyProfile } from '../services/profiles.ts';
+import { notify } from '../services/notifications.ts';
+import { announceFamilySignup, closeInvites, connectParents, findInvite, inviteInfo, inviteStudent, linkParent, parentAccountFor, parentInviteStudents, useInvite } from '../services/invites.ts';
+import { ACADEMIC_LEVELS, applyProfile, parseEmail } from '../services/profiles.ts';
 import { getSettings } from '../services/settings.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 
@@ -190,12 +192,14 @@ export function authRoutes(deps: Deps): Router {
       const settings = await getSettings(deps.store);
       if (!settings.allowStudentSignup) throw new HttpError(403, `Online sign-up is closed. Please email ${settings.adminNotificationEmail} to create an account.`);
       const { user: student, body } = await newAccount(req, 'student', settings.timezone);
-      applyProfile(student, { ...body, parentEmails: body.parentEmails ?? body.parentEmail }, 'student', { timezone: settings.timezone, intake: true });
+      applyProfile(student, body, 'student', { timezone: settings.timezone, intake: true });
       countSignup(req);
       await deps.store.put(C.users, student);
 
       const request = await createMatchRequest(deps, student, { kind: 'new_student', subjects: student.subjects || [] });
       await emailAdminNewStudent(deps, student, request);
+      // Each parent gets a link to create a parent account linked to the student.
+      await connectParents(deps, student);
       setCookie(res, createToken(student, deps.sessionSecret, deps.sessionDays, deps.now()));
       res.status(201).json({ user: toPublicUser(student) });
     }),
@@ -246,6 +250,13 @@ export function authRoutes(deps: Deps): Router {
       if (!settings.allowParentSignup) throw new HttpError(403, `Parent sign-up is closed. Please email ${settings.adminNotificationEmail}.`);
       const { user, body } = await newAccount(req, 'parent', settings.timezone);
       applyProfile(user, body, 'parent', { timezone: settings.timezone, intake: true });
+      if (Array.isArray(body.students)) {
+        await registerFamily(req, user, body.students, settings.allowStudentSignup);
+        setCookie(res, createToken(user, deps.sessionSecret, deps.sessionDays, deps.now()));
+        res.status(201).json({ user: toPublicUser(user) });
+        return;
+      }
+      // Older form: the student's name (and siblings) go to the team, who link the profiles.
       const studentName = str(body.studentName, "Student's full name", { required: true, max: 100 });
       const siblings = (Array.isArray(body.siblings) ? body.siblings : []).slice(0, 8).map((s: { name?: unknown; grade?: unknown }) => ({
         name: str(s?.name, "Sibling's full name", { required: true, max: 100 }),
@@ -257,6 +268,100 @@ export function authRoutes(deps: Deps): Router {
       await createParentRequest(deps, user, { studentName, siblings, siblingDiscount: body.siblingDiscount === true });
       setCookie(res, createToken(user, deps.sessionSecret, deps.sessionDays, deps.now()));
       res.status(201).json({ user: toPublicUser(user) });
+    }),
+  );
+
+  /**
+   * A parent signing up lists their students. A new student gets a link to set up their account
+   * (sent to the parent when the student uses the parent's email); a student who already has an
+   * account goes to the team, who confirm the parent before linking.
+   */
+  async function registerFamily(req: import('express').Request, parent: UserRecord, list: unknown[], allowStudentSignup: boolean) {
+    if (!list.length) throw badRequest('Add at least one student.');
+    if (list.length > 6) throw badRequest('Add at most six students.');
+    const students = list.map((raw, i) => {
+      const s = (raw || {}) as Record<string, unknown>;
+      const who = list.length > 1 ? `Student ${i + 1}` : 'Your student';
+      const name = str(s.name, `${who}'s full name`, { required: true, max: 100 });
+      if (s.hasAccount === true) return { name, hasAccount: true, email: '' };
+      const email = s.usesParentEmail === true ? parent.email! : parseEmail(s.email, `${who}'s email`, true)!;
+      return { name, hasAccount: false, email };
+    });
+    const fresh = students.filter((s) => !s.hasAccount);
+    if (fresh.length && !allowStudentSignup) throw new HttpError(403, 'Student sign-up is closed right now, so new students cannot be registered online.');
+    parent.linkedStudentIds = [];
+    countSignup(req);
+    await deps.store.put(C.users, parent);
+    const existing = students.filter((s) => s.hasAccount).map((s) => s.name);
+    if (existing.length) await createParentRequest(deps, parent, { studentName: existing[0], siblings: existing.slice(1).map((name) => ({ name })), siblingDiscount: existing.length > 1 });
+    for (const s of fresh) await inviteStudent(deps, parent, s);
+    if (students.length > 1) await announceFamilySignup(deps, parent, students.map((s) => s.name));
+  }
+
+  // --- Account set-up links (emailed to parents and to students a parent registered) ---
+
+  router.post(
+    '/invite/check',
+    h(async (req, res) => {
+      res.json(await inviteInfo(deps, String(req.body?.token || '')));
+    }),
+  );
+
+  router.post(
+    '/invite/accept',
+    h(async (req, res) => {
+      const settings = await getSettings(deps.store);
+      const invite = await findInvite(deps, String(req.body?.token || ''));
+      if (!invite) throw new HttpError(400, `This link has expired or was already used. Email ${settings.adminNotificationEmail} for a new one.`);
+
+      if (invite.kind === 'parent') {
+        const studentIds = (await parentInviteStudents(deps, invite)).map((s) => s.id);
+        // Opening the link proves the email, so the students join an account that already uses it.
+        const existing = await parentAccountFor(deps, invite.email);
+        if (existing) {
+          await useInvite(deps, invite);
+          await linkParent(deps, existing, studentIds);
+          await closeInvites(deps, invite, existing.id);
+          res.json({ user: null, addedTo: existing.username });
+          return;
+        }
+        const { user, body } = await newAccount(req, 'parent', settings.timezone);
+        applyProfile(user, { displayName: invite.name, phone: invite.phone, ...body, email: invite.email }, 'parent', { timezone: settings.timezone, intake: true });
+        user.linkedStudentIds = [];
+        await useInvite(deps, invite);
+        countSignup(req);
+        await deps.store.put(C.users, user);
+        const linked = await linkParent(deps, user, studentIds);
+        await closeInvites(deps, invite, user.id);
+        setCookie(res, createToken(linked, deps.sessionSecret, deps.sessionDays, deps.now()));
+        res.status(201).json({ user: toPublicUser(linked) });
+        return;
+      }
+
+      if (!settings.allowStudentSignup) throw new HttpError(403, `Online sign-up is closed. Please email ${settings.adminNotificationEmail} to create an account.`);
+      const parent = invite.parentId ? await deps.store.get<UserRecord>(C.users, invite.parentId) : null;
+      if (!parent?.active || !parent.email) throw new HttpError(400, `This link is no longer valid. Email ${settings.adminNotificationEmail} for help.`);
+      const { user: student, body } = await newAccount(req, 'student', settings.timezone);
+      // The parent who registered the student is always the first parent; the form may add a second.
+      const sent = Array.isArray(body.parents) ? (body.parents as Array<Record<string, unknown>>) : [];
+      const registering = { name: parent.displayName, email: parent.email, phone: parent.phone || sent[0]?.phone };
+      applyProfile(student, { ...body, email: invite.email, parents: [registering, ...sent.slice(1, 2)] }, 'student', { timezone: settings.timezone, intake: true });
+      await useInvite(deps, invite);
+      countSignup(req);
+      await deps.store.put(C.users, student);
+      await linkParent(deps, parent, [student.id]);
+      await closeInvites(deps, invite, student.id);
+      const request = await createMatchRequest(deps, student, { kind: 'new_student', subjects: student.subjects || [] });
+      await emailAdminNewStudent(deps, student, request);
+      await connectParents(deps, student, [parent.email]);
+      await notify(deps, parent.id, 'Account set up', `${student.displayName} finished signing up. Their classes and progress will appear on your dashboard.`, '/parent');
+      // A parent filling this in for their child stays signed in as themselves.
+      if (invite.sentToParent) {
+        res.status(201).json({ user: toPublicUser(student), signedIn: false });
+        return;
+      }
+      setCookie(res, createToken(student, deps.sessionSecret, deps.sessionDays, deps.now()));
+      res.status(201).json({ user: toPublicUser(student), signedIn: true });
     }),
   );
 

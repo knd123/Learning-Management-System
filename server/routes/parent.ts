@@ -5,8 +5,10 @@ import { ONE_DAY } from '../../shared/time.ts';
 import { requireRole, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
-import { h, notFound } from '../http.ts';
+import { h, HttpError, notFound, str } from '../http.ts';
 import { coursesFor, usersById } from '../services/access.ts';
+import { invitedStudents, inviteStudent, resendStudentInvite } from '../services/invites.ts';
+import { parseEmail } from '../services/profiles.ts';
 import { attendanceFor, studentProgress } from '../services/progress.ts';
 import { renderReportEmail } from '../services/reports.ts';
 import { ensureSessions } from '../services/schedule.ts';
@@ -76,8 +78,32 @@ export function parentRoutes(deps: Deps): Router {
       const overview: ParentOverview = {
         pendingNames: requests.filter((r) => r.status === 'pending').flatMap((r) => r.children.map((c) => c.name)),
         children: children.sort((a, b) => a.student.displayName.localeCompare(b.student.displayName)),
+        invited: await invitedStudents(deps, parent.id),
       };
       res.json(overview);
+    }),
+  );
+
+  // Registers another child: they (or the parent, when they share the parent's email) get a set-up link.
+  router.post(
+    '/students',
+    h(async (req, res) => {
+      const parent = req.user!;
+      const settings = await getSettings(deps.store);
+      if (!settings.allowStudentSignup) throw new HttpError(403, `Student sign-up is closed right now. Email ${settings.adminNotificationEmail} to add a student.`);
+      const name = str(req.body?.name, "Student's full name", { required: true, max: 100 });
+      const email = req.body?.usesParentEmail === true ? parent.email : parseEmail(req.body?.email, "Student's email", true);
+      if (!email) throw new HttpError(400, 'Add your email to your account first.');
+      await inviteStudent(deps, parent, { name, email });
+      res.status(201).json(await invitedStudents(deps, parent.id));
+    }),
+  );
+
+  router.post(
+    '/invites/:id/resend',
+    h(async (req, res) => {
+      await resendStudentInvite(deps, req.user!, req.params.id);
+      res.json(await invitedStudents(deps, req.user!.id));
     }),
   );
 

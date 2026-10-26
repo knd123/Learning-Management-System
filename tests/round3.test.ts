@@ -116,7 +116,7 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     await new Client(h).post('/api/auth/signup', {
       displayName: 'Liya Mekonnen', email: 'liya@example.org', schoolName: 'Wilson HS', city: 'Washington', state: 'DC', grade: 11,
       subjects: ['Chemistry'], hoursPerWeek: 1, availability: [{ weekday: 2, start: '16:00', end: '19:00' }], timezone: NY,
-      parentPhone: '202-555-0100', parentEmail: 'selam@example.org', username: 'liya', password: 'liya-pass-1',
+      parentName: 'Selam Mekonnen', parentPhone: '202-555-0100', parentEmail: 'selam@example.org', username: 'liya', password: 'liya-pass-1',
     }, 201);
     const [row] = await admin.get('/api/admin/matches');
     let detail = await admin.get(`/api/admin/matches/${row.request.id}`);

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { StudentProfile } from '../../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../../shared/hours.ts';
+import { parentsOf } from '../../components/ParentsEditor.tsx';
 import { StudentRequests } from '../../components/StudentRequests.tsx';
 import { Button, Card, ErrorBox, Loading, Notice, PageHeader, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
@@ -31,9 +32,7 @@ export default function StudentProfilePage() {
       timezone: u.timezone,
       availability: u.availability || [],
       notes: u.notes || '',
-      parentName: u.parentName || '',
-      parentPhone: u.parentPhone || '',
-      parentEmail: u.parentEmails?.[0] || '',
+      parents: parentsOf(u),
     });
   }, [data]);
 
@@ -54,9 +53,8 @@ export default function StudentProfilePage() {
     setBusy(true);
     setSaveError(null);
     try {
-      const payload = intakePayload(form);
-      const extraParents = data.user.parentEmails?.slice(1) || [];
-      const updated = await api.put<StudentProfile>('/api/student/profile', { ...payload, parentEmails: [...payload.parentEmails, ...extraParents] });
+      // Report emails of parents the team linked are kept by the server.
+      const updated = await api.put<StudentProfile>('/api/student/profile', intakePayload(form));
       setData(updated);
       setUser(updated.user);
       toast(subjectsChanged ? 'Saved. Your subject change was sent to the Abugida team.' : hoursChanged ? 'Saved. Your new hours were sent to the Abugida team.' : 'Profile saved.');

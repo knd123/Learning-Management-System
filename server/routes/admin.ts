@@ -21,6 +21,7 @@ import { recordingState } from '../services/recordings.ts';
 import { resyncFutureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
+import { connectParents } from '../services/invites.ts';
 import { assertUsernameAvailable, normalizeUsername } from './auth.ts';
 
 const email = parseEmail;
@@ -151,6 +152,7 @@ export function adminRoutes(deps: Deps): Router {
       if (role === 'student' && user.grade === undefined) throw badRequest('Grade is required for students.');
       if (role === 'parent') user.linkedStudentIds = await linkStudents(user, body.linkedStudentIds);
       await deps.store.put(C.users, user);
+      if (user.parents?.length) await connectParents(deps, user);
       // Students added by the team with subjects join the pairing queue like self-sign-ups.
       if (role === 'student' && user.subjects?.length && body.createMatchRequest !== false) {
         await createMatchRequest(deps, user, { kind: 'new_student', subjects: user.subjects });
@@ -175,7 +177,7 @@ export function adminRoutes(deps: Deps): Router {
         changes.username = normalizeUsername(str(body.username, 'Username', { required: true, max: 40 }));
         await ensureUniqueUsername(changes.username, user.id);
       }
-      applyProfile(changes, body, user.role, { timezone: settings.timezone, admin: true });
+      applyProfile(changes, body, user.role, { timezone: settings.timezone, admin: true, current: user });
       if (user.role === 'mentor') {
         const minGrade = changes.minGrade ?? user.minGrade;
         const maxGrade = changes.maxGrade ?? user.maxGrade;
@@ -188,6 +190,7 @@ export function adminRoutes(deps: Deps): Router {
         if (!changes.active) changes.tokenVersion = user.tokenVersion + 1; // signs the user out everywhere
       }
       const updated = await deps.store.patch<UserRecord>(C.users, user.id, changes);
+      if (changes.parents) await connectParents(deps, updated!, (user.parents || []).map((p) => p.email));
       res.json(toPublicUser(updated!));
     }),
   );

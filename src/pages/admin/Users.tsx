@@ -4,6 +4,7 @@ import type { PublicConfig } from '../../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../../shared/hours.ts';
 import type { AvailabilityWindow, PublicUser, Role } from '../../../shared/types.ts';
 import { AvailabilityEditor } from '../../components/Availability.tsx';
+import { ParentsEditor, parentsOf, parentsProblem } from '../../components/ParentsEditor.tsx';
 import { SubjectHoursEditor, SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
 import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, Textarea, useToast } from '../../components/ui.tsx';
@@ -211,9 +212,11 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
   const [state, setState] = useState(user?.state || '');
   const [subjectHours, setSubjectHours] = useState<Record<string, number>>(user?.role === 'student' ? hoursBySubject(user.subjects || [], user.subjectHours, user.hoursPerWeek) : {});
   const [notes, setNotes] = useState(user?.notes || '');
-  const [parentName, setParentName] = useState(user?.parentName || '');
-  const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
-  const [parentEmails, setParentEmails] = useState(user?.parentEmails?.join(', ') || '');
+  const initialParents = user ? parentsOf(user) : [];
+  const [parents, setParents] = useState(initialParents);
+  // Report emails of parents the team linked who are not on the student's list.
+  const [otherEmails, setOtherEmails] = useState((user?.parentEmails || []).filter((e) => !initialParents.some((p) => p.email === e)).join(', '));
+  const [parentsChanged, setParentsChanged] = useState(false);
   const [driveFolderUrl, setDriveFolderUrl] = useState(user?.driveFolderUrl || '');
   const [googleEmail, setGoogleEmail] = useState(user?.googleEmail || '');
   const [subjects, setSubjects] = useState<string[]>(user?.subjects || []);
@@ -233,12 +236,17 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    // Parents are only sent when edited, so older profiles without a parent name still save.
+    const sendParents = role === 'student' && parentsChanged;
+    const problem = sendParents ? parentsProblem(parents) : null;
+    if (problem) return setError(problem);
     setBusy(true);
     setError(null);
     const body: Record<string, unknown> = { displayName, username, timezone };
     if (role !== 'student' || email) body.email = email;
     if (role === 'student') {
-      Object.assign(body, { grade: Number(grade), schoolName, city, state, subjects, availability, notes, parentName, parentPhone, parentEmails, driveFolderUrl, googleEmail });
+      Object.assign(body, { grade: Number(grade), schoolName, city, state, subjects, availability, notes, driveFolderUrl, googleEmail });
+      if (sendParents) Object.assign(body, { parents, parentEmails: otherEmails });
       if (subjects.length) body.subjectHours = Object.fromEntries(subjects.map((s) => [s, subjectHours[s] ?? DEFAULT_SUBJECT_HOURS]));
       if (!user) body.createMatchRequest = queueForPairing;
     }
@@ -314,11 +322,31 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
             </Field>
             <Field label="Weekly availability">{() => <AvailabilityEditor value={availability} onChange={setAvailability} />}</Field>
             <Field label="Additional notes / special needs">{(id) => <Textarea id={id} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>
+            <Field label="Parents or guardians" hint="Each new parent gets an email with a link to create a parent account linked to this student.">
+              {() => (
+                <ParentsEditor
+                  value={parents}
+                  onChange={(v) => {
+                    setParents(v);
+                    setParentsChanged(true);
+                  }}
+                  allowNone
+                />
+              )}
+            </Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Parent / guardian name">{(id) => <Input id={id} value={parentName} onChange={(e) => setParentName(e.target.value)} />}</Field>
-              <Field label="Parent phone">{(id) => <Input id={id} type="tel" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} />}</Field>
-              <Field label="Parent email(s)" hint="Pairing updates and monthly reports go here. Separate several with commas." className="sm:col-span-2">
-                {(id) => <Input id={id} value={parentEmails} onChange={(e) => setParentEmails(e.target.value)} placeholder="parent@example.com, other@example.com" />}
+              <Field label="Other emails for monthly reports" hint="Separate several with commas." className="sm:col-span-2">
+                {(id) => (
+                  <Input
+                    id={id}
+                    value={otherEmails}
+                    onChange={(e) => {
+                      setOtherEmails(e.target.value);
+                      setParentsChanged(true);
+                    }}
+                    placeholder="grandparent@example.com"
+                  />
+                )}
               </Field>
               <Field label="Student's Google Drive folder" hint="Where mentors upload this student's class recordings." className="sm:col-span-2">
                 {(id) => <Input id={id} type="url" value={driveFolderUrl} onChange={(e) => setDriveFolderUrl(e.target.value)} placeholder="https://drive.google.com/drive/folders/…" />}

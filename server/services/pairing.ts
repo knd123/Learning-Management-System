@@ -332,8 +332,9 @@ function studentDetails(student: UserRecord): Array<[string, string | undefined]
     ['Total hours per week', student.hoursPerWeek ? String(student.hoursPerWeek) : undefined],
     ['Availability', student.availability?.length ? `${student.availability.map((w) => `${days[w.weekday]} ${w.start}–${w.end}`).join(', ')} (${student.timezone})` : undefined],
     ['Notes', student.notes],
-    ['Parent phone', student.parentPhone],
-    ['Parent email', student.parentEmails?.join(', ')],
+    ...(student.parents?.length
+      ? student.parents.map((p, i): [string, string] => [student.parents!.length > 1 ? `Parent ${i + 1}` : 'Parent', `${p.name} · ${p.email} · ${p.phone}`])
+      : [['Parent phone', student.parentPhone], ['Parent email', student.parentEmails?.join(', ')]] as Array<[string, string | undefined]>),
   ];
 }
 

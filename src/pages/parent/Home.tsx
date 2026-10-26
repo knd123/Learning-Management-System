@@ -1,7 +1,9 @@
-import { CalendarClock, ChevronRight, ClipboardList, Hourglass, Sparkles, UsersRound } from 'lucide-react';
+import { CalendarClock, ChevronRight, ClipboardList, Hourglass, MailCheck, Plus, Sparkles, UsersRound } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import type { ParentChildSummary, ParentOverview } from '../../../shared/api.ts';
-import { Badge, Card, EmptyState, ErrorBox, Loading, Notice } from '../../components/ui.tsx';
+import type { InvitedStudent, ParentChildSummary, ParentOverview } from '../../../shared/api.ts';
+import { Badge, Button, Card, Checkbox, EmptyState, ErrorBox, Field, Input, Loading, Notice, useToast } from '../../components/ui.tsx';
+import { api, errorMessage } from '../../lib/api.ts';
 import { useAuth } from '../../lib/auth.tsx';
 import { ContactEmail } from '../../lib/contact.tsx';
 import { fmtDay, fmtRelative, fmtSlot, fmtTimeRange, firstName, greeting, monthLabel, tzAbbrev } from '../../lib/format.ts';
@@ -9,7 +11,7 @@ import { useApi } from '../../lib/useApi.ts';
 
 export default function ParentHome() {
   const { user } = useAuth();
-  const { data, error, loading, reload } = useApi<ParentOverview>('/api/parent/overview');
+  const { data, error, loading, reload, setData } = useApi<ParentOverview>('/api/parent/overview');
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox message={error || 'Could not load your dashboard.'} onRetry={reload} />;
 
@@ -39,13 +41,109 @@ export default function ParentHome() {
           ))}
         </div>
       ) : (
-        !data.pendingNames.length && (
+        !data.pendingNames.length &&
+        !data.invited.length && (
           <EmptyState icon={<UsersRound className="size-8" />} title="No students linked yet">
-            Email the Abugida team at <ContactEmail className="text-brand-700" /> and we'll link your account to your child's profile.
+            Register your child below, or email the Abugida team at <ContactEmail className="text-brand-700" /> if they already have an account.
           </EmptyState>
         )
       )}
+
+      <Invited invited={data.invited} onChange={(invited) => setData({ ...data, invited })} />
     </div>
+  );
+}
+
+/** Students the parent registered who still have to set up their account, and a form to register another. */
+function Invited({ invited, onChange }: { invited: InvitedStudent[]; onChange(list: InvitedStudent[]): void }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [usesMine, setUsesMine] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const register = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy('new');
+    setError(null);
+    try {
+      onChange(await api.post<InvitedStudent[]>('/api/parent/students', { name, email, usesParentEmail: usesMine }));
+      toast(usesMine ? `We emailed you a link to set up ${firstName(name)}'s account.` : `We emailed ${firstName(name)} a link to set up their account.`);
+      setOpen(false);
+      setName('');
+      setEmail('');
+      setUsesMine(false);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const resend = async (s: InvitedStudent) => {
+    setBusy(s.id);
+    try {
+      onChange(await api.post<InvitedStudent[]>(`/api/parent/invites/${s.id}/resend`));
+      toast(`A new link went to ${s.sentToParent ? 'you' : s.email}.`);
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section className="flex flex-col gap-3">
+      {invited.length > 0 && (
+        <Card>
+          <h2 className="font-semibold">Waiting to set up their account</h2>
+          <ul className="mt-3 flex flex-col gap-2">
+            {invited.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand-50 px-3 py-2.5 text-sm">
+                <span>
+                  <span className="block font-medium">{s.name}</span>
+                  <span className="text-ink-muted">
+                    Link sent to {s.sentToParent ? 'you' : s.email} {fmtRelative(s.sentAt)}
+                  </span>
+                </span>
+                <span className="flex items-center gap-2">
+                  {s.expired ? <Badge tone="red">Link expired</Badge> : <Badge tone="amber"><MailCheck className="size-3" /> Link sent</Badge>}
+                  <Button size="sm" variant="ghost" loading={busy === s.id} onClick={() => void resend(s)}>
+                    Resend link
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      {open ? (
+        <Card>
+          <form onSubmit={register} className="flex flex-col gap-3" noValidate>
+            <h2 className="font-semibold">Register another student</h2>
+            <Field label="Full name">{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} required />}</Field>
+            <Field label="Student's email">{(id) => <Input id={id} type="email" value={usesMine ? user?.email || '' : email} onChange={(e) => setEmail(e.target.value)} disabled={usesMine} required />}</Field>
+            <Checkbox label="Uses my email" hint="For a student without an email of their own. The set-up link comes to you." checked={usesMine} onChange={setUsesMine} />
+            {error && <ErrorBox message={error} />}
+            <div className="flex gap-2">
+              <Button type="submit" size="sm" loading={busy === 'new'}>
+                Send set-up link
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Card>
+      ) : (
+        <Button variant="secondary" className="self-start" onClick={() => setOpen(true)}>
+          <Plus className="size-4" /> Register another student
+        </Button>
+      )}
+    </section>
   );
 }
 

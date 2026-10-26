@@ -20,6 +20,7 @@ const KIND_LABEL: Record<EmailLog['kind'], string> = {
   parent_request: 'Parent request',
   reward: 'Gift card',
   account: 'Account',
+  invite: 'Account link',
   password_reset: 'Password reset',
   test: 'Test',
 };

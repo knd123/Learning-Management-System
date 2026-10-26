@@ -32,7 +32,7 @@ describe('students choosing a mentor', () => {
     await student.post('/api/auth/signup', {
       displayName: 'Nahom Tadesse', email: 'nahom@example.com', schoolName: 'Wilson High School', city: 'Washington', state: 'DC', grade: 9,
       subjects: ['Math'], subjectHours: { Math: 2 }, availability: week, timezone: NY,
-      parentPhone: '+1 202 555 0100', parentEmail: 'tigist@example.com', username: 'nahom', password: 'nahom-pass-1',
+      parentName: 'Tigist Tadesse', parentPhone: '+1 202 555 0100', parentEmail: 'tigist@example.com', username: 'nahom', password: 'nahom-pass-1',
     }, 201);
   });
   after(() => h.close());

@@ -453,6 +453,36 @@ export interface ParentOverview {
   /** Names in the parent's request while the team is still confirming them. */
   pendingNames: string[];
   children: ParentChildSummary[];
+  /** Students this parent registered who have not set up their account yet. */
+  invited: InvitedStudent[];
+}
+
+export interface InvitedStudent {
+  id: string;
+  name: string;
+  /** Where the set-up link went: the student's email, or the parent's when they share it. */
+  email: string;
+  sentToParent: boolean;
+  sentAt: string;
+  expired: boolean;
+}
+
+/** What an account set-up link is for, shown before its form. */
+export interface InviteInfo {
+  valid: boolean;
+  kind?: 'parent' | 'student';
+  /** Who the account is for. */
+  name?: string;
+  email?: string;
+  phone?: string;
+  /** Parent links: the students the new account will follow. */
+  studentNames?: string[];
+  /** Parent links: a parent account with this email already exists, so the students are added to it. */
+  existingAccount?: boolean;
+  /** Student links: the parent who registered the student. */
+  parent?: import('./types.ts').ParentContact;
+  /** Student links sent to the parent's email because the student has no email of their own. */
+  sentToParent?: boolean;
 }
 
 export interface ParentChildDetail {

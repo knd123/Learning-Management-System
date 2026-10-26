@@ -2,6 +2,13 @@
 
 export type Role = 'student' | 'parent' | 'mentor' | 'admin';
 
+/** A parent or guardian on a student's profile. */
+export interface ParentContact {
+  name: string;
+  email: string;
+  phone: string;
+}
+
 /** A weekly time window when someone is free, as wall-clock times in their own timezone. */
 export interface AvailabilityWindow {
   /** 0 = Sunday ... 6 = Saturday. */
@@ -37,7 +44,10 @@ export interface PublicUser {
   subjectHours?: Record<string, number>;
   /** Special needs or anything the team should know. Shared with the student's mentors. */
   notes?: string;
+  /** The one or two parents or guardians the student listed. The first is also in parentName / parentPhone. */
+  parents?: ParentContact[];
   parentName?: string;
+  /** Who gets the monthly reports: the listed parents, plus any parent the team linked. */
   parentEmails?: string[];
   parentPhone?: string;
   driveFolderUrl?: string;
@@ -465,6 +475,7 @@ export type EmailKind =
   | 'reward'
   | 'account'
   | 'password_reset'
+  | 'invite'
   | 'test';
 
 export interface EmailLog {
