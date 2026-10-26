@@ -92,54 +92,45 @@ Abeba has a gift card waiting under Admin → Approvals, and the rating pop-up s
 
 Without SMTP settings, emails are not sent. They appear under **Admin → Emails** instead. Without a `GEMINI_API_KEY`, parent reports use a standard template and AI quiz and homework generation is turned off.
 
-## Go live (recommended: Google Cloud Run + Firestore)
+## Go live on Google Cloud
 
-This setup needs no servers to maintain. It runs in the same Google Cloud project as your Firebase/AI Studio app, so no service-account keys are needed.
+`deploy/gcp/deploy.sh` sets everything up in one run and is safe to re-run for updates:
+
+- **Cloud Run** runs the app. It is built from the Dockerfile and scales to zero when idle, with at most 3 instances.
+- **Firestore** is the database, with point-in-time recovery and daily backups kept for 14 days.
+- **Cloud Storage** keeps uploaded files, closed to the public.
+- **Secret Manager** keeps the session, scheduled-job and admin secrets, plus the email and Gemini keys if you give them.
+- **Cloud Scheduler** calls the app every 10 minutes for reminders, quizzes and reports.
+- **Your domain** is connected to the app.
+
+The app runs as its own service account that can reach only its database, bucket and secrets.
+
+**Once, in the Google Cloud console:**
+
+1. Create a project (for example `abugida-lms`) and link a billing account to it.
+2. IAM & Admin → Service accounts → Create a service account named `deployer` with the **Owner** role. Then open it → Keys → Add key → JSON, and download the key file.
+3. In [Google Search Console](https://search.google.com/search-console), verify `abugidaeducation.com` if it isn't verified yet. Then go to Settings → Users and permissions and add the deployer's email (`deployer@<project>.iam.gserviceaccount.com`) as **Owner**. This lets the script connect `learn.abugidaeducation.com`.
+
+**Run the script** from the repository:
 
 ```bash
-PROJECT=your-gcp-project          # e.g. your existing Firebase project id
-REGION=europe-west1               # pick the region closest to your students
-gcloud config set project $PROJECT
-gcloud services enable run.googleapis.com firestore.googleapis.com cloudscheduler.googleapis.com secretmanager.googleapis.com cloudbuild.googleapis.com
-
-# 1. Database + file storage (skip whatever already exists)
-gcloud firestore databases create --location=$REGION          # Native mode
-gcloud storage buckets create gs://$PROJECT-lms-files --location=$REGION --uniform-bucket-level-access
-
-# 2. Secrets
-printf "$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" | gcloud secrets create lms-session-secret --data-file=-
-printf "$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")" | gcloud secrets create lms-cron-secret --data-file=-
-printf 'choose-a-strong-admin-password' | gcloud secrets create lms-admin-password --data-file=-
-printf 'your-smtp-password' | gcloud secrets create lms-smtp-pass --data-file=-
-printf 'your-gemini-api-key' | gcloud secrets create lms-gemini-key --data-file=-
-
-# 3. Permissions for the Cloud Run service account
-SA=$(gcloud projects describe $PROJECT --format='value(projectNumber)')-compute@developer.gserviceaccount.com
-gcloud projects add-iam-policy-binding $PROJECT --member=serviceAccount:$SA --role=roles/datastore.user
-gcloud storage buckets add-iam-policy-binding gs://$PROJECT-lms-files --member=serviceAccount:$SA --role=roles/storage.objectAdmin
-for s in lms-session-secret lms-cron-secret lms-admin-password lms-smtp-pass lms-gemini-key; do
-  gcloud secrets add-iam-policy-binding $s --member=serviceAccount:$SA --role=roles/secretmanager.secretAccessor
-done
-
-# 4. Deploy (builds the Dockerfile in this repo)
-gcloud run deploy abugida-lms --source . --region $REGION --allow-unauthenticated \
-  --set-env-vars "DATA_BACKEND=firestore,FILE_BACKEND=gcs,STORAGE_BUCKET=$PROJECT-lms-files,FIREBASE_PROJECT_ID=$PROJECT,ADMIN_USERNAME=admin,ADMIN_EMAIL=info@abugidaeducation.com,SMTP_HOST=smtp.gmail.com,SMTP_PORT=587,SMTP_USER=info@abugidaeducation.com,EMAIL_FROM=Abugida Education <info@abugidaeducation.com>,APP_URL=https://learn.your-domain.com" \
-  --set-secrets "SESSION_SECRET=lms-session-secret:latest,CRON_SECRET=lms-cron-secret:latest,ADMIN_PASSWORD=lms-admin-password:latest,SMTP_PASS=lms-smtp-pass:latest,GEMINI_API_KEY=lms-gemini-key:latest"
-
-# 5. Run reminders / quizzes / reports every 10 minutes
-URL=$(gcloud run services describe abugida-lms --region $REGION --format='value(status.url)')
-gcloud scheduler jobs create http lms-tick --location=$REGION --schedule="*/10 * * * *" \
-  --uri="$URL/api/cron/tick" --http-method=POST \
-  --headers="x-cron-secret=$(gcloud secrets versions access latest --secret=lms-cron-secret)"
+GOOGLE_SA_KEY="$(cat deployer-key.json)" \
+SMTP_APP_PASSWORD="<app password for info@abugidaeducation.com>" \
+GEMINI_API_KEY="<Gemini API key>" \
+./deploy/gcp/deploy.sh
 ```
 
-Then:
+The defaults are region `us-east4` (Virginia), domain `learn.abugidaeducation.com` and timezone `America/New_York`. Override them with `REGION=…`, `DOMAIN=…` or `ORG_TIMEZONE=…`. `DRY_RUN=1` prints every command without running it. The email password and Gemini key are optional and can be added on a later run.
 
-1. Set `APP_URL` to the final address. Map a custom domain with `gcloud run domain-mappings create` or the Cloud Run console. Reminder emails link to `APP_URL`.
-2. Paste `firestore.rules` into Firebase console → Firestore → Rules, and `storage.rules` into Storage → Rules. The app only uses the server-side Admin SDK, so these rules lock out direct client access.
-3. Sign in as `admin` and work through the **first-day checklist** below.
+**At the end**, the script prints:
 
-> Using the existing AI Studio Firebase project? Its Firestore database has a custom ID. Add `FIRESTORE_DATABASE_ID=<that id>` to the env vars, or create a dedicated `(default)` database for the LMS (cleaner).
+- the app's `…run.app` address, which works right away;
+- the DNS records to add at your domain registrar (HTTPS on your domain starts working up to a day later);
+- where to find the admin password: Secret Manager → `lms-admin-password`. Change it after your first sign-in.
+
+To ship a new version, run the script again. Cloud Run keeps earlier versions, so you can roll back from the console (Revisions → Manage traffic).
+
+The app talks to Firestore and Cloud Storage only through the server. If you ever add Firebase to the project, publish `firestore.rules` and `storage.rules` so no browser can reach the data directly.
 
 ### Simpler alternative: one server with a disk
 
@@ -191,7 +182,7 @@ By default, mentors upload the recording to the student's Drive folder and paste
 To also expire students' **Drive** access automatically:
 
 1. Set `GOOGLE_DRIVE_ENABLED=true`.
-2. Share each student's Drive folder with the server's service account (the Cloud Run service account above) as **Editor**.
+2. Share each student's Drive folder as **Editor** with the app's service account, `lms-runtime@<project>.iam.gserviceaccount.com` (created by the deploy script).
 3. Add each student's Google account under People → Student → "Student's Google account".
 
 When a mentor saves a recording link, those students get view access that expires at the end of the viewing window. A background job also removes it as a safety net.
