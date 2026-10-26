@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Eye, EyeOff, FlaskConical, GraduationCap, HeartHandshake, Laptop, School, UserRound, Users } from 'lucide-react';
+import { Eye, EyeOff, FlaskConical, GraduationCap, HeartHandshake, KeyRound, Laptop, School, ShieldCheck, UserRound, Users } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import type { PublicConfig } from '../../shared/api.ts';
@@ -8,7 +8,6 @@ import { GoogleSignInButton } from '../components/GoogleSignIn.tsx';
 import { Button, ErrorBox, Field, Input } from '../components/ui.tsx';
 import { api, errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
-import { ContactEmail } from '../lib/contact.tsx';
 import { useApi } from '../lib/useApi.ts';
 
 type Mode = 'student' | 'parent' | 'mentor' | 'team';
@@ -202,15 +201,23 @@ export default function LoginPage() {
                 </div>
               )}
             </Field>
-            {mode !== 'team' && (
-              <Link to={`/forgot-password?as=${mode}`} className="-mt-3 self-end text-sm font-semibold text-brand-700 hover:underline">
-                Forgot password?
-              </Link>
-            )}
             <Button type="submit" size="lg" loading={busy}>
               Sign in{mode !== 'team' && ` as ${mode}`}
             </Button>
           </form>
+          {/* Right under the button, so both stay in view on phones and short laptop screens. */}
+          {mode === 'team' ? (
+            <p className="mt-4 text-sm text-ink-soft">The team password is kept in Google Cloud Secret Manager (lms-admin-password).</p>
+          ) : (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 text-sm font-semibold">
+              <Link to={`/forgot-password?as=${mode}`} className="inline-flex items-center gap-1.5 text-brand-700 hover:underline">
+                <KeyRound className="size-4" aria-hidden /> Forgot password?
+              </Link>
+              <button type="button" onClick={() => setMode('team')} className="inline-flex items-center gap-1.5 text-brand-700 hover:underline">
+                <ShieldCheck className="size-4" aria-hidden /> Abugida team sign-in
+              </button>
+            </div>
+          )}
           {/* Kept mounted on the team tab (just hidden) so Google's button is only set up once. */}
           {config.data?.googleClientId && (
             <div className={clsx(mode === 'team' && 'hidden')}>
@@ -230,16 +237,6 @@ export default function LoginPage() {
                 {signup.cta}
               </Link>
             </div>
-          )}
-          {mode === 'team' && (
-            <p className="mt-6 text-sm text-ink-muted">
-              Forgot your password? Email <ContactEmail email={config.data?.contactEmail} className="text-brand-700" /> and the Abugida team will reset it for you.
-            </p>
-          )}
-          {mode !== 'team' && (
-            <button type="button" onClick={() => setMode('team')} className="mt-4 text-xs font-semibold text-ink-muted underline hover:text-ink">
-              Abugida team? Sign in here
-            </button>
           )}
         </div>
       </div>
