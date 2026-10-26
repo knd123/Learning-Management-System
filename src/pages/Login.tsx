@@ -111,7 +111,7 @@ export default function LoginPage() {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    void signIn(() => login(username, password, mode === 'team' ? undefined : mode));
+    void signIn(() => login(username, password, mode === 'team' ? 'admin' : mode));
   };
 
   const signInWithGoogle = (credential: string) =>

@@ -79,7 +79,9 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     const err = await c.post('/api/auth/login', { username: 'abeba', password: abebaPassword, as: 'parent' }, 400);
     assert.match(err.error, /student account/);
     await c.post('/api/auth/login', { username: 'abeba', password: abebaPassword, as: 'student' });
-    await new Client(h).post('/api/auth/login', { username: 'admin', password: 'admin-pass-123', as: 'mentor' }); // the team can use any tab
+    // The team signs in only from "Abugida team? Sign in here".
+    await new Client(h).post('/api/auth/login', { username: 'admin', password: 'admin-pass-123', as: 'mentor' }, 400);
+    await new Client(h).post('/api/auth/login', { username: 'admin', password: 'admin-pass-123', as: 'admin' });
   });
 
   it('lets mentors apply; they are only paired after approval', async () => {

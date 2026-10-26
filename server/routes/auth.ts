@@ -12,11 +12,13 @@ import { createMatchRequest, emailAdminNewStudent } from '../services/pairing.ts
 import { completePasswordReset, findResetAccount, requestPasswordReset, SELF_SERVICE_ROLES } from '../services/passwordReset.ts';
 import { ACADEMIC_LEVELS, applyProfile } from '../services/profiles.ts';
 import { getSettings } from '../services/settings.ts';
+import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 
 const ROLE_NAMES: Record<Role, string> = { student: 'student', parent: 'parent', mentor: 'mentor', admin: 'Abugida team' };
 
-/** The sign-in page has Student / Parent / Mentor tabs; points people to the right one. */
+/** The sign-in page has Student / Parent / Mentor tabs and a separate team form; points people to the right one. */
 function wrongTab(role: Role): HttpError {
+  if (role === 'admin') return new HttpError(400, 'This is the Abugida team account. Use “Abugida team? Sign in here” below.');
   const name = ROLE_NAMES[role];
   return new HttpError(400, `This is a ${name} account. Choose “${name[0].toUpperCase()}${name.slice(1)}” above and sign in again.`);
 }
@@ -63,14 +65,16 @@ export function authRoutes(deps: Deps): Router {
       const nowMs = deps.now().getTime();
       if (!limiter.check(key, nowMs)) throw new HttpError(429, 'Too many attempts. Please wait 15 minutes and try again.');
       const [user] = await deps.store.find<UserRecord>(C.users, { username });
-      if (!user || !user.active || !(await verifyPassword(password, user.passwordHash))) {
+      // Only the account named by ADMIN_USERNAME signs in as the Abugida team.
+      const extraAdmin = user?.role === 'admin' && Boolean(deps.adminUsername) && user.username !== deps.adminUsername;
+      if (!user || !user.active || extraAdmin || !(await verifyPassword(password, user.passwordHash))) {
         limiter.fail(key, nowMs);
         throw new HttpError(401, 'That username and password do not match. Please check and try again.');
       }
       limiter.reset(key);
-      // The Abugida team can sign in from any tab.
+      // Each tab signs in its own accounts; the team signs in only from "Abugida team? Sign in here" (as: 'admin').
       const as = req.body?.as as Role | undefined;
-      if (as && SELF_SERVICE_ROLES.includes(as) && user.role !== as && user.role !== 'admin') throw wrongTab(user.role);
+      if (as && (as === 'admin' || SELF_SERVICE_ROLES.includes(as)) && user.role !== as) throw wrongTab(user.role);
       const updated = (await deps.store.patch<UserRecord>(C.users, user.id, { lastLoginAt: deps.now().toISOString() }))!;
       setCookie(res, createToken(updated, deps.sessionSecret, deps.sessionDays, deps.now()));
       res.json({ user: toPublicUser(updated) });
@@ -269,6 +273,7 @@ export function authRoutes(deps: Deps): Router {
     '/password',
     h(async (req, res) => {
       if (!req.user) throw new HttpError(401, 'Please sign in.');
+      if (req.user.role === 'admin') throw badRequest(TEAM_SIGN_IN_NOTE);
       const current = str(req.body?.currentPassword, 'Current password', { required: true, max: 200 });
       const next = str(req.body?.newPassword, 'New password', { required: true, max: 200 });
       if (next.length < 8) throw new HttpError(400, 'Choose a password with at least 8 characters.');

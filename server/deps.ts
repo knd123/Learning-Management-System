@@ -22,4 +22,6 @@ export interface Deps {
   maxUploadMb: number;
   cronSecret: string;
   dataBackend: string;
+  /** The one username that may sign in as the Abugida team (ADMIN_USERNAME). Empty allows any admin account (local demo, tests). */
+  adminUsername?: string;
 }

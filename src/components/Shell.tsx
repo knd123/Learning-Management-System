@@ -42,6 +42,7 @@ const NAV: Record<Role, NavItem[]> = {
     { to: '/student/recordings', label: 'Recordings', icon: PlayCircle },
     { to: '/student/quizzes', label: 'Quizzes', icon: Sparkles },
     { to: '/student/progress', label: 'My progress', icon: BarChart3 },
+    { to: '/student/mentors', label: 'Find a mentor', icon: Users },
     { to: '/student/profile', label: 'My profile', icon: UserRound },
   ],
   parent: [{ to: '/parent', label: 'My children', icon: Home, end: true }],

@@ -1,6 +1,6 @@
 import { CheckCircle2, Hourglass, XCircle } from 'lucide-react';
 import type { StudentRequestView } from '../../shared/api.ts';
-import { fmtDate } from '../lib/format.ts';
+import { fmtDate, REQUEST_KIND_LABEL } from '../lib/format.ts';
 import { Badge, Card } from './ui.tsx';
 
 /** A student's pairing requests and where each subject stands. */
@@ -13,13 +13,14 @@ export function StudentRequests({ requests, title = 'Mentor pairing' }: { reques
         {requests.map((r) => (
           <div key={r.id}>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-              {r.kind === 'new_student' ? 'Sign-up request' : 'Subject change'} · {fmtDate(r.createdAt)}
+              {r.kind === 'new_student' ? 'Sign-up request' : REQUEST_KIND_LABEL[r.kind]} · {fmtDate(r.createdAt)}
             </p>
             <ul className="flex flex-col gap-2">
               {r.items.map((i) => (
                 <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand-50 px-3 py-2.5 text-sm">
                   <span className="font-medium">
                     {i.subject} <span className="font-normal text-ink-muted">· {i.hoursPerWeek}h/week</span>
+                    {i.status === 'pending' && i.requestedMentorName && <span className="block text-xs font-normal text-ink-muted">You asked for {i.requestedMentorName}</span>}
                   </span>
                   {i.status === 'approved' ? (
                     <Badge tone="green">

@@ -102,6 +102,9 @@ export interface MatchItem {
   status: MatchItemStatus;
   /** The platform's best suggestion when the request was made. */
   suggestedMentorId?: string;
+  /** The mentor the student asked for on "Find a mentor". Only the team can approve the pairing. */
+  requestedMentorId?: string;
+  requestedAt?: string;
   /** Mentor approved by the team. */
   mentorId?: string;
   /** The 1-on-1 class created on approval. */
@@ -111,11 +114,11 @@ export interface MatchItem {
   decidedBy?: string;
 }
 
-/** A student's request for mentor pairing (at sign-up or after changing subjects). */
+/** A student's request for mentor pairing (at sign-up, after changing subjects, or for a mentor they chose). */
 export interface MatchRequest {
   id: string;
   studentId: string;
-  kind: 'new_student' | 'subject_change';
+  kind: 'new_student' | 'subject_change' | 'mentor_request';
   status: 'open' | 'closed';
   items: MatchItem[];
   /** Subjects the student asked to drop (subject changes only). */
@@ -454,6 +457,7 @@ export type EmailKind =
   | 'new_student'
   | 'subject_change'
   | 'hours_change'
+  | 'mentor_request'
   | 'pairing'
   | 'class_feedback'
   | 'mentor_application'

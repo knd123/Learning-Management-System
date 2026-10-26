@@ -1,6 +1,13 @@
-import type { ScheduleSlot } from '../../shared/types.ts';
+import type { MatchRequest, ScheduleSlot } from '../../shared/types.ts';
 
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** How a mentor-pairing request started. */
+export const REQUEST_KIND_LABEL: Record<MatchRequest['kind'], string> = {
+  new_student: 'New student',
+  subject_change: 'Subject change',
+  mentor_request: 'Mentor request',
+};
 
 const dayTime = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const dayOnly = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' });

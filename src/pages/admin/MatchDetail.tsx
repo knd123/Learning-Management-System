@@ -8,7 +8,7 @@ import { availabilityText } from '../../components/Availability.tsx';
 import { ScheduleEditor } from '../../components/ScheduleEditor.tsx';
 import { Badge, Button, Card, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { fmtDateTime, fmtRelative, fmtSlot, localYmd, tzAbbrev } from '../../lib/format.ts';
+import { fmtDateTime, fmtRelative, fmtSlot, localYmd, REQUEST_KIND_LABEL, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 const FIT: Record<MentorCandidate['fit'], { label: string; tone: 'green' | 'blue' | 'amber' | 'gray' }> = {
@@ -44,7 +44,7 @@ export default function AdminMatch() {
     <>
       <PageHeader
         title={student.displayName}
-        subtitle={`${request.kind === 'new_student' ? 'New student' : 'Subject change'} · requested ${fmtRelative(request.createdAt)}`}
+        subtitle={`${REQUEST_KIND_LABEL[request.kind]} · requested ${fmtRelative(request.createdAt)}`}
         back={{ to: '/admin/matches', label: 'Match requests' }}
         actions={
           request.status === 'open' ? (
@@ -133,8 +133,10 @@ export default function AdminMatch() {
 function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { requestId: string; detail: MatchItemDetail; mentors: MatchRequestDetail['mentors']; studentTz: string; onChange(d: MatchRequestDetail): void }) {
   const toast = useToast();
   const { item, candidates } = detail;
-  // Default to today's best available mentor (rankings refresh as mentors' schedules change).
-  const initial = candidates.find((c) => c.fit !== 'unavailable')?.mentorId || candidates[0]?.mentorId || '';
+  // Default to the mentor the student asked for, else today's best available mentor
+  // (rankings refresh as mentors' schedules change). The team can still choose anyone.
+  const requestedName = item.requestedMentorId ? mentors.find((m) => m.id === item.requestedMentorId)?.displayName : undefined;
+  const initial = (requestedName && item.requestedMentorId) || candidates.find((c) => c.fit !== 'unavailable')?.mentorId || candidates[0]?.mentorId || '';
   const [mentorId, setMentorId] = useState(initial);
   const [hours, setHours] = useState(String(item.hoursPerWeek));
   const [schedule, setSchedule] = useState<ScheduleSlot[]>(candidates.find((c) => c.mentorId === initial)?.proposedSchedule || []);
@@ -216,6 +218,11 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
         </h2>
         <Badge tone="amber">Waiting for approval</Badge>
       </div>
+      {requestedName && (
+        <Notice tone="blue">
+          The student asked for <strong>{requestedName}</strong>{item.requestedAt && ` (${fmtRelative(item.requestedAt)})`}. They are selected below; approve them or choose another mentor.
+        </Notice>
+      )}
 
       <div>
         <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
@@ -232,6 +239,7 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
                       <span className="font-semibold">{c.name}</span>
                       <Badge tone={FIT[c.fit].tone}>{FIT[c.fit].label}</Badge>
                       {idx === 0 && c.fit !== 'unavailable' && <Badge tone="brand">Top pick</Badge>}
+                      {c.mentorId === item.requestedMentorId && <Badge tone="blue">Student's choice</Badge>}
                     </span>
                     <span className="mt-1 block text-sm text-ink-soft">{c.reasons.join(' · ')}</span>
                     {c.proposedSchedule.length > 0 && <span className="mt-1 block text-xs text-ink-muted">Suggested times: {c.proposedSchedule.map(fmtSlot).join(', ')}</span>}

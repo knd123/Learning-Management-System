@@ -67,6 +67,28 @@ export default function MentorHome() {
           </section>
         )}
 
+        {data.requests.length > 0 && (
+          <section>
+            <SectionTitle>Students who asked for you</SectionTitle>
+            <p className="-mt-2 mb-3 text-sm text-ink-soft">The Abugida team reviews every request and will let you know if you are paired.</p>
+            <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {data.requests.map((r) => (
+                <li key={r.itemId} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sand-200 bg-white p-4">
+                  <span>
+                    <span className="block font-semibold">{r.studentName}</span>
+                    <span className="text-sm text-ink-soft">
+                      {[r.grade && `Grade ${r.grade}`, `${r.subject} · ${r.hoursPerWeek} h/week`].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  <Badge tone="amber">
+                    <Hourglass className="size-3" /> Waiting for the team
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {data.students.length > 0 && (
           <section>
             <SectionTitle>{isAdmin ? 'Students' : 'My students'}</SectionTitle>

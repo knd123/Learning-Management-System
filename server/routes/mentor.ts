@@ -20,6 +20,7 @@ import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, forbidden, h, HttpError, httpUrl, isoDate, jsonField, notFound, num, str } from '../http.ts';
 import { courseForTeacher, coursesFor, homeworkForTeacher, quizForTeacher, sessionForTeacher, usersById } from '../services/access.ts';
+import { mentorRequestsFor } from '../services/pairing.ts';
 import { AiUnavailableError } from '../services/ai.ts';
 import { currentCurriculum, curriculumEditPermission, curriculumVersions, curriculumWindow, saveCurriculum } from '../services/curriculum.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
@@ -189,6 +190,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
               lastSubmissionAt: work.map((w) => w.submission.updatedAt).sort().pop(),
             };
           }),
+        requests: await mentorRequestsFor(deps, user.id),
         recentWork: allWork.filter((w) => w.submission.updatedAt >= monthAgo).sort((a, b) => b.submission.updatedAt.localeCompare(a.submission.updatedAt)).slice(0, 30),
         courses: courses.map((course, i) => {
           const next = upcoming.find(({ session }) => session.courseId === course.id && session.status !== 'cancelled');

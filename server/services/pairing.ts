@@ -1,19 +1,19 @@
 import crypto from 'node:crypto';
-import type { MatchItemDetail, MatchRequestDetail, StudentRequestView } from '../../shared/api.ts';
-import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../shared/hours.ts';
+import type { FindMentorView, MatchItemDetail, MatchRequestDetail, MentorRequestView, StudentRequestView, StudentSubjectStatus } from '../../shared/api.ts';
+import { DEFAULT_SUBJECT_HOURS, hoursBySubject, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
 import type { Course, MatchItem, MatchRequest, ScheduleSlot, Settings } from '../../shared/types.ts';
 import { ymdInZone } from '../../shared/time.ts';
 import { toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
-import { badRequest, notFound } from '../http.ts';
+import { badRequest, HttpError, notFound, num } from '../http.ts';
 import { firstName, usersById } from './access.ts';
 import { isApprovedMentor } from './accounts.ts';
 import { emailButton, emailLayout, emailList as list, emailTable as rows, escapeHtml, sendEmail } from './email.ts';
 import type { MentorCandidate } from '../../shared/api.ts';
-import { rankMentors } from './matching.ts';
+import { committedHours, rankMentors } from './matching.ts';
 import { notify, notifyAdmins } from './notifications.ts';
-import type { HourChange } from './profiles.ts';
+import { parseSubjectHours, type HourChange } from './profiles.ts';
 import { resyncFutureSessions } from './schedule.ts';
 import { getSettings } from './settings.ts';
 
@@ -237,14 +237,21 @@ export async function closeMatchRequest(deps: Deps, admin: UserRecord, request: 
 
 export async function studentRequests(deps: Deps, studentId: string): Promise<StudentRequestView[]> {
   const requests = (await deps.store.find<MatchRequest>(C.matchRequests, { studentId })).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const people = await usersById(deps, requests.flatMap((r) => r.items.map((i) => i.mentorId)).filter((x): x is string => Boolean(x)));
+  const people = await usersById(deps, requests.flatMap((r) => r.items.flatMap((i) => [i.mentorId, i.requestedMentorId])).filter((x): x is string => Boolean(x)));
   return requests.map((r) => ({
     id: r.id,
     kind: r.kind,
     status: r.status,
     createdAt: r.createdAt,
     removedSubjects: r.removedSubjects,
-    items: r.items.map((i) => ({ id: i.id, subject: i.subject, hoursPerWeek: i.hoursPerWeek, status: i.status, mentorName: i.mentorId ? people.get(i.mentorId)?.displayName : undefined })),
+    items: r.items.map((i) => ({
+      id: i.id,
+      subject: i.subject,
+      hoursPerWeek: i.hoursPerWeek,
+      status: i.status,
+      mentorName: i.mentorId ? people.get(i.mentorId)?.displayName : undefined,
+      requestedMentorName: i.requestedMentorId ? people.get(i.requestedMentorId)?.displayName : undefined,
+    })),
   }));
 }
 
@@ -431,4 +438,137 @@ export async function applyHourChanges(deps: Deps, student: UserRecord, changes:
       `/mentor/classes/${course.id}`,
     );
   }
+}
+
+// --- Students choosing a mentor ----------------------------------------------------
+// Students browse approved mentors and ask for one. The request only records their
+// choice: pairing still happens when the team approves it under Match requests.
+
+const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+async function activeCoursesOf(deps: Deps, studentId: string): Promise<Course[]> {
+  return (await deps.store.find<Course>(C.courses, {}, { arrayContains: { field: 'studentIds', value: studentId } })).filter((c) => c.active);
+}
+
+/** Approved mentors (profile basics only) and where each of the student's subjects stands. */
+export async function findMentorView(deps: Deps, student: UserRecord): Promise<FindMentorView> {
+  const { mentors, courses } = await matchingContext(deps);
+  const mine = student.subjects || [];
+  const grade = student.grade;
+  const listings = mentors.map((m) => ({
+    id: m.id,
+    name: m.displayName,
+    academicLevel: m.academicLevel,
+    subjects: m.subjects || [],
+    minGrade: m.minGrade,
+    maxGrade: m.maxGrade,
+    hasRoom: (m.weeklyCapacityHours ?? 0) - committedHours(m.id, courses) > 0,
+    teachesYourGrade: grade === undefined || ((m.minGrade ?? 3) <= grade && grade <= (m.maxGrade ?? 12)),
+  }));
+  // Mentors for the student's own subjects first, then those with room, then by name.
+  const relevance = (l: (typeof listings)[number]) => (l.subjects.some((s) => mine.some((x) => same(s, x))) ? 2 : 0) + (l.hasRoom ? 1 : 0);
+  listings.sort((a, b) => relevance(b) - relevance(a) || a.name.localeCompare(b.name));
+
+  const studentCourses = courses.filter((c) => c.studentIds.includes(student.id));
+  const mentorName = new Map(mentors.map((m) => [m.id, m.displayName]));
+  const open = await deps.store.find<MatchRequest>(C.matchRequests, { studentId: student.id, status: 'open' });
+  const hours = hoursBySubject(mine, student.subjectHours, student.hoursPerWeek);
+  const subjects: StudentSubjectStatus[] = mine.map((subject) => {
+    const course = studentCourses.find((c) => same(c.subject, subject));
+    if (course) return { subject, hoursPerWeek: hours[subject], status: 'paired', mentorName: mentorName.get(course.mentorId) };
+    const item = open.flatMap((r) => r.items).find((i) => i.status === 'pending' && same(i.subject, subject));
+    if (item) return { subject, hoursPerWeek: item.hoursPerWeek, status: 'waiting', itemId: item.id, requestedMentorId: item.requestedMentorId };
+    return { subject, hoursPerWeek: hours[subject], status: 'none' };
+  });
+  return { mentors: listings, subjects };
+}
+
+/**
+ * Records that the student asked for `mentorId` in `subject`. A subject not on their
+ * profile yet is added at `hoursPerWeek`. Returns the (possibly updated) student.
+ */
+export async function requestMentor(deps: Deps, student: UserRecord, input: { mentorId: string; subject: string; hoursPerWeek?: unknown }): Promise<UserRecord> {
+  const mentor = await deps.store.get<UserRecord>(C.users, input.mentorId);
+  if (!mentor || !isApprovedMentor(mentor)) throw notFound('Mentor');
+  const subject = (mentor.subjects || []).find((s) => same(s, input.subject));
+  if (!subject) throw badRequest(`${mentor.displayName} does not teach ${input.subject}. Choose one of their subjects.`);
+  const settings = await getSettings(deps.store);
+  if ((await activeCoursesOf(deps, student.id)).some((c) => same(c.subject, subject))) {
+    throw new HttpError(409, `You already have a ${subject} mentor. To change mentors, email ${settings.adminNotificationEmail}.`);
+  }
+  const now = deps.now().toISOString();
+
+  let updated = student;
+  const onProfile = (student.subjects || []).find((s) => same(s, subject));
+  if (!onProfile) {
+    // A new subject joins the profile at the hours the student chose, like a change in My profile.
+    const subjects = [...(student.subjects || []), subject];
+    const hours = num(input.hoursPerWeek, `Hours per week for ${subject}`, { required: true, min: 0.5, max: MAX_WEEKLY_HOURS })!;
+    const subjectHours = parseSubjectHours({ ...hoursBySubject(student.subjects || [], student.subjectHours, student.hoursPerWeek), [subject]: hours }, subjects);
+    const hoursPerWeek = Object.values(subjectHours).reduce((sum, h) => sum + h, 0);
+    if (hoursPerWeek > MAX_WEEKLY_HOURS) throw badRequest(`Choose at most ${MAX_WEEKLY_HOURS} hours of tutoring per week in total.`);
+    updated = (await deps.store.patch<UserRecord>(C.users, student.id, { subjects, subjectHours, hoursPerWeek }))!;
+  }
+
+  // Record the choice on the subject's waiting request, or open a request for it.
+  const open = await deps.store.find<MatchRequest>(C.matchRequests, { studentId: student.id, status: 'open' });
+  let request = open.find((r) => r.items.some((i) => i.status === 'pending' && same(i.subject, subject))) || null;
+  if (!request) request = await createMatchRequest(deps, updated, { kind: 'mentor_request', subjects: [subject] });
+  const items = request!.items.map((i) => (i.status === 'pending' && same(i.subject, subject) ? { ...i, requestedMentorId: mentor.id, requestedAt: now } : i));
+  await deps.store.patch<MatchRequest>(C.matchRequests, request!.id, { items, updatedAt: now });
+  const item = items.find((i) => same(i.subject, subject) && i.status === 'pending')!;
+
+  const link = `${deps.appUrl}/admin/matches/${request!.id}`;
+  const details: Array<[string, string | undefined]> = [
+    ['Student', updated.displayName],
+    ['Grade', updated.grade ? String(updated.grade) : undefined],
+    ['Subject', `${subject} (${item.hoursPerWeek} h/week)${onProfile ? '' : ', newly added to their profile'}`],
+    ['Asked for', mentor.displayName],
+  ];
+  await sendEmail(deps, 'mentor_request', {
+    to: [settings.adminNotificationEmail],
+    subject: `Mentor request: ${updated.displayName} asked for ${mentor.displayName}`,
+    text: [
+      `${updated.displayName} asked for ${mentor.displayName} as their ${subject} mentor. Nothing changes until the team approves a pairing.`,
+      '',
+      ...details.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`),
+      '',
+      `Review the request: ${link}`,
+    ].join('\n'),
+    html: emailLayout(
+      'Mentor request',
+      `<p style="line-height:1.6"><strong>${escapeHtml(updated.displayName)}</strong> asked for <strong>${escapeHtml(mentor.displayName)}</strong> as their ${escapeHtml(subject)} mentor. Nothing changes until the team approves a pairing.</p>${rows(details)}${emailButton(link, 'Review the request')}`,
+      settings.organizationName,
+    ),
+  }, request!.id);
+  await notifyAdmins(deps, 'Mentor request', `${updated.displayName} asked for ${mentor.displayName} for ${subject}.`, `/admin/matches/${request!.id}`);
+  return updated;
+}
+
+/** Withdraws the student's choice of mentor; the subject stays in the queue for the team. */
+export async function cancelMentorRequest(deps: Deps, student: UserRecord, itemId: string): Promise<void> {
+  const open = await deps.store.find<MatchRequest>(C.matchRequests, { studentId: student.id, status: 'open' });
+  const request = open.find((r) => r.items.some((i) => i.id === itemId && i.status === 'pending' && i.requestedMentorId));
+  if (!request) throw notFound('Request');
+  const items = request.items.map((i) => (i.id === itemId ? { ...i, requestedMentorId: undefined, requestedAt: undefined } : i));
+  await deps.store.patch<MatchRequest>(C.matchRequests, request.id, { items, updatedAt: deps.now().toISOString() });
+}
+
+/** Students who asked for this mentor and are still waiting for the team. */
+export async function mentorRequestsFor(deps: Deps, mentorId: string): Promise<MentorRequestView[]> {
+  const asked = (await deps.store.find<MatchRequest>(C.matchRequests, { status: 'open' })).flatMap((r) =>
+    r.items.filter((i) => i.status === 'pending' && i.requestedMentorId === mentorId).map((item) => ({ request: r, item })),
+  );
+  const students = await usersById(deps, asked.map((a) => a.request.studentId));
+  return asked
+    .map(({ request, item }) => ({
+      requestId: request.id,
+      itemId: item.id,
+      studentName: students.get(request.studentId)?.displayName || 'Student',
+      grade: students.get(request.studentId)?.grade,
+      subject: item.subject,
+      hoursPerWeek: item.hoursPerWeek,
+      requestedAt: item.requestedAt,
+    }))
+    .sort((a, b) => (b.requestedAt || '').localeCompare(a.requestedAt || ''));
 }

@@ -20,6 +20,7 @@ import { generateParentReport, renderReportEmail, sendParentReport } from '../se
 import { recordingState } from '../services/recordings.ts';
 import { resyncFutureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
+import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 import { assertUsernameAvailable, normalizeUsername } from './auth.ts';
 
 const email = parseEmail;
@@ -126,7 +127,8 @@ export function adminRoutes(deps: Deps): Router {
     h(async (req, res) => {
       const body = req.body || {};
       const role = body.role as Role;
-      if (!['student', 'parent', 'mentor', 'admin'].includes(role)) throw badRequest('Choose a role: student, parent, mentor or admin.');
+      if (role === 'admin') throw badRequest('There is only one Abugida team account. Its sign-in is set on the server.');
+      if (!['student', 'parent', 'mentor'].includes(role)) throw badRequest('Choose a role: student, parent or mentor.');
       const username = normalizeUsername(str(body.username, 'Username', { required: true, max: 40 }));
       await ensureUniqueUsername(username);
       const password = str(body.password, 'Password', { max: 200 }) || generatePassword();
@@ -165,6 +167,10 @@ export function adminRoutes(deps: Deps): Router {
       const body = req.body || {};
       const settings = await getSettings(deps.store);
       const changes: Partial<UserRecord> = {};
+      if (user.role === 'admin') {
+        if (body.username !== undefined && normalizeUsername(String(body.username)) !== user.username) throw badRequest(TEAM_SIGN_IN_NOTE);
+        if (body.active === false) throw badRequest('The Abugida team account cannot be turned off.');
+      }
       if (body.username !== undefined) {
         changes.username = normalizeUsername(str(body.username, 'Username', { required: true, max: 40 }));
         await ensureUniqueUsername(changes.username, user.id);
@@ -191,6 +197,7 @@ export function adminRoutes(deps: Deps): Router {
     h(async (req, res) => {
       const user = await deps.store.get<UserRecord>(C.users, req.params.id);
       if (!user) throw notFound('User');
+      if (user.role === 'admin') throw badRequest(TEAM_SIGN_IN_NOTE);
       const password = str(req.body?.password, 'Password', { max: 200 }) || generatePassword();
       if (password.length < 6) throw badRequest('Passwords need at least 6 characters.');
       await deps.store.patch<UserRecord>(C.users, user.id, { passwordHash: await hashPassword(password), tokenVersion: user.tokenVersion + 1 });
@@ -401,15 +408,19 @@ export function adminRoutes(deps: Deps): Router {
         // Open requests show today's best pick; decided subjects show the approved mentor.
         const plan = student && status === 'open' ? planSuggestions(student, request.items.filter((i) => i.status === 'pending'), mentors.filter(isApprovedMentor), courses, now) : new Map();
         const mentorNames: Record<string, string> = {};
+        const requestedNames: Record<string, string> = {};
         for (const i of request.items) {
           const id = i.mentorId || plan.get(i.id)?.find((c: MentorCandidate) => c.fit !== 'unavailable')?.mentorId;
           const name = id ? mentorName.get(id) : undefined;
           if (name) mentorNames[i.id] = name;
+          const asked = i.requestedMentorId ? mentorName.get(i.requestedMentorId) : undefined;
+          if (asked) requestedNames[i.id] = asked;
         }
         return {
           request,
           student: { id: request.studentId, displayName: student?.displayName || 'Former student', grade: student?.grade, schoolName: student?.schoolName, city: student?.city, state: student?.state },
           mentorNames,
+          requestedNames,
         };
       });
       res.json(rows);

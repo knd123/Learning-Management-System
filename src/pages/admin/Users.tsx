@@ -46,14 +46,17 @@ export default function AdminUsers() {
     <>
       <PageHeader
         title="People"
-        subtitle="Create logins for students, parents, mentors and the Abugida team."
+        subtitle="Create logins for students, parents and mentors."
         actions={
-          <Button onClick={() => setEditing('new')}>
-            <Plus className="size-4" /> Add {tab.singular}
-          </Button>
+          role !== 'admin' && (
+            <Button onClick={() => setEditing('new')}>
+              <Plus className="size-4" /> Add {tab.singular}
+            </Button>
+          )
         }
       />
       <Tabs tabs={ROLE_TABS.map((t) => ({ id: t.id, label: t.label }))} value={role} onChange={setRole} />
+      {role === 'admin' && <p className="mb-4 text-sm text-ink-soft">There is one Abugida team account. Its username and password are set on the server, not here.</p>}
       <div className="relative mb-4 max-w-sm">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
         <Input placeholder="Search by name, username or email" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" />
@@ -129,9 +132,11 @@ export default function AdminUsers() {
                     <Button size="sm" variant="ghost" onClick={() => setEditing(u)} aria-label={`Edit ${u.displayName}`}>
                       <Pencil className="size-4" />
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} aria-label={`Reset password for ${u.displayName}`}>
-                      <KeyRound className="size-4" />
-                    </Button>
+                    {u.role !== 'admin' && (
+                      <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} aria-label={`Reset password for ${u.displayName}`}>
+                        <KeyRound className="size-4" />
+                      </Button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -281,8 +286,8 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
               />
             )}
           </Field>
-          <Field label="Username" hint="Used to sign in. Letters, numbers, dots or dashes.">
-            {(id) => <Input id={id} required value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} autoCapitalize="none" />}
+          <Field label="Username" hint={role === 'admin' ? 'Set on the server.' : 'Used to sign in. Letters, numbers, dots or dashes.'}>
+            {(id) => <Input id={id} required readOnly={role === 'admin'} value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} autoCapitalize="none" />}
           </Field>
           <Field label={role === 'student' ? 'Student email' : 'Email'} hint={role === 'mentor' ? 'Reminders and pairing emails are sent here.' : undefined}>
             {(id) => <Input id={id} type="email" required={role !== 'student'} value={email} onChange={(e) => setEmail(e.target.value)} />}
@@ -382,7 +387,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
             <Field label="Weekly availability">{() => <AvailabilityEditor value={availability} onChange={setAvailability} />}</Field>
           </>
         )}
-        {user && <Checkbox label="Account is active" hint="Deactivated accounts cannot sign in." checked={active} onChange={setActive} />}
+        {user && role !== 'admin' && <Checkbox label="Account is active" hint="Deactivated accounts cannot sign in." checked={active} onChange={setActive} />}
         {error && <ErrorBox message={error} />}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>

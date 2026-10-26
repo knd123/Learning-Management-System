@@ -9,7 +9,7 @@ import { badRequest, h, HttpError, jsonField, notFound, str } from '../http.ts';
 import { courseForStudent, coursesFor, usersById } from '../services/access.ts';
 import { pendingFeedback, submitFeedback } from '../services/feedback.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
-import { applyHourChanges, createMatchRequest, emailAdminSubjectChange, studentRequests } from '../services/pairing.ts';
+import { applyHourChanges, cancelMentorRequest, createMatchRequest, emailAdminSubjectChange, findMentorView, requestMentor, studentRequests } from '../services/pairing.ts';
 import { applyProfile, hourChanges, subjectChanges } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { activeSession, addSnapshot, finalizeSession, isExpired, MAX_SNAPSHOT_BYTES, MAX_SNAPSHOTS, recordEvents, saveAnswers, startSession } from '../services/proctoring.ts';
@@ -376,6 +376,32 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       await applyHourChanges(deps, updated, hourChanges(user, updated));
       const profile: StudentProfile = { user: toPublicUser(updated), requests: await studentRequests(deps, user.id), subjectOptions: settings.subjectOptions };
       res.json(profile);
+    }),
+  );
+
+  // "Find a mentor": approved mentors' subjects, and asking for one. The team approves every pairing.
+  router.get(
+    '/mentors',
+    h(async (req, res) => {
+      res.json(await findMentorView(deps, req.user!));
+    }),
+  );
+
+  router.post(
+    '/mentor-requests',
+    h(async (req, res) => {
+      const mentorId = str(req.body?.mentorId, 'Mentor', { required: true, max: 100 });
+      const subject = str(req.body?.subject, 'Subject', { required: true, max: 80 });
+      const user = await requestMentor(deps, req.user!, { mentorId, subject, hoursPerWeek: req.body?.hoursPerWeek });
+      res.json({ user: toPublicUser(user), view: await findMentorView(deps, user) });
+    }),
+  );
+
+  router.post(
+    '/mentor-requests/cancel',
+    h(async (req, res) => {
+      await cancelMentorRequest(deps, req.user!, str(req.body?.itemId, 'Request', { required: true, max: 40 }));
+      res.json({ user: toPublicUser(req.user!), view: await findMentorView(deps, req.user!) });
     }),
   );
 

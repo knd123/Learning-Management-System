@@ -132,7 +132,7 @@ The defaults are project `abugida-lms`, region `us-east4` (Virginia), domain `le
 
 - the app's `…run.app` address, which works right away;
 - the DNS records to add at your domain registrar (HTTPS on your domain starts working up to a day later);
-- where to find the admin password: Secret Manager → `lms-admin-password`. Change it after your first sign-in.
+- how the Abugida team signs in: "Abugida team? Sign in here" on the sign-in page, with `ADMIN_USERNAME` (default `admin`) and the password in Secret Manager → `lms-admin-password`. This is the only team account. To change its password, add a new version of that secret and run the script again; to change the username, run it with `ADMIN_USERNAME=…`.
 
 To ship a new version, run the script again. Cloud Run keeps earlier versions, so you can roll back from the console (Revisions → Manage traffic).
 

@@ -122,7 +122,48 @@ export interface StudentRequestView {
   status: MatchRequest['status'];
   createdAt: string;
   removedSubjects: string[];
-  items: Array<Pick<MatchItem, 'id' | 'subject' | 'hoursPerWeek' | 'status'> & { mentorName?: string }>;
+  items: Array<Pick<MatchItem, 'id' | 'subject' | 'hoursPerWeek' | 'status'> & { mentorName?: string; requestedMentorName?: string }>;
+}
+
+/** A mentor as students see them on "Find a mentor": no contact details or schedule. */
+export interface MentorListing {
+  id: string;
+  name: string;
+  academicLevel?: string;
+  subjects: string[];
+  minGrade?: number;
+  maxGrade?: number;
+  /** Has weekly teaching hours left for a new student. */
+  hasRoom: boolean;
+  teachesYourGrade: boolean;
+}
+
+/** Where one of the student's subjects stands, so "Find a mentor" knows what can be requested. */
+export interface StudentSubjectStatus {
+  subject: string;
+  hoursPerWeek: number;
+  status: 'paired' | 'waiting' | 'none';
+  /** Paired: the class's mentor. */
+  mentorName?: string;
+  /** Waiting: the request item, and the mentor the student asked for, if any. */
+  itemId?: string;
+  requestedMentorId?: string;
+}
+
+export interface FindMentorView {
+  mentors: MentorListing[];
+  subjects: StudentSubjectStatus[];
+}
+
+/** A student who asked for this mentor, waiting for the team (mentor dashboard). */
+export interface MentorRequestView {
+  requestId: string;
+  itemId: string;
+  studentName: string;
+  grade?: number;
+  subject: string;
+  hoursPerWeek: number;
+  requestedAt?: string;
 }
 
 export interface StudentProfile {
@@ -178,6 +219,8 @@ export interface MatchRequestRow {
   student: Pick<PublicUser, 'id' | 'displayName' | 'grade' | 'schoolName' | 'city' | 'state'>;
   /** itemId -> suggested mentor name (or approved mentor). */
   mentorNames: Record<string, string>;
+  /** itemId -> the mentor the student asked for. */
+  requestedNames: Record<string, string>;
 }
 
 export interface MatchItemDetail {
@@ -263,6 +306,8 @@ export interface MentorOverview {
   /** False while a self-registered mentor waits for the team's approval. */
   approved: boolean;
   students: MentorStudentCard[];
+  /** Students who asked for this mentor and are waiting for the team's decision. */
+  requests: MentorRequestView[];
   /** Homework handed in during the last 30 days (reviewed or not). */
   recentWork: ReviewItem[];
   courses: MentorCourseSummary[];

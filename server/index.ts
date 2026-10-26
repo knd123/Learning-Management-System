@@ -1,45 +1,18 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { createApp } from './app.ts';
-import { hashPassword, type UserRecord } from './auth.ts';
 import { config } from './config.ts';
-import { C, type Store } from './db/store.ts';
+import { C } from './db/store.ts';
 import type { Deps } from './deps.ts';
 import { DisabledAi, GeminiAi } from './services/ai.ts';
 import { GoogleDriveService } from './services/drive.ts';
 import { LogMailer, SmtpMailer } from './services/email.ts';
 import { GoogleIdTokenVerifier } from './services/google.ts';
 import { runScheduledJobs } from './services/jobs.ts';
-import { getSettings } from './services/settings.ts';
+import { syncTeamAccount } from './services/teamAccount.ts';
 import { buildStorage } from './storage.ts';
-
-/** Creates the first admin account from ADMIN_USERNAME / ADMIN_PASSWORD when none exists. */
-async function bootstrapAdmin(store: Store) {
-  const admins = await store.find<UserRecord>(C.users, { role: 'admin' });
-  if (admins.length) return;
-  const { username, password, email, name } = config.bootstrapAdmin;
-  if (!username || !password) {
-    console.warn('[setup] No admin account exists yet. Set ADMIN_USERNAME and ADMIN_PASSWORD and restart to create one.');
-    return;
-  }
-  const settings = await getSettings(store);
-  await store.put<UserRecord>(C.users, {
-    id: crypto.randomUUID(),
-    username: username.trim().toLowerCase(),
-    role: 'admin',
-    displayName: name,
-    email: email || undefined,
-    timezone: settings.timezone,
-    active: true,
-    createdAt: new Date().toISOString(),
-    passwordHash: await hashPassword(password),
-    tokenVersion: 1,
-  });
-  console.log(`[setup] Created admin account "${username}".`);
-}
 
 async function main() {
   const { store, blobs } = await buildStorage();
@@ -58,8 +31,9 @@ async function main() {
     maxUploadMb: config.maxUploadMb,
     cronSecret: config.cronSecret,
     dataBackend: config.dataBackend,
+    adminUsername: config.bootstrapAdmin.password ? config.bootstrapAdmin.username.trim().toLowerCase() : '',
   };
-  await bootstrapAdmin(store);
+  for (const line of await syncTeamAccount(store, config.bootstrapAdmin)) console.log(`[setup] ${line}`);
 
   const app = createApp(deps);
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

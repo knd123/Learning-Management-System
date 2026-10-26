@@ -18,6 +18,8 @@
 #   GEMINI_API_KEY     Optional. Turns on AI quizzes, homework drafts and report writing.
 #   GOOGLE_CLIENT_ID   Optional. OAuth client ID (Web application) for "Sign in with Google".
 #                      Not a secret. When not given, the one already on the service is kept.
+#   ADMIN_USERNAME     Optional. The one Abugida team sign-in (default "admin"). Its password is
+#                      the lms-admin-password secret. When not given, the one on the service is kept.
 #
 # Settings (environment variables with defaults):
 #   PROJECT=abugida-lms (or the key's project)  REGION=us-east4  DOMAIN=learn.abugidaeducation.com
@@ -208,11 +210,17 @@ retry gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount
 # --- 6. Build and deploy the app ----------------------------------------------
 step "Building and deploying the app (takes a few minutes)"
 APP_URL="https://$DOMAIN"
+# A plain environment variable already set on the live service ("" when there is none).
+live_env() {
+  [ -n "$DRY_RUN" ] && return 0
+  gcloud run services describe "$SERVICE" --region "$REGION" --format=json 2>/dev/null |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const env = JSON.parse(s).spec.template.spec.containers[0].env || []; console.log((env.find((e) => e.name === process.argv[1]) || {}).value || ""); } catch { console.log(""); } });' "$1" || true
+}
 # "Sign in with Google": the given client ID, or the one already on the service.
-if [ -z "${GOOGLE_CLIENT_ID:-}" ] && [ -z "$DRY_RUN" ]; then
-  GOOGLE_CLIENT_ID="$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json 2>/dev/null |
-    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const env = JSON.parse(s).spec.template.spec.containers[0].env || []; console.log((env.find((e) => e.name === "GOOGLE_CLIENT_ID") || {}).value || ""); } catch { console.log(""); } });' || true)"
-fi
+[ -n "${GOOGLE_CLIENT_ID:-}" ] || GOOGLE_CLIENT_ID="$(live_env GOOGLE_CLIENT_ID)"
+# The one team sign-in: the given username, the one already on the service, or "admin".
+[ -n "${ADMIN_USERNAME:-}" ] || ADMIN_USERNAME="$(live_env ADMIN_USERNAME)"
+ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 GOOGLE_ENV=""
 if [ -n "${GOOGLE_CLIENT_ID:-}" ]; then
   GOOGLE_ENV="|GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
@@ -224,7 +232,7 @@ run gcloud run deploy "$SERVICE" --source "$REPO_ROOT" --region "$REGION" \
   --build-service-account "projects/$PROJECT/serviceAccounts/$BUILD_SA" \
   --no-invoker-iam-check \
   --cpu 1 --memory 512Mi --min-instances 0 --max-instances 3 --concurrency 80 --timeout 900 \
-  --set-env-vars "^|^NODE_ENV=production|APP_URL=$APP_URL|DATA_BACKEND=firestore|FILE_BACKEND=gcs|STORAGE_BUCKET=$BUCKET|FIREBASE_PROJECT_ID=$PROJECT|ADMIN_USERNAME=admin|ADMIN_EMAIL=$COMPANY_EMAIL|EMAIL_FROM=Abugida Education <$COMPANY_EMAIL>|INTERNAL_SCHEDULER=false$EMAIL_ENV$GOOGLE_ENV" \
+  --set-env-vars "^|^NODE_ENV=production|APP_URL=$APP_URL|DATA_BACKEND=firestore|FILE_BACKEND=gcs|STORAGE_BUCKET=$BUCKET|FIREBASE_PROJECT_ID=$PROJECT|ADMIN_USERNAME=$ADMIN_USERNAME|ADMIN_EMAIL=$COMPANY_EMAIL|EMAIL_FROM=Abugida Education <$COMPANY_EMAIL>|INTERNAL_SCHEDULER=false$EMAIL_ENV$GOOGLE_ENV" \
   --set-secrets "$SECRET_ENV" \
   --quiet
 RUN_URL="$([ -n "$DRY_RUN" ] && echo "https://$SERVICE-dry-run.a.run.app" || gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
@@ -256,14 +264,14 @@ step "App settings"
 if [ -z "$DRY_RUN" ]; then
   ADMIN_PASSWORD="$(gcloud secrets versions access latest --secret=lms-admin-password)"
   if curl -fsS -c "$COOKIES" -H 'content-type: application/json' -H 'x-abugida-client: 1' \
-      -d "$(node -e 'console.log(JSON.stringify({ username: "admin", password: process.argv[1] }))' "$ADMIN_PASSWORD")" \
+      -d "$(node -e 'console.log(JSON.stringify({ username: process.argv[1], password: process.argv[2], as: "admin" }))' "$ADMIN_USERNAME" "$ADMIN_PASSWORD")" \
       "$RUN_URL/api/auth/login" >/dev/null 2>&1 &&
     curl -fsS -b "$COOKIES" -X PUT -H 'content-type: application/json' -H 'x-abugida-client: 1' \
       -d "{\"timezone\":\"$ORG_TIMEZONE\",\"adminNotificationEmail\":\"$COMPANY_EMAIL\"}" \
       "$RUN_URL/api/admin/settings" >/dev/null 2>&1; then
     note "Organization timezone set to $ORG_TIMEZONE; Abugida email is $COMPANY_EMAIL."
   else
-    note "Could not update settings automatically (the admin password may have been changed). Set them in Admin → Settings."
+    note "Could not update settings automatically. Set them in Admin → Settings."
   fi
 fi
 
@@ -292,5 +300,6 @@ fi
 step "Done"
 note "Working now:     $RUN_URL"
 note "Final address:   $APP_URL (after the DNS records are in place)"
-note "Admin sign-in:   username 'admin'. Password: Google Cloud console → Security → Secret Manager → lms-admin-password → View secret value."
-note "                 Change it after your first sign-in (Password, bottom left)."
+note "Team sign-in:    \"Abugida team? Sign in here\" with username '$ADMIN_USERNAME'. Password: Google Cloud console →"
+note "                 Security → Secret Manager → lms-admin-password. It is the only team account; to change the"
+note "                 password, add a new version of that secret and run this script again."
