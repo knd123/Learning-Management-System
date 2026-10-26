@@ -1,3 +1,4 @@
+import { hoursBySubject, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
 import type { AvailabilityWindow, Role } from '../../shared/types.ts';
 import { isValidHm, isValidTimeZone } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
@@ -17,6 +18,19 @@ export function parseEmailList(value: unknown, field: string, required = false):
   const list = [...new Set(raw.map((v) => parseEmail(v, field)).filter((v): v is string => Boolean(v)))];
   if (required && !list.length) throw badRequest(`${field} is required.`);
   return list;
+}
+
+/** Hours per week for every one of `subjects`, in half hours, keyed by the subject as written in `subjects`. */
+export function parseSubjectHours(value: unknown, subjects: string[]): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest('Enter the hours of tutoring per week for each subject.');
+  const given = new Map(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k.trim().toLowerCase(), v]));
+  const out: Record<string, number> = {};
+  for (const subject of subjects) {
+    const hours = num(given.get(subject.toLowerCase()), `Hours per week for ${subject}`, { min: 0.5, max: MAX_WEEKLY_HOURS, required: true })!;
+    if (!Number.isInteger(hours * 2)) throw badRequest(`Hours per week for ${subject} must be in half hours, such as 1 or 1.5.`);
+    out[subject] = hours;
+  }
+  return out;
 }
 
 export function parseTimezone(value: unknown, fallback: string): string {
@@ -96,7 +110,18 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
     if (has('schoolName')) target.schoolName = str(body.schoolName, 'School name', { required: req, max: 150 }) || undefined;
     if (has('city')) target.city = str(body.city, 'City', { required: req, max: 80 }) || undefined;
     if (has('state')) target.state = str(body.state, 'State', { required: req, max: 80 }) || undefined;
-    if (has('hoursPerWeek')) target.hoursPerWeek = num(body.hoursPerWeek, 'Hours of tutoring per week', { min: 0.5, max: 30, required: req });
+    if (body.subjectHours !== undefined) {
+      if (!target.subjects) throw badRequest('Send the subjects together with the hours for each subject.');
+      target.subjectHours = parseSubjectHours(body.subjectHours, target.subjects);
+      target.hoursPerWeek = Object.values(target.subjectHours).reduce((sum, h) => sum + h, 0);
+      if (target.hoursPerWeek > MAX_WEEKLY_HOURS) throw badRequest(`Choose at most ${MAX_WEEKLY_HOURS} hours of tutoring per week in total.`);
+    } else if (body.hoursPerWeek !== undefined) {
+      // Older forms and API callers send only a weekly total; pairing splits it across subjects.
+      target.hoursPerWeek = num(body.hoursPerWeek, 'Hours of tutoring per week', { min: 0.5, max: MAX_WEEKLY_HOURS, required: true });
+      if (!req) target.subjectHours = undefined;
+    } else if (req) {
+      throw badRequest('Enter the hours of tutoring per week for each subject.');
+    }
     if (body.notes !== undefined) target.notes = str(body.notes, 'Additional notes', { max: 3000 }) || undefined;
     if (body.parentName !== undefined) target.parentName = str(body.parentName, 'Parent name', { max: 100 }) || undefined;
     if (has('parentPhone')) target.parentPhone = parsePhone(body.parentPhone, "Parent's phone number", req);
@@ -129,6 +154,21 @@ export const ACADEMIC_LEVELS = [
 ];
 
 /** Subjects added and removed between two lists (ignoring case). */
+export interface HourChange {
+  subject: string;
+  from: number;
+  to: number;
+}
+
+/** Subjects a student kept whose weekly hours changed (added and dropped subjects are not included). */
+export function hourChanges(before: Pick<UserRecord, 'subjects' | 'subjectHours' | 'hoursPerWeek'>, after: Pick<UserRecord, 'subjects' | 'subjectHours' | 'hoursPerWeek'>): HourChange[] {
+  const old = new Map(Object.entries(hoursBySubject(before.subjects || [], before.subjectHours, before.hoursPerWeek)).map(([s, h]) => [s.toLowerCase(), h]));
+  return Object.entries(hoursBySubject(after.subjects || [], after.subjectHours, after.hoursPerWeek)).flatMap(([subject, to]) => {
+    const from = old.get(subject.toLowerCase());
+    return from !== undefined && from !== to ? [{ subject, from, to }] : [];
+  });
+}
+
 export function subjectChanges(before: string[] = [], after: string[] = []): { added: string[]; removed: string[] } {
   const b = new Set(before.map((s) => s.toLowerCase()));
   const a = new Set(after.map((s) => s.toLowerCase()));

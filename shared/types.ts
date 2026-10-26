@@ -31,7 +31,10 @@ export interface PublicUser {
   schoolName?: string;
   city?: string;
   state?: string;
+  /** Total hours of tutoring per week; the sum of `subjectHours` when the student chose hours per subject. */
   hoursPerWeek?: number;
+  /** Hours of tutoring per week the student wants in each subject (keys match `subjects`). */
+  subjectHours?: Record<string, number>;
   /** Special needs or anything the team should know. Shared with the student's mentors. */
   notes?: string;
   parentName?: string;
@@ -450,6 +453,7 @@ export type EmailKind =
   | 'curriculum_window'
   | 'new_student'
   | 'subject_change'
+  | 'hours_change'
   | 'pairing'
   | 'class_feedback'
   | 'mentor_application'

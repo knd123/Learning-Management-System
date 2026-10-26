@@ -9,8 +9,8 @@ import { badRequest, h, HttpError, jsonField, notFound, str } from '../http.ts';
 import { courseForStudent, coursesFor, usersById } from '../services/access.ts';
 import { pendingFeedback, submitFeedback } from '../services/feedback.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
-import { createMatchRequest, emailAdminSubjectChange, studentRequests } from '../services/pairing.ts';
-import { applyProfile, subjectChanges } from '../services/profiles.ts';
+import { applyHourChanges, createMatchRequest, emailAdminSubjectChange, studentRequests } from '../services/pairing.ts';
+import { applyProfile, hourChanges, subjectChanges } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { activeSession, addSnapshot, finalizeSession, isExpired, MAX_SNAPSHOT_BYTES, MAX_SNAPSHOTS, recordEvents, saveAnswers, startSession } from '../services/proctoring.ts';
 import { attemptIdFor, effectiveStatus, studentQuizView } from '../services/quizzes.ts';
@@ -360,7 +360,7 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const user = req.user!;
       const settings = await getSettings(deps.store);
       const body = (req.body || {}) as Record<string, unknown>;
-      const allowed = ['displayName', 'email', 'grade', 'schoolName', 'city', 'state', 'subjects', 'hoursPerWeek', 'availability', 'timezone', 'notes', 'parentName', 'parentPhone', 'parentEmails'];
+      const allowed = ['displayName', 'email', 'grade', 'schoolName', 'city', 'state', 'subjects', 'subjectHours', 'hoursPerWeek', 'availability', 'timezone', 'notes', 'parentName', 'parentPhone', 'parentEmails'];
       const changes: Partial<UserRecord> = {};
       applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'student', { timezone: user.timezone });
       if (changes.subjects && !changes.subjects.length) throw badRequest('Keep at least one subject.');
@@ -373,6 +373,7 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
         const request = await createMatchRequest(deps, updated, { kind: 'subject_change', subjects: added, removedSubjects: removed });
         await emailAdminSubjectChange(deps, updated, added, removed, request);
       }
+      await applyHourChanges(deps, updated, hourChanges(user, updated));
       const profile: StudentProfile = { user: toPublicUser(updated), requests: await studentRequests(deps, user.id), subjectOptions: settings.subjectOptions };
       res.json(profile);
     }),

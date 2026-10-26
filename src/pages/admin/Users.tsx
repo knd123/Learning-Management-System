@@ -1,9 +1,10 @@
 import { Copy, KeyRound, Pencil, Plus, Search } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import type { PublicConfig } from '../../../shared/api.ts';
+import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../../shared/hours.ts';
 import type { AvailabilityWindow, PublicUser, Role } from '../../../shared/types.ts';
 import { AvailabilityEditor } from '../../components/Availability.tsx';
-import { SubjectPicker } from '../../components/SubjectPicker.tsx';
+import { SubjectHoursEditor, SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
 import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
@@ -203,7 +204,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
   const [schoolName, setSchoolName] = useState(user?.schoolName || '');
   const [city, setCity] = useState(user?.city || '');
   const [state, setState] = useState(user?.state || '');
-  const [hoursPerWeek, setHoursPerWeek] = useState(user?.hoursPerWeek ? String(user.hoursPerWeek) : '');
+  const [subjectHours, setSubjectHours] = useState<Record<string, number>>(user?.role === 'student' ? hoursBySubject(user.subjects || [], user.subjectHours, user.hoursPerWeek) : {});
   const [notes, setNotes] = useState(user?.notes || '');
   const [parentName, setParentName] = useState(user?.parentName || '');
   const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
@@ -233,7 +234,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
     if (role !== 'student' || email) body.email = email;
     if (role === 'student') {
       Object.assign(body, { grade: Number(grade), schoolName, city, state, subjects, availability, notes, parentName, parentPhone, parentEmails, driveFolderUrl, googleEmail });
-      if (hoursPerWeek) body.hoursPerWeek = Number(hoursPerWeek);
+      if (subjects.length) body.subjectHours = Object.fromEntries(subjects.map((s) => [s, subjectHours[s] ?? DEFAULT_SUBJECT_HOURS]));
       if (!user) body.createMatchRequest = queueForPairing;
     }
     if (role === 'mentor') Object.assign(body, { subjects, availability, phone, academicLevel, minGrade: Number(minGrade), maxGrade: Number(maxGrade), weeklyCapacityHours: capacity === '' ? 0 : Number(capacity) });
@@ -303,8 +304,8 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
               <Field label="State">{(id) => <Input id={id} value={state} onChange={(e) => setState(e.target.value)} />}</Field>
             </div>
             <Field label="Subjects for tutoring">{() => <SubjectPicker options={config.data?.subjectOptions || []} value={subjects} onChange={setSubjects} />}</Field>
-            <Field label="Hours of tutoring per week" className="max-w-xs">
-              {(id) => <Input id={id} type="number" min={0.5} max={30} step={0.5} value={hoursPerWeek} onChange={(e) => setHoursPerWeek(e.target.value)} />}
+            <Field label="Hours of tutoring per week, for each subject">
+              {() => <SubjectHoursEditor subjects={subjects} value={subjectHours} onChange={setSubjectHours} />}
             </Field>
             <Field label="Weekly availability">{() => <AvailabilityEditor value={availability} onChange={setAvailability} />}</Field>
             <Field label="Additional notes / special needs">{(id) => <Textarea id={id} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />}</Field>

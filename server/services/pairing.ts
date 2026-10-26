@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { MatchItemDetail, MatchRequestDetail, StudentRequestView } from '../../shared/api.ts';
+import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../shared/hours.ts';
 import type { Course, MatchItem, MatchRequest, ScheduleSlot, Settings } from '../../shared/types.ts';
 import { ymdInZone } from '../../shared/time.ts';
 import { toPublicUser, type UserRecord } from '../auth.ts';
@@ -11,21 +12,12 @@ import { isApprovedMentor } from './accounts.ts';
 import { emailButton, emailLayout, emailList as list, emailTable as rows, escapeHtml, sendEmail } from './email.ts';
 import type { MentorCandidate } from '../../shared/api.ts';
 import { rankMentors } from './matching.ts';
-import { notify } from './notifications.ts';
+import { notify, notifyAdmins } from './notifications.ts';
+import type { HourChange } from './profiles.ts';
 import { resyncFutureSessions } from './schedule.ts';
 import { getSettings } from './settings.ts';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-/** Splits weekly hours across subjects in half-hour steps (at least 30 minutes each). */
-export function splitHours(total: number, parts: number): number[] {
-  if (parts <= 0) return [];
-  const base = Math.max(0.5, Math.floor((total / parts) * 2) / 2);
-  const out = Array.from({ length: parts }, () => base);
-  let remainder = Math.round((total - base * parts) * 2) / 2;
-  for (let i = 0; remainder >= 0.5 && i < parts; i++, remainder -= 0.5) out[i] += 0.5;
-  return out;
-}
 
 export function formatSlots(slots: ScheduleSlot[], timeZone: string): string[] {
   const tzName = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value || timeZone;
@@ -103,8 +95,8 @@ export async function createMatchRequest(
   const removed = opts.removedSubjects || [];
   if (!opts.subjects.length && !removed.length) return null;
   const allSubjects = student.subjects?.length ? student.subjects : opts.subjects;
-  const perSubject = splitHours(student.hoursPerWeek || allSubjects.length, allSubjects.length);
-  const hoursFor = (subject: string) => perSubject[Math.max(0, allSubjects.findIndex((s) => s.toLowerCase() === subject.toLowerCase()))] || 1;
+  const hours = hoursBySubject(allSubjects, student.subjectHours, student.hoursPerWeek);
+  const hoursFor = (subject: string) => Object.entries(hours).find(([s]) => s.toLowerCase() === subject.toLowerCase())?.[1] ?? DEFAULT_SUBJECT_HOURS;
   const { mentors, courses } = await matchingContext(deps);
   const now = deps.now();
   const items: MatchItem[] = opts.subjects.map((subject) => ({ id: crypto.randomUUID().slice(0, 8), subject, hoursPerWeek: hoursFor(subject), status: 'pending' }));
@@ -314,6 +306,12 @@ async function announcePairing(deps: Deps, student: UserRecord, mentor: UserReco
   }
 }
 
+/** "Math (2 h/week), Chemistry (1 h/week)"; just the names for students who gave only a weekly total. */
+function subjectsWithHours(student: UserRecord): string | undefined {
+  const chosen = new Map(Object.entries(student.subjectHours || {}).map(([s, h]) => [s.toLowerCase(), h]));
+  return student.subjects?.map((s) => (chosen.has(s.toLowerCase()) ? `${s} (${chosen.get(s.toLowerCase())} h/week)` : s)).join(', ') || undefined;
+}
+
 function studentDetails(student: UserRecord): Array<[string, string | undefined]> {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   return [
@@ -323,8 +321,8 @@ function studentDetails(student: UserRecord): Array<[string, string | undefined]
     ['Grade', student.grade ? String(student.grade) : undefined],
     ['School', student.schoolName],
     ['City & state', [student.city, student.state].filter(Boolean).join(', ') || undefined],
-    ['Subjects', student.subjects?.join(', ')],
-    ['Hours per week', student.hoursPerWeek ? String(student.hoursPerWeek) : undefined],
+    ['Subjects', subjectsWithHours(student)],
+    ['Total hours per week', student.hoursPerWeek ? String(student.hoursPerWeek) : undefined],
     ['Availability', student.availability?.length ? `${student.availability.map((w) => `${days[w.weekday]} ${w.start}–${w.end}`).join(', ')} (${student.timezone})` : undefined],
     ['Notes', student.notes],
     ['Parent phone', student.parentPhone],
@@ -355,8 +353,8 @@ export async function emailAdminSubjectChange(deps: Deps, student: UserRecord, a
     ['School', student.schoolName],
     ['Wants to add', added.join(', ') || undefined],
     ['Wants to drop', removed.join(', ') || undefined],
-    ['All subjects now', student.subjects?.join(', ')],
-    ['Hours per week', student.hoursPerWeek ? String(student.hoursPerWeek) : undefined],
+    ['All subjects now', subjectsWithHours(student)],
+    ['Total hours per week', student.hoursPerWeek ? String(student.hoursPerWeek) : undefined],
   ];
   await sendEmail(deps, 'subject_change', {
     to: [settings.adminNotificationEmail],
@@ -364,4 +362,73 @@ export async function emailAdminSubjectChange(deps: Deps, student: UserRecord, a
     text: [`${student.displayName} changed their subjects on the portal.`, '', ...lines.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`), '', `Open the request: ${link}`].join('\n'),
     html: emailLayout('Subject change request', `<p style="line-height:1.6"><strong>${escapeHtml(student.displayName)}</strong> changed their subjects on the portal.</p>${rows(lines)}${emailButton(link, 'Open the request')}`, settings.organizationName),
   }, request?.id);
+}
+
+/**
+ * A student changed the weekly hours of subjects they kept. Mentor requests still waiting
+ * for the team take the new hours. For classes that have already started, the team (by email
+ * and in the app) and the class's mentor (in the app) hear about it; class times change
+ * only when the team updates the class.
+ */
+export async function applyHourChanges(deps: Deps, student: UserRecord, changes: HourChange[]): Promise<void> {
+  if (!changes.length) return;
+  const key = (s: string) => s.toLowerCase();
+  const bySubject = new Map(changes.map((c) => [key(c.subject), c]));
+  const now = deps.now().toISOString();
+
+  for (const request of await deps.store.find<MatchRequest>(C.matchRequests, { studentId: student.id, status: 'open' })) {
+    let touched = false;
+    const items = request.items.map((item) => {
+      const change = bySubject.get(key(item.subject));
+      if (item.status !== 'pending' || !change || item.hoursPerWeek === change.to) return item;
+      touched = true;
+      return { ...item, hoursPerWeek: change.to };
+    });
+    if (touched) await deps.store.patch<MatchRequest>(C.matchRequests, request.id, { items, updatedAt: now });
+  }
+
+  const courses = (await deps.store.find<Course>(C.courses, {}, { arrayContains: { field: 'studentIds', value: student.id } })).filter((c) => c.active && bySubject.has(key(c.subject)));
+  if (!courses.length) return;
+  const mentors = await usersById(deps, courses.map((c) => c.mentorId));
+  const settings = await getSettings(deps.store);
+  const started = courses.map((course) => ({ course, change: bySubject.get(key(course.subject))!, mentor: mentors.get(course.mentorId) }));
+  const asked = started.map(({ course, change }) => `${change.to} h/week of ${course.subject} (was ${change.from})`).join(', ');
+
+  const details: Array<[string, string | undefined]> = [
+    ['Student', student.displayName],
+    ['Grade', student.grade ? String(student.grade) : undefined],
+    ...started.map(({ course, change, mentor }): [string, string] => [
+      course.subject,
+      `${change.from} → ${change.to} h/week requested. Class with ${mentor?.displayName || 'its mentor'}${course.weeklyHours ? `, now ${course.weeklyHours} h/week` : ''}.`,
+    ]),
+  ];
+  const link = `${deps.appUrl}/admin/classes`;
+  await sendEmail(deps, 'hours_change', {
+    to: [settings.adminNotificationEmail],
+    subject: `Tutoring hours change: ${student.displayName}`,
+    text: [
+      `${student.displayName} changed the weekly hours for classes that have already started.`,
+      'Their class times have not changed: agree any change with the mentor, then update the class.',
+      '',
+      ...details.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`),
+      '',
+      `Open classes: ${link}`,
+    ].join('\n'),
+    html: emailLayout(
+      'Tutoring hours change',
+      `<p style="line-height:1.6"><strong>${escapeHtml(student.displayName)}</strong> changed the weekly hours for classes that have already started. Their class times have not changed: agree any change with the mentor, then update the class.</p>${rows(details)}${emailButton(link, 'Open classes')}`,
+      settings.organizationName,
+    ),
+  }, student.id);
+  await notifyAdmins(deps, 'Tutoring hours change', `${student.displayName} asked for ${asked}.`, '/admin/classes');
+  for (const { course, change, mentor } of started) {
+    if (!mentor) continue;
+    await notify(
+      deps,
+      mentor.id,
+      'Tutoring hours change requested',
+      `${student.displayName} asked for ${change.to} h/week of ${course.subject} instead of ${change.from}. The Abugida team will confirm any change to your class times.`,
+      `/mentor/classes/${course.id}`,
+    );
+  }
 }

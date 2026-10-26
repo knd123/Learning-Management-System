@@ -12,6 +12,7 @@ const KIND_LABEL: Record<EmailLog['kind'], string> = {
   curriculum_window: 'Curriculum window',
   new_student: 'New sign-up',
   subject_change: 'Subject change',
+  hours_change: 'Hours change',
   pairing: 'Mentor pairing',
   class_feedback: 'Class rating',
   mentor_application: 'Mentor application',

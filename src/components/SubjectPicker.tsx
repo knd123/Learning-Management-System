@@ -1,7 +1,42 @@
 import clsx from 'clsx';
 import { Check, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { Button, Input } from './ui.tsx';
+import { DEFAULT_SUBJECT_HOURS, hoursLabel } from '../../shared/hours.ts';
+import { Button, Input, Select } from './ui.tsx';
+
+/** 30 minutes to 10 hours a week, in half hours. */
+const HOUR_CHOICES = Array.from({ length: 20 }, (_, i) => (i + 1) / 2);
+
+/** Hours per week for each chosen subject (subjects not in `value` show the default), with the weekly total. */
+export function SubjectHoursEditor({ subjects, value, onChange }: { subjects: string[]; value: Record<string, number>; onChange(v: Record<string, number>): void }) {
+  if (!subjects.length) return <p className="text-sm text-ink-muted">Choose subjects above, then set the hours for each one here.</p>;
+  const hoursOf = (s: string) => value[s] ?? DEFAULT_SUBJECT_HOURS;
+  const total = subjects.reduce((sum, s) => sum + hoursOf(s), 0);
+  return (
+    <div className="divide-y divide-sand-200 rounded-xl border border-sand-200 bg-white">
+      {subjects.map((s) => {
+        const hours = hoursOf(s);
+        const choices = HOUR_CHOICES.includes(hours) ? HOUR_CHOICES : [...HOUR_CHOICES, hours].sort((a, b) => a - b);
+        return (
+          <div key={s} className="flex items-center justify-between gap-3 px-3 py-2">
+            <span className="min-w-0 break-words text-sm font-medium">{s}</span>
+            <Select value={String(hours)} onChange={(e) => onChange({ ...value, [s]: Number(e.target.value) })} aria-label={`Hours per week for ${s}`} className="w-32 shrink-0">
+              {choices.map((h) => (
+                <option key={h} value={h}>
+                  {hoursLabel(h)}
+                </option>
+              ))}
+            </Select>
+          </div>
+        );
+      })}
+      <p className="flex items-center justify-between gap-3 bg-sand-50 px-3 py-2 text-sm font-semibold">
+        <span>Total</span>
+        <span>{hoursLabel(total)} per week</span>
+      </p>
+    </div>
+  );
+}
 
 /** Pick subjects from the offered list, or add another one. */
 export function SubjectPicker({ options, value, onChange }: { options: string[]; value: string[]; onChange(v: string[]): void }) {

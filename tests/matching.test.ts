@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import type { MatchRequestDetail, MentorDirectoryRow, StudentOverview, StudentProfile } from '../shared/api.ts';
-import type { PublicUser } from '../shared/types.ts';
+import type { AppNotification, Course, PublicUser } from '../shared/types.ts';
 import { availabilityIntervals, intersect, proposeSchedule, referenceMonday, sessionPlan, totalHours } from '../server/services/matching.ts';
-import { planSuggestions, splitHours } from '../server/services/pairing.ts';
+import { planSuggestions } from '../server/services/pairing.ts';
+import { splitHours } from '../shared/hours.ts';
 import type { UserRecord } from '../server/auth.ts';
 import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
 
@@ -269,5 +270,122 @@ describe('student sign-up and mentor pairing', () => {
     await admin.put('/api/admin/settings', { allowStudentSignup: false });
     assert.equal((await new Client(h).get('/api/auth/config')).allowStudentSignup, false);
     await new Client(h).post('/api/auth/signup', { ...signup, username: 'someone.else' }, 403);
+  });
+});
+
+describe('hours per subject', () => {
+  const NY = 'America/New_York';
+  let h: Harness;
+  let admin: Client;
+  let nahomId = '';
+  const base = {
+    displayName: 'Nahom Tadesse',
+    email: 'nahom@example.com',
+    schoolName: 'Wilson High School',
+    city: 'Washington',
+    state: 'DC',
+    grade: 9,
+    availability: [{ weekday: 1, start: '16:00', end: '19:00' }],
+    timezone: NY,
+    parentPhone: '+1 202 555 0100',
+    parentEmail: 'tigist@example.com',
+    password: 'nahom-pass-1',
+  };
+
+  before(async () => {
+    h = await startHarness('2026-10-12T12:00:00Z');
+    admin = new Client(h);
+    const creds = await seedAdmin(h);
+    await admin.login(creds.username, creds.password);
+  });
+  after(() => h.close());
+
+  it('signs up with hours for each subject and asks for a mentor at those hours', async () => {
+    const student = new Client(h);
+    const { user } = await student.post<{ user: PublicUser }>('/api/auth/signup', { ...base, username: 'nahom', subjects: ['Math', 'Chemistry'], subjectHours: { math: 2, Chemistry: 1.5 } }, 201);
+    nahomId = user.id;
+    assert.deepEqual(user.subjectHours, { Math: 2, Chemistry: 1.5 });
+    assert.equal(user.hoursPerWeek, 3.5);
+    const overview = await student.get<StudentOverview>('/api/student/overview');
+    assert.deepEqual(
+      overview.requests[0].items.map((i) => [i.subject, i.hoursPerWeek]),
+      [
+        ['Math', 2],
+        ['Chemistry', 1.5],
+      ],
+    );
+    const email = h.mailer.sent.find((e) => e.subject === 'New student sign-up: Nahom Tadesse')!;
+    assert.match(email.text, /Subjects: Math \(2 h\/week\), Chemistry \(1\.5 h\/week\)/);
+    assert.match(email.text, /Total hours per week: 3\.5/);
+  });
+
+  it('needs valid hours for every chosen subject', async () => {
+    const c = new Client(h);
+    const signup = (body: Record<string, unknown>) => c.post('/api/auth/signup', { ...base, username: 'liya', subjects: ['Math', 'Physics'], ...body }, 400);
+    assert.match((await signup({ subjectHours: { Math: 2 } })).error, /Physics/);
+    assert.match((await signup({ subjectHours: { Math: 1.25, Physics: 1 } })).error, /half hours/);
+    assert.match((await signup({ subjectHours: { Math: 20, Physics: 11 } })).error, /at most 30 hours/);
+    assert.match((await signup({})).error, /hours of tutoring per week for each subject/);
+  });
+
+  it('uses the chosen hours when a student adds a subject from their profile', async () => {
+    const student = new Client(h);
+    await student.login('nahom', base.password);
+    const profile = await student.put<StudentProfile>('/api/student/profile', { subjects: ['Math', 'Chemistry', 'Physics'], subjectHours: { Math: 2, Chemistry: 1.5, Physics: 2.5 } });
+    assert.equal(profile.user.hoursPerWeek, 6);
+    const request = profile.requests.find((r) => r.kind === 'subject_change')!;
+    assert.deepEqual(request.items.map((i) => [i.subject, i.hoursPerWeek]), [['Physics', 2.5]]);
+  });
+
+  it('tells the team and the mentor when hours change for a class that has started, and updates waiting requests', async () => {
+    const { user: mentor } = await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'mentor', username: 'sara', displayName: 'Sara Bekele', email: 'sara@example.org', password: 'mentor-pass-1', subjects: ['Math'], timezone: NY }, 201);
+    const course = await admin.post<Course>('/api/admin/courses', {
+      title: 'Grade 9 Math with Nahom',
+      subject: 'Math',
+      gradeLevel: 9,
+      type: 'one_on_one',
+      mentorId: mentor.id,
+      studentIds: [nahomId],
+      schedule: [{ weekday: 1, startTime: '16:00', durationMinutes: 120 }],
+      timezone: NY,
+      meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      startDate: '2026-10-12',
+    }, 201);
+    const student = new Client(h);
+    await student.login('nahom', base.password);
+    const sent = h.mailer.sent.length;
+    const profile = await student.put<StudentProfile>('/api/student/profile', { subjects: ['Math', 'Chemistry', 'Physics'], subjectHours: { Math: 3, Chemistry: 1.5, Physics: 1 } });
+
+    // Math has started: one email to the team, plus in-app notices for the team and the mentor.
+    const emails = h.mailer.sent.slice(sent);
+    assert.equal(emails.length, 1);
+    assert.equal(emails[0].subject, 'Tutoring hours change: Nahom Tadesse');
+    assert.deepEqual(emails[0].to, ['info@abugidaeducation.com']);
+    assert.match(emails[0].text, /Math: 2 → 3 h\/week requested\. Class with Sara Bekele/);
+    assert.doesNotMatch(emails[0].text, /Physics|Chemistry/);
+    const team = await admin.get<{ notifications: AppNotification[] }>('/api/notifications');
+    assert.match(team.notifications.find((n) => n.title === 'Tutoring hours change')!.body, /Nahom Tadesse asked for 3 h\/week of Math \(was 2\)/);
+    const sara = new Client(h);
+    await sara.login('sara', 'mentor-pass-1');
+    const mentorNotes = await sara.get<{ notifications: AppNotification[] }>('/api/notifications');
+    assert.equal(mentorNotes.notifications.find((n) => n.title === 'Tutoring hours change requested')!.link, `/mentor/classes/${course.id}`);
+
+    // Physics is still waiting for a mentor: its request now asks for the new hours.
+    assert.equal(profile.requests.flatMap((r) => r.items).find((i) => i.subject === 'Physics')!.hoursPerWeek, 1);
+
+    // Saving again without changing any hours sends nothing.
+    await student.put('/api/student/profile', { subjects: ['Math', 'Chemistry', 'Physics'], subjectHours: { Math: 3, Chemistry: 1.5, Physics: 1 } });
+    assert.equal(h.mailer.sent.length, sent + 1);
+  });
+
+  it('lets the team set hours per subject, and a weekly total alone replaces them', async () => {
+    const { user } = await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'student', username: 'meron', displayName: 'Meron Assefa', grade: 11, subjects: ['Physics', 'Math'], hoursPerWeek: 3, createMatchRequest: false }, 201);
+    assert.equal(user.subjectHours, undefined);
+    const updated = await admin.patch<PublicUser>(`/api/admin/users/${user.id}`, { subjects: ['Physics', 'Math'], subjectHours: { Physics: 1, Math: 0.5 } });
+    assert.deepEqual(updated.subjectHours, { Physics: 1, Math: 0.5 });
+    assert.equal(updated.hoursPerWeek, 1.5);
+    const totalOnly = await admin.patch<PublicUser>(`/api/admin/users/${user.id}`, { hoursPerWeek: 4 });
+    assert.equal(totalOnly.subjectHours, undefined);
+    assert.equal(totalOnly.hoursPerWeek, 4);
   });
 });

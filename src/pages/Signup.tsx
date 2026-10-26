@@ -3,10 +3,11 @@ import { Check } from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router';
 import type { PublicConfig } from '../../shared/api.ts';
+import { DEFAULT_SUBJECT_HOURS, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
 import type { AvailabilityWindow, PublicUser } from '../../shared/types.ts';
 import { AvailabilityEditor } from '../components/Availability.tsx';
 import { Logo } from '../components/Shell.tsx';
-import { SubjectPicker } from '../components/SubjectPicker.tsx';
+import { SubjectHoursEditor, SubjectPicker } from '../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../components/TimezoneSelect.tsx';
 import { Button, Card, ErrorBox, Field, Input, Loading, Notice, Select, Textarea } from '../components/ui.tsx';
 import { api, errorMessage } from '../lib/api.ts';
@@ -25,7 +26,8 @@ export interface IntakeForm {
   state: string;
   grade: string;
   subjects: string[];
-  hoursPerWeek: string;
+  /** Hours per week by subject; a subject not listed has the default. */
+  subjectHours: Record<string, number>;
   timezone: string;
   availability: AvailabilityWindow[];
   notes: string;
@@ -46,6 +48,11 @@ export function suggestUsername(name: string): string {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Hours per week for each chosen subject, as sent to the server. */
+function chosenHours(form: IntakeForm): Record<string, number> {
+  return Object.fromEntries(form.subjects.map((s) => [s, form.subjectHours[s] ?? DEFAULT_SUBJECT_HOURS]));
+}
+
 /** Returns the first problem in a step of the intake form, if any. */
 export function intakeProblem(form: IntakeForm, step: number): string | null {
   if (step === 0) {
@@ -56,8 +63,8 @@ export function intakeProblem(form: IntakeForm, step: number): string | null {
   }
   if (step === 1) {
     if (!form.subjects.length) return 'Choose at least one subject.';
-    const hours = Number(form.hoursPerWeek);
-    if (!hours || hours < 0.5 || hours > 30) return 'Enter the hours of tutoring per week (0.5 to 30).';
+    const total = Object.values(chosenHours(form)).reduce((sum, h) => sum + h, 0);
+    if (total > MAX_WEEKLY_HOURS) return `Choose at most ${MAX_WEEKLY_HOURS} hours of tutoring per week in total.`;
     if (!form.availability.length) return 'Add at least one time the student is available each week.';
     if (form.availability.some((w) => !w.start || !w.end || w.end <= w.start)) return 'Each available time must end after it starts.';
   }
@@ -129,12 +136,12 @@ export function IntakeFields({ form, set, step, subjectOptions }: { form: Intake
           <Field label="Subjects for tutoring" hint="Choose all that apply. You can add or change subjects later from your profile.">
             {() => <SubjectPicker options={subjectOptions} value={form.subjects} onChange={(subjects) => set({ subjects })} />}
           </Field>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Hours of tutoring per week" hint="Total across all subjects.">
-              {(id) => <Input id={id} type="number" min={0.5} max={30} step={0.5} value={form.hoursPerWeek} onChange={(e) => set({ hoursPerWeek: e.target.value })} required />}
-            </Field>
-            <Field label="Timezone">{(id) => <TimezoneSelect id={id} value={form.timezone} onChange={(timezone) => set({ timezone })} />}</Field>
-          </div>
+          <Field label="Hours of tutoring per week, for each subject" hint="Each subject is its own 1-on-1 class with a mentor.">
+            {() => <SubjectHoursEditor subjects={form.subjects} value={form.subjectHours} onChange={(subjectHours) => set({ subjectHours })} />}
+          </Field>
+          <Field label="Timezone" className="sm:max-w-xs">
+            {(id) => <TimezoneSelect id={id} value={form.timezone} onChange={(timezone) => set({ timezone })} />}
+          </Field>
           <Field label="Availability for each day of the week" hint="When could classes happen? Add as many time ranges as you like.">
             {() => <AvailabilityEditor value={form.availability} onChange={(availability) => set({ availability })} />}
           </Field>
@@ -169,7 +176,7 @@ export function intakePayload(form: IntakeForm) {
     state: form.state,
     grade: Number(form.grade),
     subjects: form.subjects,
-    hoursPerWeek: Number(form.hoursPerWeek),
+    subjectHours: chosenHours(form),
     timezone: form.timezone,
     availability: form.availability,
     notes: form.notes,
@@ -192,7 +199,7 @@ export default function SignupPage() {
     state: '',
     grade: '9',
     subjects: [],
-    hoursPerWeek: '2',
+    subjectHours: {},
     timezone: browserTimeZone(),
     availability: [],
     notes: '',
