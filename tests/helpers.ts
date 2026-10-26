@@ -98,6 +98,7 @@ export async function startHarness(start: string, opts: { ai?: AiService } = {})
     mailer,
     ai: opts.ai || ai,
     drive,
+    google: null,
     now: () => new Date(clock.now),
     appUrl: 'https://lms.example.org',
     sessionSecret: 'test-secret-test-secret-test-secret-123',

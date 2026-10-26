@@ -18,6 +18,7 @@ import type {
   QuizAttempt,
   RewardRequest,
   QuizStatus,
+  Role,
   ScheduleSlot,
   SessionReport,
   Settings,
@@ -140,6 +141,15 @@ export interface PublicConfig {
   academicLevels: string[];
   /** The Abugida team's email address shown wherever people are told to get in touch. */
   contactEmail: string;
+  /** OAuth client ID for "Sign in with Google"; empty when it is turned off. */
+  googleClientId: string;
+}
+
+/** Who an emailed password reset link is for (POST /api/auth/password/reset/check). */
+export interface ResetLinkInfo {
+  valid: boolean;
+  username?: string;
+  role?: Role;
 }
 
 export interface MentorCandidate {

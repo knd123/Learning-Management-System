@@ -52,21 +52,27 @@ export class LogMailer implements Mailer {
   }
 }
 
-/** Sends an email and records it in the email log visible to admins. */
+/**
+ * Sends an email and records it in the email log visible to admins.
+ * `hide` lists secrets (such as one-time links) left out of the log. They stay in the log
+ * when email is not set up, because then the log is the only way to pass them on.
+ */
 export async function sendEmail(
   deps: Deps,
   kind: EmailKind,
   email: OutgoingEmail,
   relatedId?: string,
+  opts: { hide?: string[] } = {},
 ): Promise<EmailLog> {
   const to = [...new Set(email.to.map((e) => e.trim()).filter(Boolean))];
+  const conceal = (s: string) => (deps.mailer.live ? (opts.hide || []).reduce((out, secret) => out.split(secret).join('[hidden]'), s) : s);
   const log: EmailLog = {
     id: crypto.randomUUID(),
     kind,
     to,
     subject: email.subject,
-    text: email.text,
-    html: email.html,
+    text: conceal(email.text),
+    html: email.html && conceal(email.html),
     status: 'logged',
     relatedId,
     createdAt: deps.now().toISOString(),

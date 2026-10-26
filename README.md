@@ -4,6 +4,8 @@ A web app for Abugida Education's students (grades 3–12), mentors and team.
 
 Everyone signs in on the same page and first picks **Student**, **Parent** or **Mentor** (the Abugida team uses the small "Abugida team? Sign in here" link). Signing in with the wrong role shows a clear message.
 
+Students, parents and mentors can sign in with their username and password or with **Sign in with Google**, which works when the Google account's email is the one on their profile (for students, also the "Student's Google account"). **Forgot password?** emails a reset link from the Abugida email to the address on file (a student without an email gets it at their parent's email). The link works once, for 60 minutes, and signs the person in with the new password. Team accounts are reset by another team member.
+
 Every class is **1-on-1**: one mentor, one student.
 
 | Who | What they can do |
@@ -124,6 +126,8 @@ The script creates the `abugida-lms` project if it doesn't exist and links your 
 
 The defaults are project `abugida-lms`, region `us-east4` (Virginia), domain `learn.abugidaeducation.com` and timezone `America/New_York`. Override them with `PROJECT=…`, `REGION=…`, `DOMAIN=…` or `ORG_TIMEZONE=…`. `DRY_RUN=1` prints every command without running it. The email password and Gemini key are optional and can be added on a later run.
 
+**Sign in with Google** needs an OAuth client. In the console, open Google Auth Platform for the project, fill in Branding (app name, support email, `abugidaeducation.com` as an authorized domain), set Audience to External and publish it, then create a Client of type **Web application** with your site's address (and any `…run.app` address you use) under Authorized JavaScript origins. Run the script once with `GOOGLE_CLIENT_ID=<client ID>`; later runs keep it.
+
 **At the end**, the script prints:
 
 - the app's `…run.app` address, which works right away;
@@ -224,6 +228,8 @@ tests/             node:test suites
 Security notes:
 
 - Passwords are hashed with scrypt.
+- Password reset links are random, single-use and expire after 60 minutes. Only a hash is stored, the "Forgot password" form never says whether an account exists, and once SMTP is set up the link is hidden in Admin → Emails. Resetting signs the account out on every other device.
+- Sign in with Google checks Google's signature on the ID token, that it was issued for this app's client ID, and that Google has verified the email.
 - Sessions are HTTP-only, SameSite cookies, and every write needs a same-origin header.
 - Students can only reach their own classes. Curricula and other students' work are never served to them.
 - Parents see only the children the team linked to them, read-only, without class links. Webcam photos are served only to the class's mentor and the team.

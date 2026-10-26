@@ -16,6 +16,8 @@
 #                      app password for Gmail). Without it emails are only recorded in
 #                      Admin → Emails.
 #   GEMINI_API_KEY     Optional. Turns on AI quizzes, homework drafts and report writing.
+#   GOOGLE_CLIENT_ID   Optional. OAuth client ID (Web application) for "Sign in with Google".
+#                      Not a secret. When not given, the one already on the service is kept.
 #
 # Settings (environment variables with defaults):
 #   PROJECT=abugida-lms (or the key's project)  REGION=us-east4  DOMAIN=learn.abugidaeducation.com
@@ -206,12 +208,23 @@ retry gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount
 # --- 6. Build and deploy the app ----------------------------------------------
 step "Building and deploying the app (takes a few minutes)"
 APP_URL="https://$DOMAIN"
+# "Sign in with Google": the given client ID, or the one already on the service.
+if [ -z "${GOOGLE_CLIENT_ID:-}" ] && [ -z "$DRY_RUN" ]; then
+  GOOGLE_CLIENT_ID="$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json 2>/dev/null |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const env = JSON.parse(s).spec.template.spec.containers[0].env || []; console.log((env.find((e) => e.name === "GOOGLE_CLIENT_ID") || {}).value || ""); } catch { console.log(""); } });' || true)"
+fi
+GOOGLE_ENV=""
+if [ -n "${GOOGLE_CLIENT_ID:-}" ]; then
+  GOOGLE_ENV="|GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
+else
+  note "No GOOGLE_CLIENT_ID: the Sign in with Google button stays off."
+fi
 run gcloud run deploy "$SERVICE" --source "$REPO_ROOT" --region "$REGION" \
   --service-account "$RUN_SA" \
   --build-service-account "projects/$PROJECT/serviceAccounts/$BUILD_SA" \
   --no-invoker-iam-check \
   --cpu 1 --memory 512Mi --min-instances 0 --max-instances 3 --concurrency 80 --timeout 900 \
-  --set-env-vars "^|^NODE_ENV=production|APP_URL=$APP_URL|DATA_BACKEND=firestore|FILE_BACKEND=gcs|STORAGE_BUCKET=$BUCKET|FIREBASE_PROJECT_ID=$PROJECT|ADMIN_USERNAME=admin|ADMIN_EMAIL=$COMPANY_EMAIL|EMAIL_FROM=Abugida Education <$COMPANY_EMAIL>|INTERNAL_SCHEDULER=false$EMAIL_ENV" \
+  --set-env-vars "^|^NODE_ENV=production|APP_URL=$APP_URL|DATA_BACKEND=firestore|FILE_BACKEND=gcs|STORAGE_BUCKET=$BUCKET|FIREBASE_PROJECT_ID=$PROJECT|ADMIN_USERNAME=admin|ADMIN_EMAIL=$COMPANY_EMAIL|EMAIL_FROM=Abugida Education <$COMPANY_EMAIL>|INTERNAL_SCHEDULER=false$EMAIL_ENV$GOOGLE_ENV" \
   --set-secrets "$SECRET_ENV" \
   --quiet
 RUN_URL="$([ -n "$DRY_RUN" ] && echo "https://$SERVICE-dry-run.a.run.app" || gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"

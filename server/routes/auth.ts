@@ -1,17 +1,31 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import type { PublicConfig } from '../../shared/api.ts';
+import type { PublicConfig, ResetLinkInfo } from '../../shared/api.ts';
 import { C, type Store } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import type { Role } from '../../shared/types.ts';
 import { badRequest, HttpError, h, num, str } from '../http.ts';
 import { createToken, hashPassword, LoginLimiter, SESSION_COOKIE, toPublicUser, verifyPassword, type UserRecord } from '../auth.ts';
 import { announceMentorApplication, createParentRequest } from '../services/accounts.ts';
+import type { GoogleIdentity } from '../services/google.ts';
 import { createMatchRequest, emailAdminNewStudent } from '../services/pairing.ts';
+import { completePasswordReset, findResetAccount, requestPasswordReset, SELF_SERVICE_ROLES } from '../services/passwordReset.ts';
 import { ACADEMIC_LEVELS, applyProfile } from '../services/profiles.ts';
 import { getSettings } from '../services/settings.ts';
 
 const ROLE_NAMES: Record<Role, string> = { student: 'student', parent: 'parent', mentor: 'mentor', admin: 'Abugida team' };
+
+/** The sign-in page has Student / Parent / Mentor tabs; points people to the right one. */
+function wrongTab(role: Role): HttpError {
+  const name = ROLE_NAMES[role];
+  return new HttpError(400, `This is a ${name} account. Choose “${name[0].toUpperCase()}${name.slice(1)}” above and sign in again.`);
+}
+
+/** The Student / Parent / Mentor tab a request came from; the team signs in with a password only. */
+function selfServiceRole(value: unknown): Role {
+  if (!SELF_SERVICE_ROLES.includes(value as Role)) throw badRequest('Choose Student, Parent or Mentor first.');
+  return value as Role;
+}
 
 export function normalizeUsername(value: string): string {
   return value.trim().toLowerCase();
@@ -54,12 +68,9 @@ export function authRoutes(deps: Deps): Router {
         throw new HttpError(401, 'That username and password do not match. Please check and try again.');
       }
       limiter.reset(key);
-      // The sign-in page has Student / Parent / Mentor tabs; point people to the right one.
-      // (The Abugida team can sign in from any tab.)
+      // The Abugida team can sign in from any tab.
       const as = req.body?.as as Role | undefined;
-      if (as && ['student', 'parent', 'mentor'].includes(as) && user.role !== as && user.role !== 'admin') {
-        throw new HttpError(400, `This is a ${ROLE_NAMES[user.role]} account. Choose “${ROLE_NAMES[user.role][0].toUpperCase()}${ROLE_NAMES[user.role].slice(1)}” above and sign in again.`);
-      }
+      if (as && SELF_SERVICE_ROLES.includes(as) && user.role !== as && user.role !== 'admin') throw wrongTab(user.role);
       const updated = (await deps.store.patch<UserRecord>(C.users, user.id, { lastLoginAt: deps.now().toISOString() }))!;
       setCookie(res, createToken(updated, deps.sessionSecret, deps.sessionDays, deps.now()));
       res.json({ user: toPublicUser(updated) });
@@ -79,8 +90,92 @@ export function authRoutes(deps: Deps): Router {
         subjectOptions: settings.subjectOptions,
         academicLevels: ACADEMIC_LEVELS,
         contactEmail: settings.adminNotificationEmail,
+        googleClientId: deps.google?.clientId || '',
       };
       res.json(config);
+    }),
+  );
+
+  const googleLimiter = new LoginLimiter(20, 15 * 60_000);
+
+  // "Sign in with Google": the Google account's verified email must be the one on the profile
+  // (or, for students, their Google account on file).
+  router.post(
+    '/google',
+    h(async (req, res) => {
+      if (!deps.google) throw new HttpError(404, 'Sign in with Google is not turned on.');
+      const as = selfServiceRole(req.body?.as);
+      const credential = str(req.body?.credential, 'Google sign-in', { required: true, max: 5000 });
+      const key = req.ip || '';
+      const nowMs = deps.now().getTime();
+      if (!googleLimiter.check(key, nowMs)) throw new HttpError(429, 'Too many attempts. Please wait 15 minutes and try again.');
+      let identity: GoogleIdentity;
+      try {
+        identity = await deps.google.verify(credential);
+      } catch {
+        googleLimiter.fail(key, nowMs);
+        throw new HttpError(401, 'Google sign-in did not work. Please try again.');
+      }
+      if (!identity.emailVerified) throw new HttpError(401, `Google has not verified ${identity.email}. Please sign in with your username and password.`);
+
+      const matches = [
+        ...(await deps.store.find<UserRecord>(C.users, { email: identity.email })),
+        ...(await deps.store.find<UserRecord>(C.users, { googleEmail: identity.email })),
+      ].filter((u) => u.active && SELF_SERVICE_ROLES.includes(u.role));
+      const accounts = [...new Map(matches.map((u) => [u.id, u])).values()];
+      const mine = accounts.filter((u) => u.role === as);
+      if (mine.length > 1) throw new HttpError(409, `More than one ${as} account uses ${identity.email}. Please sign in with your username and password.`);
+      if (!mine.length) {
+        if (accounts.length) throw wrongTab(accounts[0].role);
+        const { adminNotificationEmail } = await getSettings(deps.store);
+        throw new HttpError(401, `No ${as} account uses ${identity.email}. Sign in with your username and password, or ask ${adminNotificationEmail} to add this email to your profile.`);
+      }
+      const user = (await deps.store.patch<UserRecord>(C.users, mine[0].id, { lastLoginAt: deps.now().toISOString() }))!;
+      setCookie(res, createToken(user, deps.sessionSecret, deps.sessionDays, deps.now()));
+      res.json({ user: toPublicUser(user) });
+    }),
+  );
+
+  const resetByNetwork = new LoginLimiter(20, 60 * 60_000);
+  const resetByAccount = new LoginLimiter(3, 60 * 60_000);
+
+  // "Forgot password": the answer is always the same, so the form never reveals who has an account.
+  router.post(
+    '/password/forgot',
+    h(async (req, res) => {
+      const as = selfServiceRole(req.body?.as);
+      const identifier = str(req.body?.identifier, 'Username or email', { required: true, max: 200 }).toLowerCase();
+      const networkKey = req.ip || '';
+      const accountKey = `${as}|${identifier}`;
+      const nowMs = deps.now().getTime();
+      if (!resetByNetwork.check(networkKey, nowMs) || !resetByAccount.check(accountKey, nowMs)) {
+        throw new HttpError(429, 'Too many reset requests. Please wait an hour and try again.');
+      }
+      resetByNetwork.fail(networkKey, nowMs);
+      resetByAccount.fail(accountKey, nowMs);
+      await requestPasswordReset(deps, as, identifier);
+      res.json({ ok: true });
+    }),
+  );
+
+  router.post(
+    '/password/reset/check',
+    h(async (req, res) => {
+      const found = await findResetAccount(deps, str(req.body?.token, 'Reset link', { max: 200 }));
+      const info: ResetLinkInfo = found ? { valid: true, username: found.user.username, role: found.user.role } : { valid: false };
+      res.json(info);
+    }),
+  );
+
+  // Choosing a new password from the emailed link also signs the person in.
+  router.post(
+    '/password/reset',
+    h(async (req, res) => {
+      const token = str(req.body?.token, 'Reset link', { required: true, max: 200 });
+      const password = str(req.body?.password, 'New password', { required: true, max: 200 });
+      const user = await completePasswordReset(deps, token, password);
+      setCookie(res, createToken(user, deps.sessionSecret, deps.sessionDays, deps.now()));
+      res.json({ user: toPublicUser(user) });
     }),
   );
 

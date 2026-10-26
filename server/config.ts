@@ -55,6 +55,8 @@ export const config = {
   schedulerIntervalMinutes: Number(env.SCHEDULER_INTERVAL_MINUTES || 10),
 
   driveEnabled: bool(env.GOOGLE_DRIVE_ENABLED, false),
+  /** OAuth client ID (Web application) for "Sign in with Google". Empty turns the button off. */
+  googleClientId: env.GOOGLE_CLIENT_ID || '',
 
   bootstrapAdmin: {
     username: env.ADMIN_USERNAME || '',

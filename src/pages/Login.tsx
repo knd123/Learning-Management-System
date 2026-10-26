@@ -3,8 +3,10 @@ import { Eye, EyeOff, FlaskConical, GraduationCap, HeartHandshake, Laptop, Schoo
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import type { PublicConfig } from '../../shared/api.ts';
+import type { PublicUser } from '../../shared/types.ts';
+import { GoogleSignInButton } from '../components/GoogleSignIn.tsx';
 import { Button, ErrorBox, Field, Input } from '../components/ui.tsx';
-import { errorMessage } from '../lib/api.ts';
+import { api, errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
 import { ContactEmail } from '../lib/contact.tsx';
 import { useApi } from '../lib/useApi.ts';
@@ -70,7 +72,7 @@ function savedMode(): Mode {
 }
 
 export default function LoginPage() {
-  const { user, login } = useAuth();
+  const { user, login, setUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mode, setModeState] = useState<Mode>(savedMode);
@@ -93,12 +95,11 @@ export default function LoginPage() {
     }
   };
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const signIn = async (attempt: () => Promise<PublicUser>) => {
     setBusy(true);
     setError(null);
     try {
-      const u = await login(username, password, mode === 'team' ? undefined : mode);
+      const u = await attempt();
       const from = (location.state as { from?: string } | null)?.from;
       navigate(from && from.startsWith(`/${u.role === 'admin' ? '' : u.role}`) ? from : homePath(u), { replace: true });
     } catch (err) {
@@ -107,6 +108,18 @@ export default function LoginPage() {
       setBusy(false);
     }
   };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void signIn(() => login(username, password, mode === 'team' ? undefined : mode));
+  };
+
+  const signInWithGoogle = (credential: string) =>
+    void signIn(async () => {
+      const r = await api.post<{ user: PublicUser }>('/api/auth/google', { credential, as: mode });
+      setUser(r.user);
+      return r.user;
+    });
 
   const copy = COPY[mode];
   const signup = copy.signup && config.data && copy.signup.enabled(config.data) ? copy.signup : null;
@@ -189,10 +202,26 @@ export default function LoginPage() {
                 </div>
               )}
             </Field>
+            {mode !== 'team' && (
+              <Link to={`/forgot-password?as=${mode}`} className="-mt-3 self-end text-sm font-semibold text-brand-700 hover:underline">
+                Forgot password?
+              </Link>
+            )}
             <Button type="submit" size="lg" loading={busy}>
               Sign in{mode !== 'team' && ` as ${mode}`}
             </Button>
           </form>
+          {/* Kept mounted on the team tab (just hidden) so Google's button is only set up once. */}
+          {config.data?.googleClientId && (
+            <div className={clsx(mode === 'team' && 'hidden')}>
+              <div className="my-5 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <span className="h-px flex-1 bg-sand-300" aria-hidden />
+                or
+                <span className="h-px flex-1 bg-sand-300" aria-hidden />
+              </div>
+              <GoogleSignInButton clientId={config.data.googleClientId} onCredential={signInWithGoogle} />
+            </div>
+          )}
           {signup && (
             <div className="mt-8 rounded-2xl border border-sand-200 bg-white p-4">
               <p className="font-semibold">{signup.title}</p>
@@ -202,9 +231,11 @@ export default function LoginPage() {
               </Link>
             </div>
           )}
-          <p className="mt-6 text-sm text-ink-muted">
-            Forgot your password? Email <ContactEmail email={config.data?.contactEmail} className="text-brand-700" /> and the Abugida team will reset it for you.
-          </p>
+          {mode === 'team' && (
+            <p className="mt-6 text-sm text-ink-muted">
+              Forgot your password? Email <ContactEmail email={config.data?.contactEmail} className="text-brand-700" /> and the Abugida team will reset it for you.
+            </p>
+          )}
           {mode !== 'team' && (
             <button type="button" onClick={() => setMode('team')} className="mt-4 text-xs font-semibold text-ink-muted underline hover:text-ink">
               Abugida team? Sign in here

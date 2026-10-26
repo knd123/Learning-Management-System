@@ -456,6 +456,7 @@ export type EmailKind =
   | 'parent_request'
   | 'reward'
   | 'account'
+  | 'password_reset'
   | 'test';
 
 export interface EmailLog {
