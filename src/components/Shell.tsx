@@ -94,13 +94,14 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh lg:flex">
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-sand-200 bg-white px-4 py-5 lg:flex">
-        <div className="mb-8 flex items-center justify-between gap-2 pl-2">
+        <div className="mb-8 flex shrink-0 items-center justify-between gap-2 pl-2">
           <Link to="/">
             <Logo />
           </Link>
           <NotificationBell align="left" />
         </div>
-        <nav className="flex flex-1 flex-col gap-1" aria-label="Main">
+        {/* The menu scrolls on short windows so the account footer (Sign out) always stays on screen. */}
+        <nav className="-mx-1 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-1" aria-label="Main">
           {items.map((item) => (
             <NavLink
               key={item.to}
@@ -126,7 +127,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </>
           )}
         </nav>
-        <div className="mt-6 border-t border-sand-200 pt-4">
+        <div className="mt-4 shrink-0 border-t border-sand-200 pt-4">
           <p className="truncate px-2 text-sm font-semibold text-ink">{user.displayName}</p>
           <p className="px-2 text-xs text-ink-muted">
             {ROLE_LABEL[user.role]} · @{user.username}
