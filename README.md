@@ -105,22 +105,24 @@ Without SMTP settings, emails are not sent. They appear under **Admin → Emails
 
 The app runs as its own service account that can reach only its database, bucket and secrets.
 
-**Once, in the Google Cloud console:**
-
-1. Create a project (for example `abugida-lms`) and link a billing account to it.
-2. IAM & Admin → Service accounts → Create a service account named `deployer` with the **Owner** role. Then open it → Keys → Add key → JSON, and download the key file.
-3. In [Google Search Console](https://search.google.com/search-console), verify `abugidaeducation.com` if it isn't verified yet. Then go to Settings → Users and permissions and add the deployer's email (`deployer@<project>.iam.gserviceaccount.com`) as **Owner**. This lets the script connect `learn.abugidaeducation.com`.
-
-**Run the script** from the repository:
+**Easiest: run it with your own Google account** on a computer with the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and Node.js installed:
 
 ```bash
-GOOGLE_SA_KEY="$(cat deployer-key.json)" \
+gcloud auth login                      # opens your browser
 SMTP_APP_PASSWORD="<app password for info@abugidaeducation.com>" \
 GEMINI_API_KEY="<Gemini API key>" \
 ./deploy/gcp/deploy.sh
 ```
 
-The defaults are region `us-east4` (Virginia), domain `learn.abugidaeducation.com` and timezone `America/New_York`. Override them with `REGION=…`, `DOMAIN=…` or `ORG_TIMEZONE=…`. `DRY_RUN=1` prints every command without running it. The email password and Gemini key are optional and can be added on a later run.
+The script creates the `abugida-lms` project if it doesn't exist and links your billing account. If you have several billing accounts, add `BILLING_ACCOUNT=<id>`. To connect `learn.abugidaeducation.com`, your Google account must be a verified owner of `abugidaeducation.com` in [Google Search Console](https://search.google.com/search-console).
+
+**Or with a service account key** (for example from a cloud machine):
+
+1. In the console, create the project, link billing, and create a service account `deployer` with the **Owner** role. Download a JSON key for it.
+2. In Search Console, add `deployer@<project>.iam.gserviceaccount.com` as an **Owner** of `abugidaeducation.com`.
+3. Run `GOOGLE_SA_KEY="$(cat deployer-key.json)" ./deploy/gcp/deploy.sh`, adding the same optional variables.
+
+The defaults are project `abugida-lms`, region `us-east4` (Virginia), domain `learn.abugidaeducation.com` and timezone `America/New_York`. Override them with `PROJECT=…`, `REGION=…`, `DOMAIN=…` or `ORG_TIMEZONE=…`. `DRY_RUN=1` prints every command without running it. The email password and Gemini key are optional and can be added on a later run.
 
 **At the end**, the script prints:
 

@@ -4,15 +4,20 @@
 #   + Secret Manager (secrets) + Cloud Scheduler (reminders, quizzes, reports).
 # Safe to re-run: existing resources are kept and the app is redeployed.
 #
-# Credentials (environment variables; never commit them):
-#   GOOGLE_SA_KEY      Required. Key of a service account with the Owner role on the
-#                      project: the downloaded JSON file's contents, or base64 of it.
+# Who deploys (pick one):
+#   - Your own Google account: run `gcloud auth login` first. The script creates the
+#     project if needed and links your billing account (BILLING_ACCOUNT=… if you have
+#     several).
+#   - A service account: set GOOGLE_SA_KEY to its key (the downloaded JSON file's
+#     contents, or base64 of it). It needs the Owner role on an existing project.
+#
+# Other credentials (environment variables; never commit them):
 #   SMTP_APP_PASSWORD  Optional. App password for info@abugidaeducation.com. Without it
 #                      emails are only recorded in Admin → Emails.
 #   GEMINI_API_KEY     Optional. Turns on AI quizzes, homework drafts and report writing.
 #
 # Settings (environment variables with defaults):
-#   PROJECT (from the key)  REGION=us-east4  DOMAIN=learn.abugidaeducation.com
+#   PROJECT=abugida-lms (or the key's project)  REGION=us-east4  DOMAIN=learn.abugidaeducation.com
 #   SERVICE=abugida-lms     COMPANY_EMAIL=info@abugidaeducation.com
 #   ORG_TIMEZONE=America/New_York
 #   DRY_RUN=1  prints the commands without touching Google Cloud.
@@ -47,25 +52,36 @@ retry() {
 }
 random() { node -e "console.log(require('crypto').randomBytes($1).toString('$2'))"; }
 
-# --- 1. Sign in with the service account ------------------------------------
+# --- 1. Sign in ---------------------------------------------------------------
 step "Signing in"
 KEY_FILE="$(mktemp)"
 COOKIES="$(mktemp)"
 trap 'rm -f "$KEY_FILE" "$COOKIES"' EXIT
-if [ -z "${GOOGLE_SA_KEY:-}" ]; then
-  [ -n "$DRY_RUN" ] || { echo "GOOGLE_SA_KEY is not set. Add the service account key to the environment first." >&2; exit 1; }
-  echo '{"project_id":"dry-run-project","client_email":"deployer@dry-run-project.iam.gserviceaccount.com"}' >"$KEY_FILE"
-elif printf '%s' "$GOOGLE_SA_KEY" | grep -q '"private_key"'; then
-  printf '%s' "$GOOGLE_SA_KEY" >"$KEY_FILE"
-else
-  printf '%s' "$GOOGLE_SA_KEY" | base64 -d >"$KEY_FILE"
-fi
-keyfield() { node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))[process.argv[2]] || '')" "$KEY_FILE" "$1"; }
-PROJECT="${PROJECT:-$(keyfield project_id)}"
-DEPLOYER="$(keyfield client_email)"
-# A placeholder token in some environments would override the key.
+# A placeholder token in some environments would override real credentials.
 unset CLOUDSDK_AUTH_ACCESS_TOKEN
-run gcloud auth activate-service-account "$DEPLOYER" --key-file="$KEY_FILE" --quiet
+keyfield() { node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))[process.argv[2]] || '')" "$KEY_FILE" "$1"; }
+if [ -n "${GOOGLE_SA_KEY:-}" ]; then
+  MODE=service-account
+  if printf '%s' "$GOOGLE_SA_KEY" | grep -q '"private_key"'; then
+    printf '%s' "$GOOGLE_SA_KEY" >"$KEY_FILE"
+  else
+    printf '%s' "$GOOGLE_SA_KEY" | base64 -d >"$KEY_FILE"
+  fi
+  PROJECT="${PROJECT:-$(keyfield project_id)}"
+  DEPLOYER="$(keyfield client_email)"
+  run gcloud auth activate-service-account "$DEPLOYER" --key-file="$KEY_FILE" --quiet
+else
+  MODE=user
+  PROJECT="${PROJECT:-abugida-lms}"
+  DEPLOYER="$([ -n "$DRY_RUN" ] && echo you@example.com || gcloud config get-value account 2>/dev/null || true)"
+  if [ -z "$DEPLOYER" ]; then
+    echo "Sign in to Google Cloud first:  gcloud auth login   (or set GOOGLE_SA_KEY)" >&2
+    exit 1
+  fi
+  if ! exists gcloud projects describe "$PROJECT"; then
+    run gcloud projects create "$PROJECT" --name="Abugida LMS" --quiet
+  fi
+fi
 run gcloud config set project "$PROJECT" --quiet
 note "Project: $PROJECT   Region: $REGION   Deploying as: $DEPLOYER"
 
@@ -73,6 +89,17 @@ note "Project: $PROJECT   Region: $REGION   Deploying as: $DEPLOYER"
 step "Turning on Google Cloud services"
 run gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com cloudbilling.googleapis.com iam.googleapis.com --quiet
 BILLING="$([ -n "$DRY_RUN" ] && echo True || gcloud billing projects describe "$PROJECT" --format='value(billingEnabled)' 2>/dev/null || echo unknown)"
+if [ "$BILLING" != "True" ] && [ "$MODE" = user ]; then
+  ACCOUNTS="${BILLING_ACCOUNT:-$(gcloud billing accounts list --filter=open=true --format='value(name.basename())' 2>/dev/null || true)}"
+  if [ "$(printf '%s\n' "$ACCOUNTS" | grep -c .)" = 1 ]; then
+    run gcloud billing projects link "$PROJECT" --billing-account="$ACCOUNTS" --quiet
+    BILLING=True
+  else
+    echo "Choose the billing account to use and run again with BILLING_ACCOUNT=<id>. Your open billing accounts:" >&2
+    gcloud billing accounts list --filter=open=true >&2 || true
+    exit 1
+  fi
+fi
 if [ "$BILLING" = "False" ]; then
   echo "Billing is not turned on for $PROJECT. Link a billing account (Console → Billing → Link a billing account) and run this again." >&2
   exit 1
@@ -80,7 +107,6 @@ fi
 [ "$BILLING" = "True" ] || note "Couldn't confirm billing; continuing (the next step fails if it's off)."
 run gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
   firestore.googleapis.com storage.googleapis.com secretmanager.googleapis.com cloudscheduler.googleapis.com --quiet
-PROJECT_NUMBER="$([ -n "$DRY_RUN" ] && echo 123456789 || gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
 
 # --- 3. Database and file storage ---------------------------------------------
 step "Database (Firestore, $REGION)"
@@ -226,7 +252,8 @@ elif ! run gcloud run domain-mappings create --service "$SERVICE" --domain "$DOM
    The domain couldn't be connected (see the error above). Usually Google needs proof
    that this deployer may use ${DOMAIN#*.}:
      1. Open https://search.google.com/search-console and verify ${DOMAIN#*.} (Domain property) if it isn't yet.
-     2. In that property: Settings → Users and permissions → Add user → $DEPLOYER as Owner.
+     2. Make sure $DEPLOYER is an Owner of that property (Settings → Users and permissions).
+        A service account must be added there by hand; a person who verified the domain already is.
      3. Run this script again.
 EOF
   exit 1
