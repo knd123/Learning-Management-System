@@ -144,7 +144,7 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     assert.equal(user.role, 'parent');
     const requestEmail = h.mailer.sent.find((e) => e.subject.startsWith('Parent access request'))!;
     assert.deepEqual(requestEmail.to, ['info@abugidaeducation.com']);
-    assert.match(requestEmail.text, /Sibling discount: Requested — 8% off per sibling/);
+    assert.match(requestEmail.text, /Sibling discount: Requested — 5% off per sibling/);
     const before = await parent.get<ParentOverview>('/api/parent/overview');
     assert.deepEqual(before.children, []);
     assert.equal(before.pendingNames.length, 2);
@@ -228,19 +228,28 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     assert.equal(view.attempt!.proctoring!.flags.camera_off, 1); // no snapshots arrived
   });
 
-  it('asks the team to approve a Starbucks gift card after two months above 90%', async () => {
+  it('asks the team to approve a Starbucks gift card after four quizzes in a row at 90% or higher', async () => {
     const reward = await admin.get<RewardRow[]>('/api/admin/approvals/rewards');
-    assert.equal(reward.length, 0); // only one month so far
-    // Last month's Math quiz: 100%.
-    await h.store.put<QuizAttempt>(C.attempts, { id: `${course.id}__2026-09__${abeba.id}`, quizId: `${course.id}__2026-09`, courseId: course.id, studentId: abeba.id, month: '2026-09', answers: [], correct: 10, total: 10, score: 100, topicBreakdown: {}, submittedAt: '2026-09-25T12:00:00Z' });
+    assert.equal(reward.length, 0); // only one quiz so far
+    const pastQuiz = (month: string, score: number) =>
+      h.store.put<QuizAttempt>(C.attempts, { id: `${course.id}__${month}__${abeba.id}`, quizId: `${course.id}__${month}`, courseId: course.id, studentId: abeba.id, month, answers: [], correct: score / 10, total: 10, score, topicBreakdown: {}, submittedAt: `${month}-25T12:00:00Z` });
     // Re-run the check the way a new submission would (the October attempt already exists).
     const { checkReward } = await import('../server/services/rewards.ts');
     const october = (await h.store.find<QuizAttempt>(C.attempts, { studentId: abeba.id })).find((a) => a.courseId === course.id && a.month === '2026-10')!;
+    await pastQuiz('2026-07', 95);
+    await pastQuiz('2026-09', 100);
+    // August's quiz went out but Abeba missed it, so the run is broken.
+    await h.store.put(C.quizzes, { id: `${course.id}__2026-08`, courseId: course.id, month: '2026-08', status: 'closed' });
+    assert.equal(await checkReward(h.deps, october), null);
+    await pastQuiz('2026-08', 89);
+    assert.equal(await checkReward(h.deps, october), null, '89% is not enough');
+    await pastQuiz('2026-08', 90);
     await checkReward(h.deps, october);
     await checkReward(h.deps, october); // no duplicates
     const rows = await admin.get<RewardRow[]>('/api/admin/approvals/rewards');
     assert.equal(rows.length, 1);
-    assert.deepEqual(rows[0].reward.scores, [100, 100]);
+    assert.deepEqual(rows[0].reward.months, ['2026-07', '2026-08', '2026-09', '2026-10']);
+    assert.deepEqual(rows[0].reward.scores, [95, 90, 100, 100]);
     assert.equal(rows[0].reward.integrityFlags, 1); // the tab switch in October
     assert.ok(h.mailer.sent.some((e) => e.to[0] === 'info@abugidaeducation.com' && /Gift card to approve/.test(e.subject)));
     const sent = h.mailer.sent.length;

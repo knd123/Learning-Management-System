@@ -653,7 +653,7 @@ export function adminRoutes(deps: Deps): Router {
         siblingDiscountPercent: num(b.siblingDiscountPercent ?? current.siblingDiscountPercent, 'Sibling discount', { min: 0, max: 50 })!,
         quizTimeLimitMinutes: num(b.quizTimeLimitMinutes ?? current.quizTimeLimitMinutes, 'Quiz time limit', { min: 10, max: 60 })!,
         proctoringRetentionDays: num(b.proctoringRetentionDays ?? current.proctoringRetentionDays, 'Snapshot retention', { min: 1, max: 365 })!,
-        rewardScoreAbove: num(b.rewardScoreAbove ?? current.rewardScoreAbove, 'Gift card score', { min: 0, max: 99 })!,
+        rewardMinScore: num(b.rewardMinScore ?? current.rewardMinScore, 'Gift card score', { min: 50, max: 100 })!,
         updatedAt: deps.now().toISOString(),
       };
       await deps.store.put(C.settings, next);

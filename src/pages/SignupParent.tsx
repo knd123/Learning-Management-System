@@ -43,7 +43,7 @@ export default function SignupParentPage() {
 
   if (user) return <Navigate to={homePath(user)} replace />;
   if (config.loading && !config.data) return <Loading />;
-  const discount = config.data?.siblingDiscountPercent ?? 8;
+  const discount = config.data?.siblingDiscountPercent ?? 5;
 
   const setStudent = (i: number, patch: Partial<StudentEntry>) => setStudents(students.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const problem = (): string | null => {

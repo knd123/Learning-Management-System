@@ -519,8 +519,8 @@ export interface Settings {
   quizTimeLimitMinutes: number;
   /** Webcam snapshots from proctored quizzes are deleted after this many days. */
   proctoringRetentionDays: number;
-  /** A gift card request is created when monthly quiz scores are above this two months in a row. */
-  rewardScoreAbove: number;
+  /** A score of at least this on four monthly quizzes in a row, in one class, earns a Starbucks gift card. */
+  rewardMinScore: number;
   updatedAt: string;
 }
 

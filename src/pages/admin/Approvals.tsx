@@ -313,7 +313,7 @@ function Rewards({ decided, onChange }: { decided: boolean; onChange(): void }) 
   if (!data.length)
     return (
       <EmptyState icon={<Coffee className="size-8" />} title={decided ? 'No decided gift cards yet' : 'No gift cards waiting'}>
-        A request appears automatically when a student scores above 90% on their monthly quiz two months in a row.
+        A request appears automatically when a student scores 90% or higher on four monthly quizzes in a row in the same class.
       </EmptyState>
     );
   return (

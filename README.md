@@ -11,7 +11,7 @@ Every class is **1-on-1**: one mentor, one student.
 | Who | What they can do |
 | --- | --- |
 | **Students** | **Create their own account** with an intake form (see below), then sign in with a **username**. See all their classes, the weekly schedule and each class link, and join with one tap (attendance is logged). After each class, a pop-up asks them to **rate the class** (1–5 stars) and say **what can be better for next class**. Hand in homework (text, photos, files, links) and see grades and feedback. Rewatch class recordings for **7 days** after each class. Take the **monthly quiz** under exam conditions (timed, webcam on) and follow their progress by skill. Update their subjects, availability and details under **My profile**. |
-| **Parents** | **Sign up** with their child's full name exactly as on the student's profile. They can also ask to sign up siblings for **8% off per sibling**. Once the team approves, they get a read-only view of each child's schedule, attendance, homework, quiz results, progress charts and monthly reports. Class links and webcam photos are never shown to parents. |
+| **Parents** | **Sign up** with their child's full name exactly as on the student's profile. They can also ask to sign up siblings for **5% off per sibling**. Once the team approves, they get a read-only view of each child's schedule, attendance, homework, quiz results, progress charts and monthly reports. Class links and webcam photos are never shown to parents. |
 | **Mentors** | **Apply online** (full name, academic level, subjects, weekly availability for each day, hours per week of bandwidth). They can be paired only after the team approves them. The dashboard shows **their students' profiles** (school, city, subjects, notes from the family) and **submitted homework**. They keep their subjects, grade range, weekly availability and weekly capacity up to date. They assign the class link and homework (optionally drafted by AI from the curriculum), submit the **post-class report** (date, duration, PowerPoint, homework, topics, attendance) and add the recording link after uploading to the student's Google Drive folder. **Email reminders 12h and 24h after class** keep coming until the recording is added. They see each student's **class ratings**, review homework, check monthly quizzes and their **proctoring record**, and upload or update each class's **curriculum once per quarter**. |
 | **Abugida team (admins)** | **Approvals:** mentor applications, parent access requests (with the sibling-discount request) and **Starbucks gift cards**. Approve the **mentor pairings** suggested by the platform. See every mentor's subjects, grades, availability, remaining capacity and **average class rating**. Create logins and classes with weekly schedules. Read every curriculum (curricula are never shown to students). Review the **AI-written monthly parent reports** and the email log, and change settings. |
 
@@ -47,7 +47,7 @@ After each class ends, the student sees a pop-up with two questions:
 
 1. A parent signs up at `/signup/parent` (or "Parent" on the sign-in page) and types the student's full name.
 2. **Admin → Approvals → Parent requests** shows the request with the matching student profile pre-selected. Badges say whether the name matches exactly and whether the parent's email is already on the student's profile.
-3. If the parent asked to sign up siblings, the request shows each sibling's name and grade with **"8% off per sibling"**. The team contacts the family to enrol them. The discount itself is applied in your billing, outside this app.
+3. If the parent asked to sign up siblings, the request shows each sibling's name and grade with **"5% off per sibling"**. The team contacts the family to enrol them. The discount itself is applied in your billing, outside this app.
 4. On approval, the parent can follow the child, their email is added to the monthly report recipients, and they get an in-app notification and an email.
 
 ### Monthly quizzes under exam conditions
@@ -59,7 +59,7 @@ After each class ends, the student sees a pop-up with two questions:
 
 ### Starbucks gift cards
 
-When a student scores **above 90%** on the monthly quiz **two months in a row in the same class**, the platform creates a gift card request. It appears under **Admin → Approvals → Gift cards** and in an email to `info@abugidaeducation.com`, together with any proctoring flags from those two quizzes. Approving it congratulates the student in the app and emails the student and parents, with an optional message such as how the card will be delivered. Buying and sending the card happens outside the app. The threshold is a setting.
+When a student scores **90% or higher** on **four monthly quizzes in a row in the same class**, the platform creates a gift card request. A missed quiz breaks the run, and each quiz counts towards one gift card only. It appears under **Admin → Approvals → Gift cards** and in an email to `info@abugidaeducation.com`, together with any proctoring flags from those four quizzes. Approving it congratulates the student in the app and emails the student and parents, with an optional message such as how the card will be delivered. Buying and sending the card happens outside the app. The threshold is a setting.
 
 Time-based work runs automatically:
 
@@ -155,7 +155,7 @@ The built-in scheduler handles reminders, quizzes and reports (`INTERNAL_SCHEDUL
    - Set the organization timezone (it defines month and quarter boundaries).
    - Check the **Abugida email** (`info@abugidaeducation.com`) and the list of **subjects offered** on the sign-up form.
    - Choose whether students, parents and mentors may sign up themselves, and whether parent reports are sent automatically or after review.
-   - Check the sibling discount (8%), the quiz time limit (30 minutes), the gift card threshold (above 90%) and how long webcam photos are kept (30 days).
+   - Check the sibling discount (5%), the quiz time limit (30 minutes), the gift card threshold (90% or higher) and how long webcam photos are kept (30 days).
 2. **Mentors.** Share `APP_URL/signup/mentor` with new mentors and approve them under **Approvals**, or add each mentor yourself with their email (for reminders and pairing emails), subjects, grade range, **weekly availability** and **weekly capacity in hours**. Mentors can also keep these up to date themselves under "Availability & subjects".
 3. **Students.**
    - Share the sign-up link (`APP_URL/signup`) with families. Each sign-up shows up under **Match requests**, where you approve a mentor.

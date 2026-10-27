@@ -107,8 +107,8 @@ export default function AdminSettings() {
           <Field label="Keep webcam photos for (days)" hint="Deleted automatically afterwards.">
             {(id) => <Input id={id} type="number" min={1} max={365} value={form.proctoringRetentionDays} onChange={(e) => set({ proctoringRetentionDays: Number(e.target.value) })} />}
           </Field>
-          <Field label="Gift card: score above (%)" hint="Two months in a row in the same class creates a Starbucks gift card request." className="sm:col-span-2">
-            {(id) => <Input id={id} type="number" min={50} max={99} value={form.rewardScoreAbove} onChange={(e) => set({ rewardScoreAbove: Number(e.target.value) })} className="w-32" />}
+          <Field label="Gift card: score of at least (%)" hint="Four monthly quizzes in a row at this score or higher, in the same class, create a Starbucks gift card request." className="sm:col-span-2">
+            {(id) => <Input id={id} type="number" min={50} max={100} value={form.rewardMinScore} onChange={(e) => set({ rewardMinScore: Number(e.target.value) })} className="w-32" />}
           </Field>
           <div className="sm:col-span-2">
             <Checkbox label="Publish quizzes to students automatically" hint="Turn off to let mentors review each quiz before students see it." checked={form.quizAutoPublish} onChange={(quizAutoPublish) => set({ quizAutoPublish })} />
