@@ -1,4 +1,4 @@
-import { hoursBySubject, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
+import { hoursBySubject, isQuarterHours, MAX_WEEKLY_HOURS, MIN_SUBJECT_HOURS } from '../../shared/hours.ts';
 import type { AvailabilityWindow, ParentContact, Role } from '../../shared/types.ts';
 import { isValidHm, isValidTimeZone } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
@@ -20,14 +20,14 @@ export function parseEmailList(value: unknown, field: string, required = false):
   return list;
 }
 
-/** Hours per week for every one of `subjects`, in half hours, keyed by the subject as written in `subjects`. */
+/** Hours per week for every one of `subjects`, in quarter hours from 0.5, keyed by the subject as written in `subjects`. */
 export function parseSubjectHours(value: unknown, subjects: string[]): Record<string, number> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest('Enter the hours of tutoring per week for each subject.');
   const given = new Map(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k.trim().toLowerCase(), v]));
   const out: Record<string, number> = {};
   for (const subject of subjects) {
-    const hours = num(given.get(subject.toLowerCase()), `Hours per week for ${subject}`, { min: 0.5, max: MAX_WEEKLY_HOURS, required: true })!;
-    if (!Number.isInteger(hours * 2)) throw badRequest(`Hours per week for ${subject} must be in half hours, such as 1 or 1.5.`);
+    const hours = num(given.get(subject.toLowerCase()), `Hours per week for ${subject}`, { min: MIN_SUBJECT_HOURS, max: MAX_WEEKLY_HOURS, required: true })!;
+    if (!isQuarterHours(hours)) throw badRequest(`Hours per week for ${subject} must be in quarter hours, such as 0.75, 1 or 1.25.`);
     out[subject] = hours;
   }
   return out;

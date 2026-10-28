@@ -4,7 +4,7 @@ import type { MatchRequestDetail, MentorDirectoryRow, StudentOverview, StudentPr
 import type { AppNotification, Course, PublicUser } from '../shared/types.ts';
 import { availabilityIntervals, intersect, proposeSchedule, referenceMonday, sessionPlan, totalHours } from '../server/services/matching.ts';
 import { planSuggestions } from '../server/services/pairing.ts';
-import { splitHours } from '../shared/hours.ts';
+import { HOUR_CHOICES, splitHours } from '../shared/hours.ts';
 import type { UserRecord } from '../server/auth.ts';
 import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
 
@@ -325,9 +325,19 @@ describe('hours per subject', () => {
     const c = new Client(h);
     const signup = (body: Record<string, unknown>) => c.post('/api/auth/signup', { ...base, username: 'liya', subjects: ['Math', 'Physics'], ...body }, 400);
     assert.match((await signup({ subjectHours: { Math: 2 } })).error, /Physics/);
-    assert.match((await signup({ subjectHours: { Math: 1.25, Physics: 1 } })).error, /half hours/);
+    assert.match((await signup({ subjectHours: { Math: 1.1, Physics: 1 } })).error, /quarter hours/);
+    assert.match((await signup({ subjectHours: { Math: 0.25, Physics: 1 } })).error, /at least 0\.5/);
     assert.match((await signup({ subjectHours: { Math: 20, Physics: 11 } })).error, /at most 30 hours/);
     assert.match((await signup({})).error, /hours of tutoring per week for each subject/);
+  });
+
+  it('accepts any quarter hour from 30 minutes a week', async () => {
+    const { user } = await new Client(h).post<{ user: PublicUser }>('/api/auth/signup', { ...base, username: 'selam', email: 'selam@example.com', subjects: ['Math', 'Physics'], subjectHours: { Math: 0.75, Physics: 1.25 } }, 201);
+    assert.deepEqual([user.subjectHours, user.hoursPerWeek], [{ Math: 0.75, Physics: 1.25 }, 2]);
+    assert.deepEqual(HOUR_CHOICES.slice(0, 4), [0.5, 0.75, 1, 1.25]);
+    assert.deepEqual([HOUR_CHOICES.length, HOUR_CHOICES.at(-1)], [39, 10]);
+    // A 45-minute week is one 45-minute class; 1 h 15 min is one 75-minute class.
+    assert.deepEqual([sessionPlan(0.75), sessionPlan(1.25)], [{ count: 1, minutes: 45 }, { count: 1, minutes: 75 }]);
   });
 
   it('uses the chosen hours when a student adds a subject from their profile', async () => {

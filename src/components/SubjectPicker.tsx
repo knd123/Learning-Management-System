@@ -1,11 +1,8 @@
 import clsx from 'clsx';
 import { Check, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { DEFAULT_SUBJECT_HOURS, hoursLabel } from '../../shared/hours.ts';
+import { DEFAULT_SUBJECT_HOURS, HOUR_CHOICES, hoursLabel } from '../../shared/hours.ts';
 import { Button, Input, Select } from './ui.tsx';
-
-/** 30 minutes to 10 hours a week, in half hours. */
-const HOUR_CHOICES = Array.from({ length: 20 }, (_, i) => (i + 1) / 2);
 
 /** Hours per week for each chosen subject (subjects not in `value` show the default), with the weekly total. */
 export function SubjectHoursEditor({ subjects, value, onChange }: { subjects: string[]; value: Record<string, number>; onChange(v: Record<string, number>): void }) {

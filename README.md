@@ -19,7 +19,7 @@ Every class is **1-on-1**: one mentor, one student.
 
 1. **A student signs up** at `/signup` (linked from the sign-in page). The 3-step form asks for:
    - **About the student:** full name, email, school name, city & state, grade.
-   - **Tutoring needs:** subjects, hours of tutoring per week, availability for each day of the week, and additional notes (special needs).
+   - **Tutoring needs:** subjects, hours of tutoring per week for each subject (in quarter hours, from 0.5 to 10), availability for each day of the week, and additional notes (special needs).
    - **Parent and login:** the parent's phone and email, then a username and password.
 
    The student lands on their dashboard right away, with no mentor yet. The Abugida email, `info@abugidaeducation.com`, gets an email with all the details.

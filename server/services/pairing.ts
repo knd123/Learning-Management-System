@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { FindMentorView, MatchItemDetail, MatchRequestDetail, MentorRequestView, StudentRequestView, StudentSubjectStatus } from '../../shared/api.ts';
-import { DEFAULT_SUBJECT_HOURS, hoursBySubject, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
+import { DEFAULT_SUBJECT_HOURS, hoursBySubject, MAX_WEEKLY_HOURS, MIN_SUBJECT_HOURS } from '../../shared/hours.ts';
 import type { Course, MatchItem, MatchRequest, ScheduleSlot, Settings } from '../../shared/types.ts';
 import { ymdInZone } from '../../shared/time.ts';
 import { toAdminUser, type UserRecord } from '../auth.ts';
@@ -533,7 +533,7 @@ export async function requestMentor(deps: Deps, student: UserRecord, input: { me
   if (!onProfile) {
     // A new subject joins the profile at the hours the student chose, like a change in My profile.
     const subjects = [...(student.subjects || []), subject];
-    const hours = num(input.hoursPerWeek, `Hours per week for ${subject}`, { required: true, min: 0.5, max: MAX_WEEKLY_HOURS })!;
+    const hours = num(input.hoursPerWeek, `Hours per week for ${subject}`, { required: true, min: MIN_SUBJECT_HOURS, max: MAX_WEEKLY_HOURS })!;
     const subjectHours = parseSubjectHours({ ...hoursBySubject(student.subjects || [], student.subjectHours, student.hoursPerWeek), [subject]: hours }, subjects);
     const hoursPerWeek = Object.values(subjectHours).reduce((sum, h) => sum + h, 0);
     if (hoursPerWeek > MAX_WEEKLY_HOURS) throw badRequest(`Choose at most ${MAX_WEEKLY_HOURS} hours of tutoring per week in total.`);

@@ -1,15 +1,13 @@
 import { CheckCircle2, Hourglass, Users } from 'lucide-react';
 import { useState } from 'react';
 import type { FindMentorView, MentorListing, StudentSubjectStatus } from '../../../shared/api.ts';
-import { DEFAULT_SUBJECT_HOURS, hoursLabel } from '../../../shared/hours.ts';
+import { DEFAULT_SUBJECT_HOURS, HOUR_CHOICES, hoursLabel } from '../../../shared/hours.ts';
 import type { PublicUser } from '../../../shared/types.ts';
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Loading, PageHeader, Select, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { useAuth } from '../../lib/auth.tsx';
 import { useApi } from '../../lib/useApi.ts';
 
-/** 30 minutes to 10 hours a week, in half hours. */
-const HOUR_CHOICES = Array.from({ length: 20 }, (_, i) => (i + 1) / 2);
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 const gradesLabel = (m: MentorListing) => (m.minGrade || m.maxGrade ? `Grades ${m.minGrade ?? 3}–${m.maxGrade ?? 12}` : 'All grades');

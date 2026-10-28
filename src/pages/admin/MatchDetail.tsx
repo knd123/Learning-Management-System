@@ -294,7 +294,7 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
             </p>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Hours per week">{(fid) => <Input id={fid} type="number" min={0.5} max={30} step={0.5} value={hours} onChange={(e) => setHours(e.target.value)} />}</Field>
+            <Field label="Hours per week">{(fid) => <Input id={fid} type="number" min={0.5} max={30} step={0.25} value={hours} onChange={(e) => setHours(e.target.value)} />}</Field>
             <Field label="First class on or after">{(fid) => <Input id={fid} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
           </div>
           <Field label={`Weekly class times (student's timezone: ${studentTz.replace(/_/g, ' ')})`} hint="Prefilled from the time both are free. Leave empty to set times later on the Classes page.">

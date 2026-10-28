@@ -6,6 +6,7 @@ import { isValidHm, isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.t
 import { generatePassword, hashPassword, requireRole, toAdminUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
+import { isQuarterHours, MIN_SUBJECT_HOURS } from '../../shared/hours.ts';
 import { badRequest, h, httpUrl, notFound, num, str } from '../http.ts';
 import { usersById } from '../services/access.ts';
 import { curriculumVersions } from '../services/curriculum.ts';
@@ -475,6 +476,12 @@ export function adminRoutes(deps: Deps): Router {
     }),
   );
 
+  const quarterHours = (value: unknown) => {
+    const hours = num(value, 'Hours per week', { min: MIN_SUBJECT_HOURS, max: 30, required: true })!;
+    if (!isQuarterHours(hours)) throw badRequest('Hours per week must be in quarter hours, such as 0.75, 1 or 1.25.');
+    return hours;
+  };
+
   router.post(
     '/matches/:id/items/:itemId/approve',
     h(async (req, res) => {
@@ -483,7 +490,7 @@ export function adminRoutes(deps: Deps): Router {
       if (startDate && !isValidYmd(startDate)) throw badRequest('First class date must be a valid date.');
       await approveMatchItem(deps, req.user!, request, req.params.itemId, {
         mentorId: str(req.body?.mentorId, 'Mentor', { required: true }),
-        hoursPerWeek: num(req.body?.hoursPerWeek, 'Hours per week', { min: 0.5, max: 30, required: true })!,
+        hoursPerWeek: quarterHours(req.body?.hoursPerWeek),
         schedule: parseSchedule(req.body?.schedule ?? []),
         meetingUrl: httpUrl(req.body?.meetingUrl, 'Class link'),
         startDate: startDate || undefined,
