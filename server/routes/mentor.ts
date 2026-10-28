@@ -28,7 +28,7 @@ import { committedHours } from '../services/matching.ts';
 import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { attemptIdFor, effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
-import { attachRecording } from '../services/recordings.ts';
+import { attachRecording, recordingLink } from '../services/recordings.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { mentorSessionView, rosterStudent } from '../services/views.ts';
@@ -184,7 +184,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
           .map((u) => {
             const work = allWork.filter((w) => w.submission.studentId === u.id);
             return {
-              student: { ...rosterStudent(u), city: u.city, state: u.state, hoursPerWeek: u.hoursPerWeek, subjects: u.subjects },
+              student: { ...rosterStudent(u, user.id), city: u.city, state: u.state, hoursPerWeek: u.hoursPerWeek, subjects: u.subjects },
               classes: courses.filter((c) => c.studentIds.includes(u.id)).map((c) => ({ courseId: c.id, title: c.title, subject: c.subject })),
               submissionsToReview: toReview.filter((r) => r.submission.studentId === u.id).length,
               lastSubmissionAt: work.map((w) => w.submission.updatedAt).sort().pop(),
@@ -197,7 +197,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
           const mine = recentViews.filter((v) => v.courseId === course.id);
           return {
             course,
-            students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map(rosterStudent),
+            students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u, course.mentorId)),
             nextSession: next ? view(next.session, course) : undefined,
             pendingReports: mine.filter((v) => v.needsReport).length,
             pendingRecordings: mine.filter((v) => v.needsRecording).length,
@@ -250,7 +250,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const detail: MentorCourseDetail = {
         course,
         mentorName: people.get(course.mentorId)?.displayName || 'Mentor',
-        students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map(rosterStudent),
+        students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u, course.mentorId)),
         sessions: withFeedback(sessions.map((s) => mentorSessionView(s, course, now, people, settings.recordingAccessDays)).reverse(), await feedbackFor(course.id), people),
         homework,
         quizzes,
@@ -283,7 +283,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const detail: MentorSessionDetail = {
         session: withFeedback([mentorSessionView(session, course, deps.now(), people, settings.recordingAccessDays)], await feedbackFor(course.id), people)[0],
         course,
-        students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map(rosterStudent),
+        students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u, course.mentorId)),
         homework: homeworkId ? (await deps.store.get<Homework>(C.homework, homeworkId)) || undefined : undefined,
         recordingAccessDays: settings.recordingAccessDays,
         aiEnabled: deps.ai.enabled,
@@ -373,6 +373,10 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         slides = { kind: 'link', url: httpUrl(req.body.slidesUrl, 'Slides link'), name: 'Class slides' };
       }
       if (!slides) throw badRequest('Please attach the PowerPoint (or a link to the slides) for this class.');
+      const recordingUrl = await recordingLink(deps, req.body?.recordingUrl, false);
+      if (!recordingUrl && !session.recording && course.requiresRecording) {
+        throw badRequest("Paste the link to this class's recording. Upload it to the student's folder in your Google Drive first.");
+      }
 
       let homeworkId = session.report?.homeworkId;
       const hwInput = jsonField<{ mode?: 'none' | 'new' | 'existing'; title?: string; instructions?: string; dueAt?: string; links?: unknown; homeworkId?: string; aiGenerated?: boolean }>(req.body?.homework, {});
@@ -411,7 +415,11 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         homeworkId,
         attendance,
       };
-      const updated = await deps.store.patch<ClassSession>(C.sessions, session.id, { report, updatedAt: deps.now().toISOString() });
+      let updated = (await deps.store.patch<ClassSession>(C.sessions, session.id, { report, updatedAt: deps.now().toISOString() }))!;
+      // The recording goes live for students with the report and disappears after the viewing window.
+      if (recordingUrl && recordingUrl !== session.recording?.url) {
+        updated = (await attachRecording(deps, updated, course, recordingUrl, req.user!, await getSettings(deps.store))).session;
+      }
       res.json(updated);
     }),
   );
@@ -420,7 +428,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     '/sessions/:id/recording',
     h(async (req, res) => {
       const { session, course } = await sessionForTeacher(deps, req.user!, req.params.id);
-      const url = httpUrl(req.body?.url, 'Recording link', true);
+      const url = await recordingLink(deps, req.body?.url, true);
       if (new Date(session.startAt) > deps.now()) throw badRequest('This class has not happened yet.');
       const settings = await getSettings(deps.store);
       const result = await attachRecording(deps, session, course, url, req.user!, settings);

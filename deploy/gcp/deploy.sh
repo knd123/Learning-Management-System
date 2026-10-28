@@ -116,7 +116,8 @@ if [ "$BILLING" = "False" ]; then
 fi
 [ "$BILLING" = "True" ] || note "Couldn't confirm billing; continuing (the next step fails if it's off)."
 run gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
-  firestore.googleapis.com storage.googleapis.com secretmanager.googleapis.com cloudscheduler.googleapis.com --quiet
+  firestore.googleapis.com storage.googleapis.com secretmanager.googleapis.com cloudscheduler.googleapis.com \
+  drive.googleapis.com --quiet
 
 # --- 3. Database and file storage ---------------------------------------------
 step "Database (Firestore, $REGION)"

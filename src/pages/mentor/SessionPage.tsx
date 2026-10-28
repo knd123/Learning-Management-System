@@ -39,7 +39,6 @@ export default function MentorSession() {
           )}
         </div>
         <div className="flex flex-col gap-6 lg:col-span-2">
-          {ended && session.status !== 'cancelled' && (course.requiresRecording || session.recordingUrl) && <RecordingCard data={data} onSaved={reload} />}
           {ended && session.status !== 'cancelled' && <FeedbackCard data={data} />}
           <ManageCard data={data} onSaved={reload} />
         </div>
@@ -76,102 +75,6 @@ function FeedbackCard({ data }: { data: MentorSessionDetail }) {
   );
 }
 
-function RecordingCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): void }) {
-  const toast = useToast();
-  const { session, students } = data;
-  const [url, setUrl] = useState(session.recordingUrl || '');
-  const [editing, setEditing] = useState(!session.recordingUrl);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api.post<{ warnings: string[] }>(`/api/mentor/sessions/${encodeURIComponent(session.id)}/recording`, { url });
-      setWarnings(r.warnings);
-      setEditing(false);
-      toast('Recording saved. Students can watch it now.');
-      onSaved();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async () => {
-    if (!window.confirm('Remove this recording? Students will no longer see it.')) return;
-    await api.del(`/api/mentor/sessions/${encodeURIComponent(session.id)}/recording`);
-    setUrl('');
-    setEditing(true);
-    onSaved();
-  };
-
-  return (
-    <Card>
-      <h2 className="mb-1 flex items-center gap-2 font-semibold">
-        <Video className="size-4" /> Class recording
-      </h2>
-      {session.recording ? (
-        <p className="mb-4 text-sm text-ink-soft">
-          {session.recording.state === 'available' ? `Students can watch it until ${fmtDateTime(session.recording.availableUntil)}.` : `The ${data.recordingAccessDays}-day viewing window ended on ${fmtDateTime(session.recording.availableUntil)}.`}
-        </p>
-      ) : (
-        <ol className="mb-4 list-decimal space-y-1 pl-5 text-sm text-ink-soft">
-          <li>Upload the recording to the student's Google Drive folder.</li>
-          <li>Copy the file's share link and paste it below.</li>
-          <li>Students can rewatch it in the app for {data.recordingAccessDays} days.</li>
-        </ol>
-      )}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {students.map((s) =>
-          s.driveFolderUrl ? (
-            <ExternalButton key={s.id} href={s.driveFolderUrl} variant="secondary" size="sm">
-              <FolderOpen className="size-4" /> {s.displayName.split(' ')[0]}'s folder
-            </ExternalButton>
-          ) : (
-            <Badge key={s.id} tone="amber">
-              No Drive folder for {s.displayName}
-            </Badge>
-          ),
-        )}
-      </div>
-      {editing ? (
-        <form onSubmit={save} className="flex flex-col gap-3">
-          {error && <ErrorBox message={error} />}
-          <Field label="Recording link">{(fid) => <Input id={fid} type="url" required value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://drive.google.com/file/d/…/view" />}</Field>
-          <Button type="submit" loading={busy} className="self-start">
-            Save recording
-          </Button>
-        </form>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <ExternalButton href={session.recordingUrl} variant="secondary" size="sm">
-            <PlayCircle className="size-4" /> Open recording
-          </ExternalButton>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-            Replace link
-          </Button>
-          <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={remove}>
-            Remove
-          </Button>
-        </div>
-      )}
-      {warnings.length > 0 && (
-        <div className="mt-3 flex flex-col gap-1 text-xs text-amber-800">
-          {warnings.map((w) => (
-            <p key={w}>⚠ {w}</p>
-          ))}
-        </div>
-      )}
-      {session.remindersSent.length > 0 && !session.recordingUrl && <p className="mt-3 text-xs text-ink-muted">Reminder emails sent at the {session.remindersSent.map((h) => `${h}h`).join(' and ')} mark.</p>}
-    </Card>
-  );
-}
-
 type HomeworkMode = 'none' | 'new' | 'existing';
 
 function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): void }) {
@@ -188,6 +91,7 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
   const [slidesFile, setSlidesFile] = useState<File | null>(null);
   const [slidesUrl, setSlidesUrl] = useState('');
   const [shareSlides, setShareSlides] = useState(report?.shareSlidesWithStudents ?? true);
+  const [recordingUrl, setRecordingUrl] = useState(session.recordingUrl || '');
   const [hwMode, setHwMode] = useState<HomeworkMode>(report ? (report.homeworkId ? 'existing' : 'none') : 'new');
   const [existingHw, setExistingHw] = useState(report?.homeworkId || '');
   const [hw, setHw] = useState<HomeworkDraft>(emptyHomework);
@@ -211,6 +115,7 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
       form.set('notes', notes);
       form.set('attendance', JSON.stringify(attendance));
       form.set('shareSlidesWithStudents', String(shareSlides));
+      form.set('recordingUrl', recordingUrl);
       if (slidesFile) form.set('slides', slidesFile);
       else if (slidesUrl) form.set('slidesUrl', slidesUrl);
       if (hwMode === 'new') {
@@ -261,6 +166,23 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
             {session.slides && <AttachmentLink attachment={session.slides} />}
             <span className="text-xs text-ink-muted">{report.shareSlidesWithStudents ? 'Shared with students' : 'Not shared with students'}</span>
           </dd>
+          <dt className="text-ink-muted">Recording</dt>
+          <dd className="flex flex-col items-start gap-1">
+            {session.recordingUrl ? (
+              <>
+                <a href={session.recordingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline">
+                  <PlayCircle className="size-4" /> Open recording
+                </a>
+                {session.recording && (
+                  <span className="text-xs text-ink-muted">
+                    {session.recording.state === 'available' ? `Students can watch it until ${fmtDateTime(session.recording.availableUntil)}` : `Hidden from students since ${fmtDateTime(session.recording.availableUntil)}`}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="text-amber-800">Not added yet</span>
+            )}
+          </dd>
           <dt className="text-ink-muted">Homework</dt>
           <dd>{data.homework ? <Link className="font-medium text-brand-700 hover:underline" to={`/mentor/homework/${data.homework.id}`}>{data.homework.title}</Link> : 'None'}</dd>
           <dt className="text-ink-muted">Attendance</dt>
@@ -306,6 +228,7 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
           {!slidesFile && <Input type="url" placeholder="…or paste a Google Slides / OneDrive link" value={slidesUrl} onChange={(e) => setSlidesUrl(e.target.value)} />}
           <Checkbox label="Let students download the slides for revision" checked={shareSlides} onChange={setShareSlides} />
         </div>
+        <RecordingField data={data} value={recordingUrl} onChange={setRecordingUrl} />
         {students.length > 0 && (
           <div>
             <p className="mb-2 text-sm font-medium">Attendance</p>
@@ -374,6 +297,40 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
         </div>
       </form>
     </Card>
+  );
+}
+
+/** The link to this class's recording file, pasted from the student's folder in the mentor's Google Drive. */
+function RecordingField({ data, value, onChange }: { data: MentorSessionDetail; value: string; onChange(v: string): void }) {
+  const { session, course, students, recordingAccessDays } = data;
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border border-sand-200 p-4">
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <Video className="size-4" /> Recording of this class{!course.requiresRecording && <span className="font-normal text-ink-muted">(optional)</span>}
+      </p>
+      <ol className="list-decimal space-y-0.5 pl-5 text-sm text-ink-soft">
+        <li>Upload the recording to the student's folder in your Google Drive.</li>
+        <li>Share the video as “Anyone with the link” (Viewer).</li>
+        <li>Paste the link to that video below — not the folder link.</li>
+      </ol>
+      <div className="flex flex-wrap gap-2">
+        {students.map((s) =>
+          s.driveFolderUrl ? (
+            <ExternalButton key={s.id} href={s.driveFolderUrl} variant="secondary" size="sm">
+              <FolderOpen className="size-4" /> {s.displayName.split(' ')[0]}'s folder
+            </ExternalButton>
+          ) : (
+            <Badge key={s.id} tone="amber">
+              No folder on file for {s.displayName} — ask the Abugida team
+            </Badge>
+          ),
+        )}
+      </div>
+      <Field label="Recording link" hint={`Students watch it in the portal's own player for ${recordingAccessDays} days after the class, without seeing your Google Drive; then it disappears.`}>
+        {(fid) => <Input id={fid} type="url" required={course.requiresRecording} value={value} onChange={(e) => onChange(e.target.value)} placeholder="https://drive.google.com/file/d/…/view" />}
+      </Field>
+      {session.remindersSent.length > 0 && !session.recordingUrl && <p className="text-xs text-ink-muted">Reminder emails sent at the {session.remindersSent.map((h) => `${h}h`).join(' and ')} mark.</p>}
+    </div>
   );
 }
 

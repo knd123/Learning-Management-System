@@ -39,7 +39,8 @@ export interface SessionView {
   topicsCovered?: string;
   slides?: Attachment;
   homeworkId?: string;
-  recording?: { state: 'available' | 'expired'; url?: string; embedUrl?: string; availableUntil: string };
+  /** `streamUrl` plays the class video through the portal; `url` is only set for older links that aren't Google Drive videos. */
+  recording?: { state: 'available' | 'expired'; streamUrl?: string; url?: string; availableUntil: string };
   attended?: boolean;
 }
 
@@ -270,6 +271,7 @@ export interface RosterStudent {
   schoolName?: string;
   /** Special needs or other notes from the family. */
   notes?: string;
+  /** The student's recording folder in this mentor's Google Drive. */
   driveFolderUrl?: string;
   hasGoogleAccount: boolean;
 }

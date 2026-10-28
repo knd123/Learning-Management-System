@@ -104,6 +104,23 @@ describe('a month in the life of a 1-on-1 class', () => {
     assert.equal(overview.pendingRecordings[0].id, sessionId());
   });
 
+  it('emails the mentor 12 and 24 hours after class until the recording is uploaded', async () => {
+    const tick = () => fetchTick(h);
+    h.clock.now = new Date('2026-10-06T08:30:00Z'); // 11.5h after class end
+    assert.equal((await tick()).remindersSent, 0);
+    h.clock.now = new Date('2026-10-06T09:05:00Z'); // 12h05 after
+    assert.equal((await tick()).remindersSent, 1);
+    assert.equal((await tick()).remindersSent, 0); // not repeated
+    h.clock.now = new Date('2026-10-06T21:10:00Z'); // 24h10 after
+    assert.equal((await tick()).remindersSent, 1);
+    const emails = await admin.get('/api/admin/emails');
+    const reminders = emails.filter((e: { kind: string }) => e.kind === 'recording_reminder');
+    assert.equal(reminders.length, 2);
+    assert.deepEqual(reminders[0].to, ['sara@example.org']);
+    assert.match(reminders[0].subject, /Final reminder/);
+    assert.match(reminders[1].html, /abebaFolder123/);
+  });
+
   it('accepts the post-class report with slides and new homework', async () => {
     const form = new FormData();
     form.set('date', '2026-10-05');
@@ -112,7 +129,14 @@ describe('a month in the life of a 1-on-1 class', () => {
     form.set('attendance', JSON.stringify({}));
     form.set('slides', new Blob([Buffer.from('pptx-bytes')], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }), 'Fractions week 1.pptx');
     form.set('homework', JSON.stringify({ mode: 'new', title: 'Fractions practice', instructions: 'Solve problems 1-10.', dueAt: '2026-10-07T20:00:00Z' }));
+    // The recording link is part of the report: required, and it must be the class's video, not the folder.
+    assert.match((await mentor.form('/api/mentor/sessions/' + sessionId() + '/report', form, 400)).error, /recording/);
+    form.set('recordingUrl', 'https://drive.google.com/drive/folders/abebaFolder123');
+    assert.match((await mentor.form('/api/mentor/sessions/' + sessionId() + '/report', form, 400)).error, /folder/);
+    assert.equal((await student.get('/api/student/homework')).length, 0, 'a refused report creates nothing');
+    form.set('recordingUrl', 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQ/view?usp=sharing');
     const session = await mentor.form('/api/mentor/sessions/' + sessionId() + '/report', form);
+    assert.equal(session.recording.url, 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQ/view?usp=sharing');
     assert.equal(session.report.durationMinutes, 55);
     assert.equal(session.report.attendance[studentId], 'present'); // joined in the app
     assert.equal(session.report.slides.name, 'Fractions week 1.pptx');
@@ -149,32 +173,15 @@ describe('a month in the life of a 1-on-1 class', () => {
     await student.form(`/api/student/homework/${homeworkId}/submit`, form, 409);
   });
 
-  it('emails the mentor 12 and 24 hours after class until the recording is uploaded', async () => {
-    const tick = () => fetchTick(h);
-    h.clock.now = new Date('2026-10-06T08:30:00Z'); // 11.5h after class end
-    assert.equal((await tick()).remindersSent, 0);
-    h.clock.now = new Date('2026-10-06T09:05:00Z'); // 12h05 after
-    assert.equal((await tick()).remindersSent, 1);
-    assert.equal((await tick()).remindersSent, 0); // not repeated
-    h.clock.now = new Date('2026-10-06T21:10:00Z'); // 24h10 after
-    assert.equal((await tick()).remindersSent, 1);
-    const emails = await admin.get('/api/admin/emails');
-    const reminders = emails.filter((e: { kind: string }) => e.kind === 'recording_reminder');
-    assert.equal(reminders.length, 2);
-    assert.deepEqual(reminders[0].to, ['sara@example.org']);
-    assert.match(reminders[0].subject, /Final reminder/);
-    assert.match(reminders[1].html, /abebaFolder123/);
-  });
-
   it('shares the recording for exactly 7 days after class', async () => {
-    const { warnings } = await mentor.post(`/api/mentor/sessions/${sessionId()}/recording`, { url: 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQ/view?usp=sharing' });
-    assert.deepEqual(warnings, []);
+    // Saved with the class report above.
     assert.equal(h.drive.granted[0].email, 'abeba.kid@gmail.com');
     assert.equal(h.drive.granted[0].expiresAt.toISOString(), '2026-10-12T21:00:00.000Z');
 
     let recordings = await student.get('/api/student/recordings');
     assert.equal(recordings.available.length, 1);
-    assert.equal(recordings.available[0].recording.embedUrl, 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQ/preview');
+    // The video plays through the portal; the Drive link itself never reaches the student.
+    assert.deepEqual(recordings.available[0].recording, { state: 'available', availableUntil: '2026-10-12T21:00:00.000Z', streamUrl: `/api/student/recordings/${sessionId()}/video` });
 
     h.clock.now = new Date('2026-10-12T21:05:00Z');
     recordings = await student.get('/api/student/recordings');
@@ -322,6 +329,7 @@ describe('without an AI key', () => {
       form.set('topicsCovered', 'Place value');
       form.set('slidesUrl', 'https://docs.google.com/presentation/d/abc123/edit');
       form.set('attendance', JSON.stringify({ [school.student.id]: 'present' }));
+      form.set('recordingUrl', 'https://drive.google.com/file/d/1RecordingFile123/view');
       await mentor.form(`/api/mentor/sessions/${school.course.id}_20261005T2000Z/report`, form);
       await mentor.post(`/api/mentor/courses/${school.course.id}/homework/ai-draft`, {}, 503);
 

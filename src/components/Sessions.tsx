@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { CalendarClock, ChevronLeft, ChevronRight, PlayCircle, Video } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import type { SessionView } from '../../shared/api.ts';
 import { api } from '../lib/api.ts';
 import { addDays, fmtDay, fmtShortDay, fmtTimeRange, localYmd, sameLocalDay, startOfWeek } from '../lib/format.ts';
@@ -74,9 +75,9 @@ export function StudentSessionRow({ session, showCourse = true }: { session: Ses
       </div>
       <div className="flex flex-wrap gap-2">
         {session.recording?.state === 'available' && (
-          <a href={session.recording.url} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-50 px-4 text-sm font-semibold text-brand-800 hover:bg-brand-100">
+          <Link to={`/student/recordings?play=${encodeURIComponent(session.id)}`} className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-50 px-4 text-sm font-semibold text-brand-800 hover:bg-brand-100">
             <PlayCircle className="size-4" /> Rewatch
-          </a>
+          </Link>
         )}
         <JoinButton session={session} />
       </div>

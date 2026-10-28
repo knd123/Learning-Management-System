@@ -76,3 +76,8 @@ export async function usersById(deps: Deps, ids: Iterable<string>): Promise<Map<
 export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
 }
+
+/** The student's recording folder in a mentor's Google Drive (one folder per student and mentor). */
+export function driveFolderFor(student: UserRecord, mentorId: string): string | undefined {
+  return student.driveFolders?.[mentorId] || student.driveFolderUrl;
+}

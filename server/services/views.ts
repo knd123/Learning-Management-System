@@ -1,8 +1,8 @@
 import type { HomeworkStatus, HomeworkView, MentorSessionView, QuizSummary, RosterStudent, SessionView } from '../../shared/api.ts';
 import type { ClassSession, Course, Homework, Quiz, QuizAttempt, Submission } from '../../shared/types.ts';
 import type { UserRecord } from '../auth.ts';
+import { driveFolderFor } from './access.ts';
 import { attendanceFor } from './progress.ts';
-import { drivePreviewUrl } from './drive.ts';
 import { effectiveStatus } from './quizzes.ts';
 import { recordingState } from './recordings.ts';
 import { joinUrl } from './schedule.ts';
@@ -32,7 +32,8 @@ export function sessionView(session: ClassSession, course: Course, now: Date, st
     view.recording = {
       state,
       availableUntil: rec.availableUntil,
-      ...(state === 'available' ? { url: rec.url, embedUrl: rec.driveFileId ? drivePreviewUrl(rec.driveFileId) : undefined } : {}),
+      // Drive videos play through the portal, so the Drive link (and the owner Drive shows with it) stays hidden.
+      ...(state === 'available' ? (rec.driveFileId ? { streamUrl: `/api/student/recordings/${encodeURIComponent(session.id)}/video` } : { url: rec.url }) : {}),
     };
   }
   if (studentId && new Date(session.endAt) <= now && session.status !== 'cancelled') {
@@ -93,7 +94,8 @@ export function quizSummary(quiz: Quiz, courseTitle: string, now: Date, attempt?
   };
 }
 
-export function rosterStudent(user: UserRecord): RosterStudent {
+/** A student as `mentorId` sees them: only the recording folder in that mentor's own Drive. */
+export function rosterStudent(user: UserRecord, mentorId: string): RosterStudent {
   return {
     id: user.id,
     displayName: user.displayName,
@@ -101,7 +103,7 @@ export function rosterStudent(user: UserRecord): RosterStudent {
     grade: user.grade,
     schoolName: user.schoolName,
     notes: user.notes,
-    driveFolderUrl: user.driveFolderUrl,
+    driveFolderUrl: driveFolderFor(user, mentorId),
     hasGoogleAccount: Boolean(user.googleEmail),
   };
 }

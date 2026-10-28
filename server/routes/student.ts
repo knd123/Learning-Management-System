@@ -1,3 +1,6 @@
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { Router } from 'express';
 import type { HomeworkView, StudentCourse, StudentCourseDetail, StudentOverview, StudentProfile } from '../../shared/api.ts';
 import type { Attachment, ClassSession, Course, Homework, Quiz, QuizAttempt, QuizSession, Submission } from '../../shared/types.ts';
@@ -15,10 +18,14 @@ import { applyProfile, hourChanges, subjectChanges } from '../services/profiles.
 import { studentProgress } from '../services/progress.ts';
 import { activeSession, addSnapshot, finalizeSession, isExpired, MAX_SNAPSHOT_BYTES, MAX_SNAPSHOTS, recordEvents, saveAnswers, startSession } from '../services/proctoring.ts';
 import { attemptIdFor, effectiveStatus, studentQuizView } from '../services/quizzes.ts';
+import { recordingState } from '../services/recordings.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { homeworkView, quizSummary, sessionView } from '../services/views.ts';
 import type { Upload } from './upload.ts';
+
+/** Each response carries at most this much video, so requests stay short and the player fetches the rest as it plays. */
+export const VIDEO_CHUNK_BYTES = 8 * 1024 * 1024;
 
 export function studentRoutes(deps: Deps, upload: Upload): Router {
   const router = Router();
@@ -222,6 +229,50 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
         available: views.filter((v) => v.recording?.state === 'available'),
         expired: views.filter((v) => v.recording?.state === 'expired'),
       });
+    }),
+  );
+
+  // Plays a class recording through the portal, a few megabytes at a time, straight from the
+  // mentor's Google Drive: the student never gets the Drive link or Drive's page about the file,
+  // and the video stops playing when the viewing window ends.
+  router.get(
+    '/recordings/:id/video',
+    h(async (req, res) => {
+      const session = await deps.store.get<ClassSession>(C.sessions, req.params.id);
+      if (!session) throw notFound('Recording');
+      await courseForStudent(deps, req.user!, session.courseId);
+      const rec = session.recording;
+      if (!rec?.driveFileId || recordingState(session, deps.now()) !== 'available') throw notFound('Recording');
+      if (!deps.videos) throw new HttpError(503, 'Recordings cannot be played right now.');
+
+      const asked = /^bytes=(\d+)-(\d*)$/.exec(String(req.headers.range || ''));
+      const start = asked ? Number(asked[1]) : 0;
+      const end = Math.min(asked?.[2] ? Number(asked[2]) : Infinity, start + VIDEO_CHUNK_BYTES - 1);
+      const chunk = await deps.videos.read(rec.driveFileId, rec.driveResourceKey, start, end).catch((err) => {
+        console.error('[drive] could not read a recording:', err);
+        return null;
+      });
+      if (!chunk) throw new HttpError(503, 'This recording could not be loaded right now. Please try again in a few minutes.');
+      if (chunk.status === 416) {
+        await chunk.body?.cancel();
+        res.status(416).set('Content-Range', chunk.contentRange || 'bytes */*').end();
+        return;
+      }
+      if ((chunk.status !== 200 && chunk.status !== 206) || !chunk.body) {
+        await chunk.body?.cancel();
+        throw new HttpError(502, 'This recording could not be loaded. Ask your mentor to check that the video is shared as “Anyone with the link”.');
+      }
+      res.status(chunk.status).set({
+        'Content-Type': chunk.contentType?.startsWith('video/') ? chunk.contentType : 'video/mp4',
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'private, no-store',
+        'Content-Disposition': 'inline',
+        'X-Content-Type-Options': 'nosniff',
+        ...(chunk.contentRange ? { 'Content-Range': chunk.contentRange } : {}),
+        ...(chunk.contentLength ? { 'Content-Length': chunk.contentLength } : {}),
+      });
+      // The player stops early when the student seeks or leaves; that is not an error.
+      await pipeline(Readable.fromWeb(chunk.body as NodeReadableStream<Uint8Array>), res).catch(() => undefined);
     }),
   );
 

@@ -3,7 +3,7 @@ import type { FindMentorView, MatchItemDetail, MatchRequestDetail, MentorRequest
 import { DEFAULT_SUBJECT_HOURS, hoursBySubject, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
 import type { Course, MatchItem, MatchRequest, ScheduleSlot, Settings } from '../../shared/types.ts';
 import { ymdInZone } from '../../shared/time.ts';
-import { toPublicUser, type UserRecord } from '../auth.ts';
+import { toAdminUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, HttpError, notFound, num } from '../http.ts';
@@ -166,7 +166,7 @@ export async function requestDetail(deps: Deps, request: MatchRequest): Promise<
   const applicants = (await deps.store.find<UserRecord>(C.users, { role: 'mentor', mentorStatus: 'pending' })).filter((m) => m.active);
   return {
     request,
-    student: toPublicUser(student),
+    student: toAdminUser(student),
     items,
     mentors: [...mentors.map((m) => ({ id: m.id, displayName: m.displayName })), ...applicants.map((m) => ({ id: m.id, displayName: m.displayName, applicationPending: true }))].sort((a, b) => a.displayName.localeCompare(b.displayName)),
     studentClasses: courses

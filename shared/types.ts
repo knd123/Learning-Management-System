@@ -50,6 +50,12 @@ export interface PublicUser {
   /** Who gets the monthly reports: the listed parents, plus any parent the team linked. */
   parentEmails?: string[];
   parentPhone?: string;
+  /**
+   * The student's recording folder in each mentor's Google Drive, by mentor id: one folder for all
+   * of the student's classes with that mentor. Team and that mentor only; never sent to families.
+   */
+  driveFolders?: Record<string, string>;
+  /** Older single folder link, used for any mentor without their own entry in `driveFolders`. */
   driveFolderUrl?: string;
   googleEmail?: string;
   // Mentor-only fields
@@ -172,8 +178,11 @@ export interface SessionReport {
 }
 
 export interface SessionRecording {
+  /** The Google Drive link the mentor pasted. Never sent to students or parents. */
   url: string;
   driveFileId?: string;
+  /** Needed to read files that were link-shared before Google's 2021 security update. */
+  driveResourceKey?: string;
   addedAt: string;
   addedBy: string;
   /** Students can watch until this instant (class end + recording access days). */

@@ -3,9 +3,36 @@ import { ONE_DAY, ONE_HOUR } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
-import { firstName, usersById } from './access.ts';
-import { parseDriveFileId } from './drive.ts';
+import { driveFolderFor, firstName, usersById } from './access.ts';
+import { parseDriveVideoLink } from './drive.ts';
+import { badRequest, httpUrl } from '../http.ts';
 import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
+
+/**
+ * The Google Drive link to one class's video. Students never get it: the portal streams the video.
+ * Refused: folder links (the folder holds all of the student's recordings with the mentor), other
+ * kinds of links, files that aren't videos, and videos the portal can't open because they aren't
+ * shared "Anyone with the link". If Drive can't be asked right now, the link is accepted.
+ */
+export async function recordingLink(deps: Deps, value: unknown, required: boolean): Promise<string> {
+  const url = httpUrl(value, 'Recording link', required);
+  if (!url) return '';
+  if (/^https?:\/\/drive\.google\.com\/(drive\/(u\/\d+\/)?folders\/|folderview)/.test(url)) {
+    throw badRequest('That is a link to a folder. Open the recording in the folder and paste the link to that one video, so the student only gets this class.');
+  }
+  const link = parseDriveVideoLink(url);
+  if (!link) throw badRequest('Paste the Google Drive link to the recording video. It looks like https://drive.google.com/file/d/…/view');
+  if (!deps.videos) return url;
+  const found = await deps.videos.check(link.fileId, link.resourceKey).catch((err) => {
+    console.error('[drive] could not check a recording link:', err);
+    return null;
+  });
+  if (found && 'status' in found && (found.status === 403 || found.status === 404)) {
+    throw badRequest('The portal can’t open this video yet. In Google Drive, share it as “Anyone with the link” (Viewer), then save again.');
+  }
+  if (found && 'mimeType' in found && !found.mimeType.startsWith('video/')) throw badRequest('That file is not a video. Paste the link to the class recording.');
+  return url;
+}
 
 export function recordingAvailableUntil(session: ClassSession, settings: Settings): Date {
   return new Date(new Date(session.endAt).getTime() + settings.recordingAccessDays * ONE_DAY);
@@ -30,7 +57,8 @@ export async function attachRecording(
 ): Promise<{ session: ClassSession; warnings: string[] }> {
   const warnings: string[] = [];
   const availableUntil = recordingAvailableUntil(session, settings);
-  const driveFileId = parseDriveFileId(url);
+  const link = parseDriveVideoLink(url);
+  const driveFileId = link?.fileId;
   const drivePermissions: Record<string, string> = { ...(session.recording?.driveFileId === driveFileId ? session.recording?.drivePermissions : {}) };
 
   if (deps.drive && driveFileId && availableUntil > deps.now()) {
@@ -55,6 +83,7 @@ export async function attachRecording(
     recording: {
       url,
       driveFileId,
+      driveResourceKey: link?.resourceKey,
       addedAt: session.recording?.addedAt || now,
       addedBy: user.id,
       availableUntil: availableUntil.toISOString(),
@@ -127,17 +156,15 @@ export async function sendRecordingReminders(deps: Deps, settings: Settings): Pr
       const when = formatInZone(session.startAt, mentor?.timezone || course.timezone);
       const studentNames = students.map((s) => s.displayName).join(', ') || 'your student';
       const sessionLink = `${deps.appUrl}/mentor/sessions/${encodeURIComponent(session.id)}`;
-      const folderLinks = students
-        .filter((s) => s.driveFolderUrl)
-        .map((s) => `<li><a href="${escapeHtml(s.driveFolderUrl!)}">${escapeHtml(firstName(s.displayName))}'s Google Drive folder</a></li>`)
-        .join('');
+      const folders = students.map((s) => ({ student: s, url: driveFolderFor(s, course.mentorId) })).filter((f): f is { student: UserRecord; url: string } => Boolean(f.url));
+      const folderLinks = folders.map((f) => `<li><a href="${escapeHtml(f.url)}">${escapeHtml(firstName(f.student.displayName))}'s folder in your Google Drive</a></li>`).join('');
       const reportPending = !session.report;
       const subject = `${due === hours[hours.length - 1] ? 'Final reminder' : 'Reminder'}: upload the recording for ${course.title}`;
       const html = emailLayout(
         'Class recording still needed',
         `<p style="line-height:1.6">Hi ${escapeHtml(firstName(mentor?.displayName || 'there'))},</p>
 <p style="line-height:1.6">It has been ${due} hours since your class <strong>${escapeHtml(course.title)}</strong> with ${escapeHtml(studentNames)} (${escapeHtml(when)}), and the recording has not been added yet.</p>
-<p style="line-height:1.6">Please upload the recording to the student's Google Drive folder, then paste the link in the app. Students can rewatch it for ${settings.recordingAccessDays} days after the class, so every hour counts.</p>
+<p style="line-height:1.6">Please upload the recording to the student's folder in your Google Drive, share it as “Anyone with the link”, then paste the link to the recording in the class report. Students can rewatch it for ${settings.recordingAccessDays} days after the class, so every hour counts.</p>
 ${folderLinks ? `<ul style="line-height:1.6">${folderLinks}</ul>` : ''}
 ${emailButton(sessionLink, 'Add the recording link')}
 ${reportPending ? '<p style="line-height:1.6;color:#8a5a00">Your class report (date, duration, slides and homework) is also still pending — you can submit it on the same page.</p>' : ''}`,
@@ -147,8 +174,8 @@ ${reportPending ? '<p style="line-height:1.6;color:#8a5a00">Your class report (d
         `Hi ${firstName(mentor?.displayName || 'there')},`,
         '',
         `It has been ${due} hours since your class "${course.title}" with ${studentNames} (${when}), and the recording has not been added yet.`,
-        `Please upload it to the student's Google Drive folder and paste the link in the app: ${sessionLink}`,
-        ...students.filter((s) => s.driveFolderUrl).map((s) => `${s.displayName}'s Drive folder: ${s.driveFolderUrl}`),
+        `Please upload it to the student's folder in your Google Drive, share it as "Anyone with the link", and paste the link to the recording in the class report: ${sessionLink}`,
+        ...folders.map((f) => `${f.student.displayName}'s folder: ${f.url}`),
         reportPending ? '\nYour class report is also still pending.' : '',
       ].join('\n');
 

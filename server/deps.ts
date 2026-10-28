@@ -1,7 +1,7 @@
 import type { Store } from './db/store.ts';
 import type { BlobStore } from './files/blobStore.ts';
 import type { AiService } from './services/ai.ts';
-import type { DriveService } from './services/drive.ts';
+import type { DriveService, DriveVideos } from './services/drive.ts';
 import type { Mailer } from './services/email.ts';
 import type { GoogleSignIn } from './services/google.ts';
 
@@ -12,6 +12,8 @@ export interface Deps {
   mailer: Mailer;
   ai: AiService;
   drive: DriveService | null;
+  /** Streams class recordings from mentors' Google Drives; null where the server has no Google account. */
+  videos: DriveVideos | null;
   /** "Sign in with Google"; null when no OAuth client ID is configured. */
   google: GoogleSignIn | null;
   now: () => Date;

@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { AdminCourseRow, AdminOverview, ApprovalCounts, CurriculumRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ParentRequestRow, ReportDetail, ReportRow, RewardRow } from '../../shared/api.ts';
 import type { ClassFeedback, ClassSession, Course, EmailLog, MatchRequest, ParentLinkRequest, ParentReport, RewardRequest, ReportNarrative, Role, ScheduleSlot, Settings } from '../../shared/types.ts';
 import { isValidHm, isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
-import { generatePassword, hashPassword, requireRole, toPublicUser, type UserRecord } from '../auth.ts';
+import { generatePassword, hashPassword, requireRole, toAdminUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, h, httpUrl, notFound, num, str } from '../http.ts';
@@ -138,7 +138,7 @@ export function adminRoutes(deps: Deps): Router {
     h(async (req, res) => {
       const role = req.query.role as Role | undefined;
       const users = await deps.store.find<UserRecord>(C.users, role ? { role } : {});
-      res.json(users.map(toPublicUser).sort((a, b) => a.displayName.localeCompare(b.displayName)));
+      res.json(users.map(toAdminUser).sort((a, b) => a.displayName.localeCompare(b.displayName)));
     }),
   );
 
@@ -176,7 +176,7 @@ export function adminRoutes(deps: Deps): Router {
       if (role === 'student' && user.subjects?.length && body.createMatchRequest !== false) {
         await createMatchRequest(deps, user, { kind: 'new_student', subjects: user.subjects });
       }
-      res.status(201).json({ user: toPublicUser(user), password });
+      res.status(201).json({ user: toAdminUser(user), password });
     }),
   );
 
@@ -210,7 +210,7 @@ export function adminRoutes(deps: Deps): Router {
       }
       const updated = await deps.store.patch<UserRecord>(C.users, user.id, changes);
       if (changes.parents) await connectParents(deps, updated!, (user.parents || []).map((p) => p.email));
-      res.json(toPublicUser(updated!));
+      res.json(toAdminUser(updated!));
     }),
   );
 
@@ -378,7 +378,7 @@ export function adminRoutes(deps: Deps): Router {
       const student = await deps.store.get<UserRecord>(C.users, report.studentId);
       if (!student) throw notFound('Student');
       const email = renderReportEmail(report, student, await getSettings(deps.store));
-      const detail: ReportDetail = { report, student: toPublicUser(student), email: { subject: email.subject, html: email.html } };
+      const detail: ReportDetail = { report, student: toAdminUser(student), email: { subject: email.subject, html: email.html } };
       res.json(detail);
     }),
   );
@@ -525,7 +525,7 @@ export function adminRoutes(deps: Deps): Router {
           const committed = committedHours(m.id, courses);
           const ratings = feedback.filter((f) => f.mentorId === m.id && f.createdAt >= since).map((f) => f.rating);
           return {
-            mentor: toPublicUser(m),
+            mentor: toAdminUser(m),
             averageRating: ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null,
             ratingCount: ratings.length,
             committedHours: committed,
@@ -552,7 +552,7 @@ export function adminRoutes(deps: Deps): Router {
     h(async (req, res) => {
       const mentors = await deps.store.find<UserRecord>(C.users, { role: 'mentor' });
       const wanted = req.query.status === 'decided' ? ['approved', 'declined'] : ['pending'];
-      res.json(mentors.filter((m) => wanted.includes(m.mentorStatus || '')).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toPublicUser));
+      res.json(mentors.filter((m) => wanted.includes(m.mentorStatus || '')).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toAdminUser));
     }),
   );
 
@@ -562,7 +562,7 @@ export function adminRoutes(deps: Deps): Router {
       const decision = req.body?.decision;
       if (decision !== 'approve' && decision !== 'decline') throw badRequest('Choose approve or decline.');
       const mentor = await decideMentor(deps, req.params.id, decision === 'approve', str(req.body?.note, 'Note', { max: 1000 }));
-      res.json(toPublicUser(mentor));
+      res.json(toAdminUser(mentor));
     }),
   );
 
@@ -578,7 +578,7 @@ export function adminRoutes(deps: Deps): Router {
           const parent = people.get(request.parentId)!;
           return {
             request,
-            parent: toPublicUser(parent),
+            parent: toAdminUser(parent),
             children: request.children.map((c) => {
               const s = c.suggestedStudentId ? people.get(c.suggestedStudentId) : undefined;
               return {

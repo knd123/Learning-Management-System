@@ -108,14 +108,14 @@ export default function StudentHome() {
           <SectionTitle action={<ButtonLink to="/student/recordings" variant="ghost" size="sm">All recordings</ButtonLink>}>Rewatch recent classes</SectionTitle>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {data.recordings.slice(0, 3).map((s) => (
-              <a key={s.id} href={s.recording!.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 rounded-2xl border border-sand-200 bg-white p-4 hover:border-brand-300">
+              <Link key={s.id} to={`/student/recordings?play=${encodeURIComponent(s.id)}`} className="flex items-center gap-3 rounded-2xl border border-sand-200 bg-white p-4 hover:border-brand-300">
                 <PlayCircle className="size-9 shrink-0 text-brand-600" />
                 <span className="min-w-0">
                   <span className="block truncate font-semibold">{s.courseTitle}</span>
                   <span className="block text-sm text-ink-soft">{fmtDateTime(s.startAt)}</span>
                   <Badge tone="amber" className="mt-1">Available until {fmtDateTime(s.recording!.availableUntil)}</Badge>
                 </span>
-              </a>
+              </Link>
             ))}
           </div>
         </section>

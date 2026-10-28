@@ -7,7 +7,7 @@ import { config } from './config.ts';
 import { C } from './db/store.ts';
 import type { Deps } from './deps.ts';
 import { DisabledAi, GeminiAi } from './services/ai.ts';
-import { GoogleDriveService } from './services/drive.ts';
+import { GoogleDriveService, GoogleDriveVideos } from './services/drive.ts';
 import { LogMailer, SmtpMailer } from './services/email.ts';
 import { GoogleIdTokenVerifier } from './services/google.ts';
 import { runScheduledJobs } from './services/jobs.ts';
@@ -22,6 +22,7 @@ async function main() {
     mailer: config.smtp.host ? new SmtpMailer(config.smtp, config.emailFrom) : new LogMailer(),
     ai: config.geminiApiKey ? new GeminiAi(config.geminiApiKey, config.geminiModel) : new DisabledAi(),
     drive: config.driveEnabled ? new GoogleDriveService() : null,
+    videos: new GoogleDriveVideos(),
     google: config.googleClientId ? new GoogleIdTokenVerifier(config.googleClientId) : null,
     now: () => new Date(),
     appUrl: config.appUrl,

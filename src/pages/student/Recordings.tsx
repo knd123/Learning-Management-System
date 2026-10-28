@@ -1,5 +1,6 @@
 import { ExternalLink, PlayCircle, TimerOff } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import type { SessionView } from '../../../shared/api.ts';
 import { Badge, Card, EmptyState, ErrorBox, ExternalButton, Loading, PageHeader, SectionTitle } from '../../components/ui.tsx';
 import { fmtDateTime, fmtRelative } from '../../lib/format.ts';
@@ -7,7 +8,13 @@ import { useApi } from '../../lib/useApi.ts';
 
 export default function StudentRecordings() {
   const { data, error, loading, reload } = useApi<{ available: SessionView[]; expired: SessionView[] }>('/api/student/recordings');
-  const [playing, setPlaying] = useState<string | null>(null);
+  // Links elsewhere in the portal open this page with ?play=<class id>, so recordings always play here.
+  const [params] = useSearchParams();
+  const [playing, setPlaying] = useState<string | null>(params.get('play'));
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    if (data && playing) document.getElementById(`recording-${playing}`)?.scrollIntoView({ block: 'center' });
+  }, [data, playing]);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox message={error || 'Could not load recordings.'} onRetry={reload} />;
 
@@ -19,13 +26,30 @@ export default function StudentRecordings() {
           {data.available.map((s) => {
             const rec = s.recording!;
             return (
-              <Card key={s.id} className="flex flex-col gap-3">
-                {playing === s.id && rec.embedUrl ? (
+              <Card key={s.id} id={`recording-${s.id}`} className="flex flex-col gap-3">
+                {playing === s.id && rec.streamUrl ? (
+                  // The portal's own player: the video comes through the portal, never a Google Drive page.
                   <div className="aspect-video overflow-hidden rounded-xl bg-ink">
-                    <iframe src={rec.embedUrl} title={`Recording of ${s.courseTitle}`} allow="autoplay; fullscreen" allowFullScreen className="size-full" />
+                    {failed === s.id ? (
+                      <p className="grid size-full place-items-center p-6 text-center text-sm text-white">This recording can't be played right now. Try again later, or ask your mentor to check the video.</p>
+                    ) : (
+                      <video
+                        src={rec.streamUrl}
+                        title={`Recording of ${s.courseTitle}`}
+                        controls
+                        autoPlay
+                        playsInline
+                        preload="metadata"
+                        controlsList="nodownload noremoteplayback"
+                        disablePictureInPicture
+                        onContextMenu={(e) => e.preventDefault()}
+                        onError={() => setFailed(s.id)}
+                        className="size-full"
+                      />
+                    )}
                   </div>
                 ) : (
-                  <button onClick={() => (rec.embedUrl ? setPlaying(s.id) : window.open(rec.url, '_blank', 'noopener'))} className="grid aspect-video place-items-center rounded-xl bg-brand-800 text-white hover:bg-brand-700">
+                  <button onClick={() => (rec.streamUrl ? setPlaying(s.id) : window.open(rec.url, '_blank', 'noopener'))} className="grid aspect-video place-items-center rounded-xl bg-brand-800 text-white hover:bg-brand-700">
                     <span className="flex flex-col items-center gap-2">
                       <PlayCircle className="size-14 text-sun" />
                       <span className="font-semibold">Play recording</span>
@@ -40,9 +64,11 @@ export default function StudentRecordings() {
                   </div>
                   <Badge tone="amber">Gone {fmtRelative(rec.availableUntil)}</Badge>
                 </div>
-                <ExternalButton href={rec.url} variant="secondary" size="sm" className="self-start">
-                  <ExternalLink className="size-4" /> Open in a new tab
-                </ExternalButton>
+                {!rec.streamUrl && rec.url && (
+                  <ExternalButton href={rec.url} variant="secondary" size="sm" className="self-start">
+                    <ExternalLink className="size-4" /> Open in a new tab
+                  </ExternalButton>
+                )}
               </Card>
             );
           })}

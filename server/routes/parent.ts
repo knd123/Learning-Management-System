@@ -28,7 +28,8 @@ export function parentRoutes(deps: Deps): Router {
   }
 
   // Parents see the schedule but don't join classes, so class links are left out.
-  const forParent = (v: SessionView): SessionView => ({ ...v, joinUrl: '' });
+  // Parents follow classes but don't join them or watch recordings.
+  const forParent = (v: SessionView): SessionView => ({ ...v, joinUrl: '', recording: undefined });
 
   async function load(student: UserRecord) {
     const now = deps.now();

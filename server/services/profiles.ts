@@ -47,6 +47,19 @@ export function parsePhone(value: unknown, field: string, required = false): str
   return s;
 }
 
+/** Recording folder links by mentor id, merged into `current`; an empty link removes that mentor's folder. */
+function parseDriveFolders(value: unknown, current: Record<string, string> = {}): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest('Recording folders must be a list of links by mentor.');
+  const out = { ...current };
+  for (const [mentorId, link] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^[\w-]{1,64}$/.test(mentorId)) throw badRequest('Unknown mentor for a recording folder.');
+    const url = httpUrl(link, 'Recording folder');
+    if (url) out[mentorId] = url;
+    else delete out[mentorId];
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** One or two parents or guardians, each with a name, email and phone. */
 export function parseParents(value: unknown, required: boolean): ParentContact[] {
   if (value === undefined || value === null) value = [];
@@ -160,6 +173,7 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
     }
     if (opts.admin) {
       if (body.driveFolderUrl !== undefined) target.driveFolderUrl = httpUrl(body.driveFolderUrl, 'Google Drive folder') || undefined;
+      if (body.driveFolders !== undefined) target.driveFolders = parseDriveFolders(body.driveFolders, opts.current?.driveFolders);
       if (body.googleEmail !== undefined) target.googleEmail = parseEmail(body.googleEmail, 'Student Google account');
     }
   }

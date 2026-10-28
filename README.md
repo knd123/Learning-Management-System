@@ -12,7 +12,7 @@ Every class is **1-on-1**: one mentor, one student.
 | --- | --- |
 | **Students** | **Create their own account** with an intake form (see below), then sign in with a **username**. See all their classes, the weekly schedule and each class link, and join with one tap (attendance is logged). After each class, a pop-up asks them to **rate the class** (1–5 stars) and say **what can be better for next class**. Hand in homework (text, photos, files, links) and see grades and feedback. Rewatch class recordings for **7 days** after each class. Take the **monthly quiz** under exam conditions (timed, webcam on) and follow their progress by skill. Update their subjects, availability and details under **My profile**. |
 | **Parents** | **Sign up** with their child's full name exactly as on the student's profile. They can also ask to sign up siblings for **5% off per sibling**. Once the team approves, they get a read-only view of each child's schedule, attendance, homework, quiz results, progress charts and monthly reports. Class links and webcam photos are never shown to parents. |
-| **Mentors** | **Apply online** (full name, academic level, subjects, weekly availability for each day, hours per week of bandwidth). They can be paired only after the team approves them. The dashboard shows **their students' profiles** (school, city, subjects, notes from the family) and **submitted homework**. They keep their subjects, grade range, weekly availability and weekly capacity up to date. They assign the class link and homework (optionally drafted by AI from the curriculum), submit the **post-class report** (date, duration, PowerPoint, homework, topics, attendance) and add the recording link after uploading to the student's Google Drive folder. **Email reminders 12h and 24h after class** keep coming until the recording is added. They see each student's **class ratings**, review homework, check monthly quizzes and their **proctoring record**, and upload or update each class's **curriculum once per quarter**. |
+| **Mentors** | **Apply online** (full name, academic level, subjects, weekly availability for each day, hours per week of bandwidth). They can be paired only after the team approves them. The dashboard shows **their students' profiles** (school, city, subjects, notes from the family) and **submitted homework**. They keep their subjects, grade range, weekly availability and weekly capacity up to date. They assign the class link and homework (optionally drafted by AI from the curriculum), submit the **post-class report** (date, duration, PowerPoint, homework, topics, attendance and the **recording link**, which is required) after uploading the recording to the student's folder in their own Google Drive. **Email reminders 12h and 24h after class** keep coming until the recording is added. They see each student's **class ratings**, review homework, check monthly quizzes and their **proctoring record**, and upload or update each class's **curriculum once per quarter**. |
 | **Abugida team (admins)** | **Approvals:** mentor applications, parent access requests (with the sibling-discount request) and **Starbucks gift cards**. Approve the **mentor pairings** suggested by the platform. See every mentor's subjects, grades, availability, remaining capacity and **average class rating**. Create logins and classes with weekly schedules. Read every curriculum (curricula are never shown to students). Review the **AI-written monthly parent reports** and the email log, and change settings. |
 
 ### Sign-up and mentor pairing
@@ -65,7 +65,7 @@ When a student scores **90% or higher** on **four monthly quizzes in a row in th
 
 Time-based work runs automatically:
 
-- **Recording reminders.** Mentors get an email 12 and 24 hours after each class whose recording is missing. The email links to the student's Drive folder and to the page where they paste the link.
+- **Recording reminders.** Mentors get an email 12 and 24 hours after each class whose recording is missing. The email links to the student's folder in that mentor's Drive and to the class report where they paste the link.
 - **Recording access.** Students see each recording in the app only for the viewing window (7 days by default). With Google Drive integration on, their Drive access to the file also expires.
 - **Monthly quizzes.** On the 20th of each month (configurable), the AI builds a quiz for each class (up to 10 questions) from that month's homework, the topics in the class reports, and the curriculum. Quizzes can publish automatically or wait for the mentor to review. Quiz sittings left open are graded once their time is up.
 - **Webcam photo clean-up.** Proctoring photos older than the retention period (30 days by default) are deleted.
@@ -162,7 +162,7 @@ The built-in scheduler handles reminders, quizzes and reports (`INTERNAL_SCHEDUL
 3. **Students.**
    - Share the sign-up link (`APP_URL/signup`) with families. Each sign-up shows up under **Match requests**, where you approve a mentor.
    - Or add students yourself under People → Students; they join the pairing queue too.
-   - Add each student's **Google Drive folder** link (People → Student) so mentors know where to upload recordings.
+   - Add each student's **recording folder** for each mentor (People → Student → Recording folders) so mentors know where to upload recordings. Students and parents never see these folder links.
 4. **Parents.** Share `APP_URL/signup/parent`. Approve each request under **Approvals → Parent requests**, or add parents yourself under People → Parents.
 5. **Mentors** sign in, add the class link for each new class, and upload the curriculum for each class. The Q4 window is open now. You can extend it in Settings, and a class's first curriculum can be uploaded at any time.
 6. Send a **test email** from Admin → Emails to confirm SMTP works.
@@ -185,7 +185,11 @@ Any SMTP service can send the email:
 
 ## Google Drive integration (optional)
 
-By default, mentors upload the recording to the student's Drive folder and paste the link into the app. The app shows it to the student for 7 days and then hides it.
+By default, each mentor keeps one folder per student in their own Google Drive. After each class they upload the recording there, share the video as **Anyone with the link (Viewer)**, and paste the link to that video (never the folder) into the class report; the report can't be saved without it. When the report is saved, the portal checks that the link is a Google Drive video it can open, and refuses folder links. The folder links are stored per student and mentor, and only the Abugida team and that mentor see them.
+
+Students never get the Drive link. The portal's server reads the video from Drive through the Drive API (with the runtime service account; the deploy script enables `drive.googleapis.com`) and streams it to the portal's own video player, 8 MB at a time. Students never see a Google Drive page, so nothing shows who owns the file. The stream stops when the 7-day viewing window ends, even for someone who kept the page address. Parents don't get recordings.
+
+Videos stream through Cloud Run, so each viewing counts as outgoing data: about 1 GB a month is free, then roughly $0.12 per GB.
 
 To also expire students' **Drive** access automatically:
 

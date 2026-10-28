@@ -10,7 +10,7 @@ import { FirestoreStore } from '../server/db/firestoreStore.ts';
 import type { Deps } from '../server/deps.ts';
 import type { BlobStore } from '../server/files/blobStore.ts';
 import { templateNarrative, type AiService, type GeneratedQuestion, type QuizGenInput, type ReportGenInput } from '../server/services/ai.ts';
-import type { DriveService } from '../server/services/drive.ts';
+import type { DriveService, DriveVideos, VideoChunk } from '../server/services/drive.ts';
 import { LogMailer } from '../server/services/email.ts';
 
 export class MemoryBlobs implements BlobStore {
@@ -67,6 +67,33 @@ export class FakeDrive implements DriveService {
   }
 }
 
+/**
+ * Videos in mentors' Drives, shared "Anyone with the link". Ids containing "Private" aren't shared and
+ * ids containing "Notes" aren't videos. Every other file is a video of `sizes` bytes (default 1000), byte i = i % 251.
+ */
+export class FakeVideos implements DriveVideos {
+  sizes = new Map<string, number>();
+  reads: Array<{ fileId: string; resourceKey?: string; start: number; end: number }> = [];
+  /** Simulates Drive being unreachable when a mentor saves a link, or while a student watches. */
+  failChecks = false;
+  failReads = false;
+  async check(fileId: string) {
+    if (this.failChecks) throw new Error('Drive is unreachable');
+    if (fileId.includes('Private')) return { status: 404 };
+    return { mimeType: fileId.includes('Notes') ? 'application/pdf' : 'video/mp4' };
+  }
+  async read(fileId: string, resourceKey: string | undefined, start: number, end: number): Promise<VideoChunk> {
+    this.reads.push({ fileId, resourceKey, start, end });
+    if (this.failReads) throw new Error('Drive is unreachable');
+    if (fileId.includes('Private')) return { status: 404 };
+    const size = this.sizes.get(fileId) ?? 1000;
+    if (start >= size) return { status: 416, contentRange: `bytes */${size}` };
+    const last = Math.min(end, size - 1);
+    const data = new Uint8Array(last - start + 1).map((_, i) => (start + i) % 251);
+    return { status: 206, contentType: 'video/mp4', contentRange: `bytes ${start}-${last}/${size}`, contentLength: String(data.length), body: new Blob([data]).stream() };
+  }
+}
+
 /** A Firestore store on the local emulator, isolated by a throwaway project id. */
 export function firestoreTestStore(projectId: string): Store {
   const app = initializeApp({ projectId }, projectId);
@@ -79,6 +106,7 @@ export interface Harness {
   mailer: LogMailer;
   ai: FakeAi;
   drive: FakeDrive;
+  videos: FakeVideos;
   clock: { now: Date };
   baseUrl: string;
   server: Server;
@@ -91,6 +119,7 @@ export async function startHarness(start: string, opts: { ai?: AiService } = {})
   const mailer = new LogMailer();
   const ai = new FakeAi();
   const drive = new FakeDrive();
+  const videos = new FakeVideos();
   const clock = { now: new Date(start) };
   const deps: Deps = {
     store,
@@ -98,6 +127,7 @@ export async function startHarness(start: string, opts: { ai?: AiService } = {})
     mailer,
     ai: opts.ai || ai,
     drive,
+    videos,
     google: null,
     now: () => new Date(clock.now),
     appUrl: 'https://lms.example.org',
@@ -117,6 +147,7 @@ export async function startHarness(start: string, opts: { ai?: AiService } = {})
     mailer,
     ai,
     drive,
+    videos,
     clock,
     baseUrl: `http://127.0.0.1:${port}`,
     server,
