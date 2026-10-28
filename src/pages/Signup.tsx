@@ -147,7 +147,7 @@ export function IntakeFields({ form, set, step, subjectOptions, fromInvite }: { 
           <Field label="Availability for each day of the week" hint="When could classes happen? Add as many time ranges as you like.">
             {() => <AvailabilityEditor value={form.availability} onChange={(availability) => set({ availability })} />}
           </Field>
-          <Field label="Additional notes (optional)" hint="Any unique or special needs, learning differences, goals or anything else our team should know.">
+          <Field label="Additional notes (optional)" hint="Any unique or special needs, learning differences, goals or anything else our team should know. The student's mentor sees these notes too, so please don't include phone numbers or email addresses.">
             {(id) => <Textarea id={id} rows={4} value={form.notes} onChange={(e) => set({ notes: e.target.value })} />}
           </Field>
         </>,
