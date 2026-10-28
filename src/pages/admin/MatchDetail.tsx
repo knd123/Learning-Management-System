@@ -137,10 +137,11 @@ export default function AdminMatch() {
 function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { requestId: string; detail: MatchItemDetail; mentors: MatchRequestDetail['mentors']; studentTz: string; onChange(d: MatchRequestDetail): void }) {
   const toast = useToast();
   const { item, candidates } = detail;
-  // Default to the mentor the student asked for, else today's best available mentor
-  // (rankings refresh as mentors' schedules change). The team can still choose anyone.
-  const requestedName = item.requestedMentorId ? mentors.find((m) => m.id === item.requestedMentorId)?.displayName : undefined;
-  const initial = (requestedName && item.requestedMentorId) || candidates.find((c) => c.fit !== 'unavailable')?.mentorId || candidates[0]?.mentorId || '';
+  // Default to the mentor the team picked when assigning by hand, else the one the student asked for,
+  // else today's best available mentor (rankings refresh as schedules change). The team can still choose anyone.
+  const teamPick = item.teamMentorId ? mentors.find((m) => m.id === item.teamMentorId) : undefined;
+  const requested = item.requestedMentorId ? mentors.find((m) => m.id === item.requestedMentorId) : undefined;
+  const initial = teamPick?.id || requested?.id || candidates.find((c) => c.fit !== 'unavailable')?.mentorId || candidates[0]?.mentorId || '';
   const [mentorId, setMentorId] = useState(initial);
   const [hours, setHours] = useState(String(item.hoursPerWeek));
   const [schedule, setSchedule] = useState<ScheduleSlot[]>(candidates.find((c) => c.mentorId === initial)?.proposedSchedule || []);
@@ -184,11 +185,12 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
 
   const selected = candidates.find((c) => c.mentorId === mentorId);
   const others = mentors.filter((m) => !candidates.some((c) => c.mentorId === m.id));
+  const applicant = mentors.find((m) => m.id === mentorId && m.applicationPending);
 
   const approve = async () => {
     if (!mentorId) return setError('Choose a mentor first.');
     const name = mentors.find((m) => m.id === mentorId)?.displayName;
-    if (!window.confirm(`Pair with ${name}? This creates the class and emails the student, the parent and the mentor.`)) return;
+    if (!window.confirm(`Pair with ${name}? This ${applicant ? 'approves their mentor application, ' : ''}creates the class and emails the student, the parent and the mentor.`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -222,9 +224,15 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
         </h2>
         <Badge tone="amber">Waiting for approval</Badge>
       </div>
-      {requestedName && (
+      {teamPick && (
         <Notice tone="blue">
-          The student asked for <strong>{requestedName}</strong>{item.requestedAt && ` (${fmtRelative(item.requestedAt)})`}. They are selected below; approve them or choose another mentor.
+          You chose <strong>{teamPick.displayName}</strong> for {item.subject}. Check the hours and class times below, then approve the pairing.
+        </Notice>
+      )}
+      {requested && (
+        <Notice tone="blue">
+          The student asked for <strong>{requested.displayName}</strong>
+          {item.requestedAt && ` (${fmtRelative(item.requestedAt)})`}.{initial === requested.id && ' They are selected below; approve them or choose another mentor.'}
         </Notice>
       )}
 
@@ -244,6 +252,7 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
                       <Badge tone={FIT[c.fit].tone}>{FIT[c.fit].label}</Badge>
                       {idx === 0 && c.fit !== 'unavailable' && <Badge tone="brand">Top pick</Badge>}
                       {c.mentorId === item.requestedMentorId && <Badge tone="blue">Student's choice</Badge>}
+                      {c.mentorId === item.teamMentorId && <Badge tone="blue">Your pick</Badge>}
                     </span>
                     <span className="mt-1 block text-sm text-ink-soft">{c.reasons.join(' · ')}</span>
                     {c.proposedSchedule.length > 0 && <span className="mt-1 block text-xs text-ink-muted">Suggested times: {c.proposedSchedule.map(fmtSlot).join(', ')}</span>}
@@ -253,7 +262,7 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
             ))}
           </ul>
         ) : (
-          <Notice>No mentor lists {item.subject} as a subject yet. Choose any mentor below, or add the subject to a mentor's profile on the Mentors page.</Notice>
+          <Notice>No approved mentor lists {item.subject} as a subject yet. Choose any mentor below, including those whose application is waiting, or add the subject to a mentor's profile on the Mentors page.</Notice>
         )}
         {others.length > 0 && (
           <Field label="…or choose another mentor" className="mt-3 max-w-sm">
@@ -263,6 +272,7 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
                 {others.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.displayName}
+                    {m.applicationPending ? ' (application waiting)' : ''}
                   </option>
                 ))}
               </Select>
@@ -273,6 +283,11 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
 
       {mentorId && (
         <div className="flex flex-col gap-4 rounded-xl bg-sand-50 p-4">
+          {applicant && (
+            <p className="flex items-start gap-2 text-sm text-amber-800">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" /> {applicant.displayName}’s mentor application is still waiting. Approving this pairing also approves it and sends them the welcome email.
+            </p>
+          )}
           {selected && selected.fit !== 'great' && (
             <p className="flex items-start gap-2 text-sm text-amber-800">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" /> {selected.fit === 'unavailable' ? 'This mentor has no free capacity or no shared free time — check with them before approving.' : 'Not a perfect fit — see the notes above.'}

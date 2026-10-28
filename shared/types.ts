@@ -115,6 +115,8 @@ export interface MatchItem {
   /** The mentor the student asked for on "Find a mentor". Only the team can approve the pairing. */
   requestedMentorId?: string;
   requestedAt?: string;
+  /** The mentor the team picked when pairing the student by hand; preselected for approval. */
+  teamMentorId?: string;
   /** Mentor approved by the team. */
   mentorId?: string;
   /** The 1-on-1 class created on approval. */
@@ -128,7 +130,8 @@ export interface MatchItem {
 export interface MatchRequest {
   id: string;
   studentId: string;
-  kind: 'new_student' | 'subject_change' | 'mentor_request';
+  /** team: the Abugida team paired the student by hand. */
+  kind: 'new_student' | 'subject_change' | 'mentor_request' | 'team';
   status: 'open' | 'closed';
   items: MatchItem[];
   /** Subjects the student asked to drop (subject changes only). */

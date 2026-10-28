@@ -14,14 +14,14 @@ import { runScheduledJobs, type JobResult } from '../services/jobs.ts';
 import { approveParentRequest, declineParentRequest, decideMentor, isApprovedMentor } from '../services/accounts.ts';
 import { decideReward } from '../services/rewards.ts';
 import { committedHours } from '../services/matching.ts';
-import { approveMatchItem, closeMatchRequest, createMatchRequest, declineMatchItem, loadRequest, planSuggestions, requestDetail } from '../services/pairing.ts';
+import { approveMatchItem, closeMatchRequest, createMatchRequest, declineMatchItem, isPairableMentor, loadRequest, openTeamRequest, planSuggestions, requestDetail } from '../services/pairing.ts';
 import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../services/profiles.ts';
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
 import { recordingState } from '../services/recordings.ts';
 import { resyncFutureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
-import { connectParents } from '../services/invites.ts';
+import { connectParents, pendingStudentSetups, resendStudentInviteForTeam } from '../services/invites.ts';
 import { assertUsernameAvailable, normalizeUsername } from './auth.ts';
 
 const email = parseEmail;
@@ -72,12 +72,13 @@ export function adminRoutes(deps: Deps): Router {
     h(async (_req, res) => {
       const now = deps.now();
       const settings = await getSettings(deps.store);
-      const [users, courses, lastRun, openRequests, approvals] = await Promise.all([
+      const [users, courses, lastRun, openRequests, approvals, setups] = await Promise.all([
         deps.store.find<UserRecord>(C.users, { active: true }),
         deps.store.find<Course>(C.courses, { active: true }),
         deps.store.get<{ id: string; result: JobResult }>(C.meta, 'last_job_run'),
         deps.store.find<MatchRequest>(C.matchRequests, { status: 'open' }),
         approvalCounts(),
+        pendingStudentSetups(deps),
       ]);
       const sessionLists = await Promise.all(courses.map((c) => deps.store.find<ClassSession>(C.sessions, { courseId: c.id })));
       const courseById = new Map(courses.map((c) => [c.id, c]));
@@ -105,12 +106,30 @@ export function adminRoutes(deps: Deps): Router {
           pendingReports,
           pendingRecordings,
           openMatchRequests: openRequests.length,
+          pendingStudentSetups: setups.length,
         },
         approvals,
         status: { aiEnabled: deps.ai.enabled, emailLive: deps.mailer.live, driveEnabled: Boolean(deps.drive), dataBackend: deps.dataBackend, appUrl: deps.appUrl },
         lastJobRun: lastRun ? { ranAt: lastRun.result.ranAt, notes: lastRun.result.notes } : undefined,
       };
       res.json(overview);
+    }),
+  );
+
+  // Students a parent registered who have not opened their set-up link yet.
+  router.get(
+    '/student-setups',
+    h(async (_req, res) => {
+      res.json(await pendingStudentSetups(deps));
+    }),
+  );
+
+  // A fresh link for one of them; the old link stops working.
+  router.post(
+    '/student-setups/:id/resend',
+    h(async (req, res) => {
+      await resendStudentInviteForTeam(deps, req.params.id);
+      res.json(await pendingStudentSetups(deps));
     }),
   );
 
@@ -405,6 +424,7 @@ export function adminRoutes(deps: Deps): Router {
         status === 'open' ? deps.store.find<Course>(C.courses, { active: true }) : Promise.resolve([]),
       ]);
       const mentorName = new Map(mentors.map((m) => [m.id, m.displayName]));
+      const pairable = new Set(mentors.filter(isPairableMentor).map((m) => m.id));
       const now = deps.now();
       const rows: MatchRequestRow[] = requests.slice(0, 200).map((request) => {
         const student = students.get(request.studentId);
@@ -412,8 +432,11 @@ export function adminRoutes(deps: Deps): Router {
         const plan = student && status === 'open' ? planSuggestions(student, request.items.filter((i) => i.status === 'pending'), mentors.filter(isApprovedMentor), courses, now) : new Map();
         const mentorNames: Record<string, string> = {};
         const requestedNames: Record<string, string> = {};
+        const teamPickNames: Record<string, string> = {};
         for (const i of request.items) {
-          const id = i.mentorId || plan.get(i.id)?.find((c: MentorCandidate) => c.fit !== 'unavailable')?.mentorId;
+          const pick = i.status === 'pending' && i.teamMentorId && pairable.has(i.teamMentorId) ? i.teamMentorId : undefined;
+          if (pick) teamPickNames[i.id] = mentorName.get(pick)!;
+          const id = i.mentorId || pick || plan.get(i.id)?.find((c: MentorCandidate) => c.fit !== 'unavailable')?.mentorId;
           const name = id ? mentorName.get(id) : undefined;
           if (name) mentorNames[i.id] = name;
           const asked = i.requestedMentorId ? mentorName.get(i.requestedMentorId) : undefined;
@@ -424,9 +447,24 @@ export function adminRoutes(deps: Deps): Router {
           student: { id: request.studentId, displayName: student?.displayName || 'Former student', grade: student?.grade, schoolName: student?.schoolName, city: student?.city, state: student?.state },
           mentorNames,
           requestedNames,
+          teamPickNames,
         };
       });
       res.json(rows);
+    }),
+  );
+
+  // The team pairs a student by hand, whether or not they asked: the pairing screen opens for `subject`,
+  // with `mentorId` (any signed-up mentor) preselected when the team already has one in mind.
+  router.post(
+    '/students/:id/match',
+    h(async (req, res) => {
+      const student = await deps.store.get<UserRecord>(C.users, req.params.id);
+      if (!student || student.role !== 'student') throw notFound('Student');
+      if (!student.active) throw badRequest(`${student.displayName}'s account is deactivated. Reactivate it first.`);
+      const subject = str(req.body?.subject, 'Subject', { required: true, max: 60 });
+      const request = await openTeamRequest(deps, student, subject, str(req.body?.mentorId, 'Mentor') || undefined);
+      res.status(201).json({ id: request.id });
     }),
   );
 

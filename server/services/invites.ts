@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
-import type { InviteInfo, InvitedStudent } from '../../shared/api.ts';
+import type { InviteInfo, InvitedStudent, PendingStudentSetup } from '../../shared/api.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { HttpError, notFound } from '../http.ts';
-import { firstName } from './access.ts';
+import { firstName, usersById } from './access.ts';
 import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
 import { notify, notifyAdmins } from './notifications.ts';
 import { getSettings } from './settings.ts';
@@ -157,13 +157,35 @@ export async function resendStudentInvite(deps: Deps, parent: UserRecord, id: st
   return inviteStudent(deps, parent, { name: old.name, email: old.email });
 }
 
+/** The team sends a fresh link for a student a parent registered, on that parent's behalf. */
+export async function resendStudentInviteForTeam(deps: Deps, id: string): Promise<AccountInvite> {
+  const invite = await deps.store.get<AccountInvite>(C.invites, id);
+  if (!invite || invite.kind !== 'student' || invite.usedAt || !invite.parentId) throw notFound('Invitation');
+  const parent = await deps.store.get<UserRecord>(C.users, invite.parentId);
+  if (!parent?.active) throw new HttpError(400, 'The parent who registered this student no longer has an active account. Add the student under People instead.');
+  return resendStudentInvite(deps, parent, id);
+}
+
+const invitedRow = (i: AccountInvite, now: string): InvitedStudent => ({ id: i.id, name: i.name, email: i.email, sentToParent: Boolean(i.sentToParent), sentAt: i.createdAt, expired: i.expiresAt <= now });
+
 /** Students a parent registered who have not set up their account yet. */
 export async function invitedStudents(deps: Deps, parentId: string): Promise<InvitedStudent[]> {
   const now = deps.now().toISOString();
   return (await deps.store.find<AccountInvite>(C.invites, { parentId }))
     .filter((i) => i.kind === 'student' && !i.usedAt)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map((i) => ({ id: i.id, name: i.name, email: i.email, sentToParent: Boolean(i.sentToParent), sentAt: i.createdAt, expired: i.expiresAt <= now }));
+    .map((i) => invitedRow(i, now));
+}
+
+/** Every student a parent registered who has not set up their account yet, oldest first, for the team. */
+export async function pendingStudentSetups(deps: Deps): Promise<PendingStudentSetup[]> {
+  const now = deps.now().toISOString();
+  const invites = (await deps.store.find<AccountInvite>(C.invites, { kind: 'student' })).filter((i) => !i.usedAt).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const parents = await usersById(deps, invites.flatMap((i) => (i.parentId ? [i.parentId] : [])));
+  return invites.map((i) => {
+    const p = i.parentId ? parents.get(i.parentId) : undefined;
+    return { ...invitedRow(i, now), parent: p ? { id: p.id, name: p.displayName, email: p.email || '' } : null };
+  });
 }
 
 /** The open link for `token`, or null when it is unknown, used or expired. */

@@ -7,6 +7,7 @@ export const REQUEST_KIND_LABEL: Record<MatchRequest['kind'], string> = {
   new_student: 'New student',
   subject_change: 'Subject change',
   mentor_request: 'Mentor request',
+  team: 'Added by the team',
 };
 
 const dayTime = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });

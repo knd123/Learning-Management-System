@@ -31,6 +31,7 @@ Every class is **1-on-1**: one mentor, one student.
    A mentor who covers several of the requested subjects scores higher. The scarcest subject is planned first so suggested class times never collide. Proposed weekly class times are filled in for you.
 3. **Nothing is final until an admin approves.** Approving creates the 1-on-1 class (it appears on both schedules), sends an in-app notification to the student and the mentor, and emails the student, the mentor and the parent.
 4. **Students can change their subjects later** from **My profile**. `info@abugidaeducation.com` gets an email with the student's name and what they want to add or drop. New subjects go back into the pairing queue.
+5. **The team can pair any student with any signed-up mentor by hand**, whether or not they asked: **Match requests → Assign a mentor**, **Mentors → Assign student**, or **People → Students → Assign mentor**. Pick the student, the subject and, if you already have one in mind, the mentor; the same pairing screen opens with that mentor preselected (or with suggested mentors) to set hours and class times. Any mentor can be chosen, including one whose **application is still waiting**: approving the pairing approves their application too (they get the welcome email). Declined or deactivated mentors can't be chosen. Nobody is emailed until you approve.
 
 **Admin → Mentors** lists every mentor with their subjects, grade range, weekly availability and capacity (used / total hours), with filters by subject, grade and free capacity.
 
@@ -49,6 +50,7 @@ After each class ends, the student sees a pop-up with two questions:
 2. **Admin → Approvals → Parent requests** shows the request with the matching student profile pre-selected. Badges say whether the name matches exactly and whether the parent's email is already on the student's profile.
 3. If the parent asked to sign up siblings, the request shows each sibling's name and grade with **"5% off per sibling"**. The team contacts the family to enrol them. The discount itself is applied in your billing, outside this app.
 4. On approval, the parent can follow the child, their email is added to the monthly report recipients, and they get an in-app notification and an email.
+5. A parent can also register a child who has **no account yet**. The child gets an emailed set-up link (or the parent does, when the child uses the parent's email), valid for 30 days. **The student profile only exists once that form is finished**; it is then linked to the parent automatically and appears under Match requests. Until then the child is listed under **People → Students → "Registered by a parent, not set up yet"** (and named on the parent's row under People → Parents), where the team can **resend the link**, and the Overview shows a banner.
 
 ### Monthly quizzes under exam conditions
 

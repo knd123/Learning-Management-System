@@ -1,18 +1,28 @@
-import { ChevronRight, Handshake } from 'lucide-react';
+import { ChevronRight, Handshake, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import type { MatchRequestRow } from '../../../shared/api.ts';
-import { Badge, EmptyState, ErrorBox, Loading, PageHeader, Tabs } from '../../components/ui.tsx';
+import { Badge, Button, EmptyState, ErrorBox, Loading, Modal, PageHeader, Tabs } from '../../components/ui.tsx';
 import { fmtDate, fmtRelative, REQUEST_KIND_LABEL } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
+import { AssignMentor } from './AssignMentor.tsx';
 
 export default function AdminMatches() {
   const [tab, setTab] = useState<'open' | 'closed'>('open');
   const { data, error, loading, reload } = useApi<MatchRequestRow[]>(`/api/admin/matches?status=${tab}`);
+  const [assigning, setAssigning] = useState(false);
 
   return (
     <>
-      <PageHeader title="Match requests" subtitle="New students, subject changes and students asking for a specific mentor. The platform suggests the best mentor; nothing is final until you approve it." />
+      <PageHeader
+        title="Match requests"
+        subtitle="New students, subject changes and students asking for a specific mentor. The platform suggests the best mentor; nothing is final until you approve it. You can also pair any student with any mentor by hand."
+        actions={
+          <Button onClick={() => setAssigning(true)}>
+            <UserPlus className="size-4" /> Assign a mentor
+          </Button>
+        }
+      />
       <Tabs
         tabs={[
           { id: 'open', label: 'Waiting for review', count: tab === 'open' ? data?.length : undefined },
@@ -26,7 +36,7 @@ export default function AdminMatches() {
         <Loading />
       ) : data?.length ? (
         <div className="flex flex-col gap-3">
-          {data.map(({ request, student, mentorNames, requestedNames }) => (
+          {data.map(({ request, student, mentorNames, requestedNames, teamPickNames }) => (
             <Link key={request.id} to={`/admin/matches/${request.id}`} className="group flex items-center gap-4 rounded-2xl border border-sand-200 bg-white p-4 transition hover:border-brand-300">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -42,7 +52,9 @@ export default function AdminMatches() {
                       <Badge tone={i.status === 'approved' ? 'green' : i.status === 'declined' ? 'gray' : 'amber'}>
                         {i.subject} · {i.hoursPerWeek}h
                         {i.status === 'pending'
-                          ? requestedNames?.[i.id]
+                          ? teamPickNames?.[i.id]
+                            ? ` → your pick: ${teamPickNames[i.id]}`
+                            : requestedNames?.[i.id]
                             ? ` → student asked for ${requestedNames[i.id]}`
                             : mentorNames[i.id]
                               ? ` → suggested: ${mentorNames[i.id]}`
@@ -69,9 +81,12 @@ export default function AdminMatches() {
         </div>
       ) : (
         <EmptyState icon={<Handshake className="size-8" />} title={tab === 'open' ? 'No requests waiting' : 'Nothing here yet'}>
-          {tab === 'open' && 'New sign-ups and subject changes show up here with suggested mentors.'}
+          {tab === 'open' && 'New sign-ups and subject changes show up here with suggested mentors. Use “Assign a mentor” to pair any student by hand.'}
         </EmptyState>
       )}
+      <Modal open={assigning} onClose={() => setAssigning(false)} title="Assign a mentor">
+        {assigning && <AssignMentor onClose={() => setAssigning(false)} />}
+      </Modal>
     </>
   );
 }

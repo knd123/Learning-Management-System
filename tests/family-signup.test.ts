@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import type { InviteInfo, InvitedStudent, ParentOverview } from '../shared/api.ts';
+import type { AdminOverview, InviteInfo, InvitedStudent, ParentOverview, PendingStudentSetup } from '../shared/api.ts';
 import type { PublicUser } from '../shared/types.ts';
 import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
 
@@ -141,5 +141,27 @@ describe('family sign-up: students list their parents, parents register their st
     h.clock.now = new Date('2026-11-12T12:00:00Z'); // 31 days later
     assert.deepEqual(await meron.post('/api/auth/invite/check', { token: fresh }), { valid: false });
     assert.equal((await overview(meron)).invited[0].expired, true);
+  });
+
+  it('shows the team students a parent registered who have not set up their account, and lets it resend the link', async () => {
+    let setups = await admin.get<PendingStudentSetup[]>('/api/admin/student-setups');
+    assert.deepEqual(setups.map((s) => [s.name, s.email, s.sentToParent, s.expired, s.parent?.name, s.parent?.email]), [['Dina Alemu', 'meron@example.com', true, true, 'Meron Alemu', 'meron@example.com']], 'used links are not listed');
+    assert.equal((await admin.get<AdminOverview>('/api/admin/overview')).counts.pendingStudentSetups, 1);
+
+    // The team sends a fresh link on the parent's behalf, even after the old one expired.
+    setups = await admin.post<PendingStudentSetup[]>(`/api/admin/student-setups/${setups[0].id}/resend`, {});
+    assert.deepEqual(setups.map((s) => [s.name, s.expired]), [['Dina Alemu', false]]);
+    const link = linkTo('meron@example.com', /^Set up Dina Alemu's/);
+    assert.equal((await new Client(h).post<InviteInfo>('/api/auth/invite/check', { token: link })).valid, true);
+    await admin.post('/api/admin/student-setups/not-a-real-id/resend', {}, 404);
+
+    const meron = new Client(h);
+    await meron.login('meron', 'meron-pass-1');
+    await meron.get('/api/admin/student-setups', 403);
+    await new Client(h).get('/api/admin/student-setups', 401);
+
+    await meron.post('/api/auth/invite/accept', { token: link, ...intake, displayName: 'Dina Alemu', username: 'dina', password: 'dina-pass-1' }, 201);
+    assert.deepEqual(await admin.get('/api/admin/student-setups'), []);
+    assert.equal((await admin.get<AdminOverview>('/api/admin/overview')).counts.pendingStudentSetups, 0);
   });
 });

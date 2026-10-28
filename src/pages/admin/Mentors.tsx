@@ -1,4 +1,4 @@
-import { Pencil, Plus, Star } from 'lucide-react';
+import { Pencil, Plus, Star, UserPlus } from 'lucide-react';
 import { Link } from 'react-router';
 import { useMemo, useState } from 'react';
 import type { MentorDirectoryRow } from '../../../shared/api.ts';
@@ -6,6 +6,7 @@ import type { PublicUser } from '../../../shared/types.ts';
 import { AvailabilityDays, availabilityText } from '../../components/Availability.tsx';
 import { Badge, Button, Checkbox, ErrorBox, Loading, Modal, PageHeader, Select, Table, useToast } from '../../components/ui.tsx';
 import { useApi } from '../../lib/useApi.ts';
+import { AssignMentor, isPairableMentor } from './AssignMentor.tsx';
 import { CredentialsCard, UserForm } from './Users.tsx';
 
 function CapacityBar({ used, total }: { used: number; total: number }) {
@@ -34,6 +35,7 @@ export default function AdminMentors() {
   const [freeOnly, setFreeOnly] = useState(false);
   const [editing, setEditing] = useState<PublicUser | 'new' | null>(null);
   const [credentials, setCredentials] = useState<{ username: string; password: string; name: string } | null>(null);
+  const [assigning, setAssigning] = useState<PublicUser | null>(null);
 
   const subjects = useMemo(() => [...new Set((data || []).flatMap((r) => r.mentor.subjects || []))].sort(), [data]);
   const rows = (data || []).filter(({ mentor, remainingHours }) => {
@@ -132,10 +134,17 @@ export default function AdminMentors() {
                     <span className="text-ink-muted">—</span>
                   )}
                 </td>
-                <td className="text-right">
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(mentor)} aria-label={`Edit ${mentor.displayName}`}>
-                    <Pencil className="size-4" />
-                  </Button>
+                <td>
+                  <div className="flex justify-end gap-1">
+                    {isPairableMentor(mentor) && (
+                      <Button size="sm" variant="ghost" onClick={() => setAssigning(mentor)} aria-label={`Assign a student to ${mentor.displayName}`}>
+                        <UserPlus className="size-4" /> Assign student
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(mentor)} aria-label={`Edit ${mentor.displayName}`}>
+                      <Pencil className="size-4" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -164,6 +173,9 @@ export default function AdminMentors() {
       )}
       <Modal open={Boolean(credentials)} onClose={() => setCredentials(null)} title="Login details">
         {credentials && <CredentialsCard {...credentials} />}
+      </Modal>
+      <Modal open={Boolean(assigning)} onClose={() => setAssigning(null)} title={assigning ? `Assign a student to ${assigning.displayName}` : 'Assign a student'}>
+        {assigning && <AssignMentor mentor={assigning} onClose={() => setAssigning(null)} />}
       </Modal>
     </>
   );

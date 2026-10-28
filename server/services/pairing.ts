@@ -8,7 +8,7 @@ import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, HttpError, notFound, num } from '../http.ts';
 import { firstName, usersById } from './access.ts';
-import { isApprovedMentor } from './accounts.ts';
+import { decideMentor, isApprovedMentor } from './accounts.ts';
 import { emailButton, emailLayout, emailList as list, emailTable as rows, escapeHtml, sendEmail } from './email.ts';
 import type { MentorCandidate } from '../../shared/api.ts';
 import { committedHours, rankMentors } from './matching.ts';
@@ -116,6 +116,31 @@ export async function createMatchRequest(
   return request;
 }
 
+/** Any signed-up mentor the team can pair: active and not declined (pairing approves a waiting application). */
+export function isPairableMentor(user: UserRecord | null | undefined): user is UserRecord {
+  return Boolean(user && user.role === 'mentor' && user.active && user.mentorStatus !== 'declined');
+}
+
+/**
+ * The team pairs a student by hand, whether or not the student asked: returns the student's
+ * waiting request for `subject`, or opens one, so the team can choose the mentor and class times.
+ * `mentorId` is the mentor the team already has in mind; it is preselected for approval.
+ */
+export async function openTeamRequest(deps: Deps, student: UserRecord, subject: string, mentorId?: string): Promise<MatchRequest> {
+  if (mentorId && !isPairableMentor(await deps.store.get<UserRecord>(C.users, mentorId))) throw badRequest('Choose an active mentor.');
+  const open = await deps.store.find<MatchRequest>(C.matchRequests, { studentId: student.id, status: 'open' });
+  const waiting = open.find((r) => r.items.some((i) => i.status === 'pending' && same(i.subject, subject)));
+  const request = waiting || (await createMatchRequest(deps, student, { kind: 'team', subjects: [subject] }))!;
+  if (!mentorId) return request;
+  const updated: MatchRequest = {
+    ...request,
+    items: request.items.map((i) => (i.status === 'pending' && same(i.subject, subject) ? { ...i, teamMentorId: mentorId } : i)),
+    updatedAt: deps.now().toISOString(),
+  };
+  await deps.store.put(C.matchRequests, updated);
+  return updated;
+}
+
 export async function loadRequest(deps: Deps, id: string): Promise<MatchRequest> {
   const request = await deps.store.get<MatchRequest>(C.matchRequests, id);
   if (!request) throw notFound('Request');
@@ -137,11 +162,13 @@ export async function requestDetail(deps: Deps, request: MatchRequest): Promise<
     candidates: plan.get(item.id) || [],
   }));
   const mentorNames = new Map(mentors.map((m) => [m.id, m.displayName]));
+  // Mentors who signed up but are not approved yet can be paired too; pairing approves them.
+  const applicants = (await deps.store.find<UserRecord>(C.users, { role: 'mentor', mentorStatus: 'pending' })).filter((m) => m.active);
   return {
     request,
     student: toPublicUser(student),
     items,
-    mentors: mentors.map((m) => ({ id: m.id, displayName: m.displayName })).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    mentors: [...mentors.map((m) => ({ id: m.id, displayName: m.displayName })), ...applicants.map((m) => ({ id: m.id, displayName: m.displayName, applicationPending: true }))].sort((a, b) => a.displayName.localeCompare(b.displayName)),
     studentClasses: courses
       .filter((c) => c.studentIds.includes(student.id))
       .map((c) => ({ courseId: c.id, title: c.title, mentorName: mentorNames.get(c.mentorId) || 'Mentor', schedule: c.schedule, timezone: c.timezone })),
@@ -172,7 +199,9 @@ export async function approveMatchItem(deps: Deps, admin: UserRecord, request: M
   if (item.status !== 'pending') throw badRequest('This subject has already been decided.');
   const [student, mentor] = await Promise.all([deps.store.get<UserRecord>(C.users, request.studentId), deps.store.get<UserRecord>(C.users, input.mentorId)]);
   if (!student) throw notFound('Student');
-  if (!mentor || !isApprovedMentor(mentor)) throw badRequest('Choose an active, approved mentor.');
+  if (!isPairableMentor(mentor)) throw badRequest('Choose an active mentor.');
+  // Pairing a mentor whose application is still waiting approves it (and sends the welcome email).
+  if (mentor.mentorStatus === 'pending') await decideMentor(deps, mentor.id, true, '');
 
   const now = deps.now();
   const course: Course = {

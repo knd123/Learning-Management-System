@@ -221,6 +221,8 @@ export interface MatchRequestRow {
   mentorNames: Record<string, string>;
   /** itemId -> the mentor the student asked for. */
   requestedNames: Record<string, string>;
+  /** itemId -> the mentor the team picked when assigning by hand (while they can still be paired). */
+  teamPickNames: Record<string, string>;
 }
 
 export interface MatchItemDetail {
@@ -234,7 +236,8 @@ export interface MatchRequestDetail {
   request: MatchRequest;
   student: PublicUser;
   items: MatchItemDetail[];
-  mentors: Array<{ id: string; displayName: string }>;
+  /** Every mentor the team can choose; applicationPending ones are approved when paired. */
+  mentors: Array<{ id: string; displayName: string; applicationPending?: boolean }>;
   studentClasses: Array<{ courseId: string; title: string; mentorName: string; schedule: ScheduleSlot[]; timezone: string }>;
 }
 
@@ -382,7 +385,7 @@ export interface SystemStatus {
 }
 
 export interface AdminOverview {
-  counts: { students: number; mentors: number; classes: number; sessionsThisWeek: number; pendingReports: number; pendingRecordings: number; openMatchRequests: number };
+  counts: { students: number; mentors: number; classes: number; sessionsThisWeek: number; pendingReports: number; pendingRecordings: number; openMatchRequests: number; pendingStudentSetups: number };
   approvals: ApprovalCounts;
   status: SystemStatus;
   lastJobRun?: { ranAt: string; notes: string[] };
@@ -465,6 +468,12 @@ export interface InvitedStudent {
   sentToParent: boolean;
   sentAt: string;
   expired: boolean;
+}
+
+/** A student a parent registered who has not set up their account yet, as the team sees it. */
+export interface PendingStudentSetup extends InvitedStudent {
+  /** The parent who registered them; null if that account no longer exists. */
+  parent: { id: string; name: string; email: string } | null;
 }
 
 /** What an account set-up link is for, shown before its form. */

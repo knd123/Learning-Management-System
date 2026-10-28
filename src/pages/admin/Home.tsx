@@ -59,6 +59,17 @@ export default function AdminHome() {
           <span className="font-semibold text-amber-900">Review →</span>
         </Link>
       )}
+      {counts.pendingStudentSetups > 0 && (
+        <Link to="/admin/users" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sand-200 bg-sand-50 p-4 hover:bg-sand-100">
+          <span>
+            <span className="block font-semibold">
+              {counts.pendingStudentSetups} student{counts.pendingStudentSetups > 1 ? 's' : ''} registered by a parent {counts.pendingStudentSetups > 1 ? 'have' : 'has'} not set up {counts.pendingStudentSetups > 1 ? 'their accounts' : 'their account'}
+            </span>
+            <span className="text-sm text-ink-soft">They get a profile once they open the emailed link. Resend it or contact the family.</span>
+          </span>
+          <span className="font-semibold">See them →</span>
+        </Link>
+      )}
       {waiting.length > 0 && (
         <Link to={`/admin/approvals?tab=${waiting[0].tab}`} className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 hover:bg-sky-100">
           <span>

@@ -1,16 +1,18 @@
-import { Copy, KeyRound, Pencil, Plus, Search } from 'lucide-react';
+import { Copy, KeyRound, MailCheck, Pencil, Plus, Search, UserPlus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import type { PublicConfig } from '../../../shared/api.ts';
+import type { PendingStudentSetup, PublicConfig } from '../../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../../shared/hours.ts';
 import type { AvailabilityWindow, PublicUser, Role } from '../../../shared/types.ts';
 import { AvailabilityEditor } from '../../components/Availability.tsx';
 import { ParentsEditor, parentsOf, parentsProblem } from '../../components/ParentsEditor.tsx';
 import { SubjectHoursEditor, SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
-import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, Textarea, useToast } from '../../components/ui.tsx';
+import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
+import { fmtRelative } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 import { suggestUsername } from '../Signup.tsx';
+import { AssignMentor } from './AssignMentor.tsx';
 
 const ROLE_TABS: Array<{ id: Role; label: string; singular: string }> = [
   { id: 'student', label: 'Students', singular: 'student' },
@@ -24,9 +26,12 @@ export default function AdminUsers() {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<PublicUser | 'new' | null>(null);
   const [credentials, setCredentials] = useState<{ username: string; password: string; name: string } | null>(null);
+  const [assigning, setAssigning] = useState<PublicUser | null>(null);
   const { data, error, loading, reload } = useApi<PublicUser[]>(`/api/admin/users?role=${role}`);
   const students = useApi<PublicUser[]>(role === 'parent' ? '/api/admin/users?role=student' : null);
   const studentNames = new Map((students.data || []).map((s) => [s.id, s.displayName]));
+  const setups = useApi<PendingStudentSetup[]>(role === 'student' || role === 'parent' ? '/api/admin/student-setups' : null);
+  const waitingFor = (parentId: string) => (setups.data || []).filter((s) => s.parent?.id === parentId).map((s) => s.name);
   const toast = useToast();
   const tab = ROLE_TABS.find((t) => t.id === role)!;
 
@@ -58,6 +63,7 @@ export default function AdminUsers() {
       />
       <Tabs tabs={ROLE_TABS.map((t) => ({ id: t.id, label: t.label }))} value={role} onChange={setRole} />
       {role === 'admin' && <p className="mb-4 text-sm text-ink-soft">There is one Abugida team account. Its username and password are set on the server, not here.</p>}
+      {role === 'student' && setups.data && <PendingSetups list={setups.data} onChange={setups.setData} />}
       <div className="relative mb-4 max-w-sm">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
         <Input placeholder="Search by name, username or email" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" />
@@ -109,7 +115,10 @@ export default function AdminUsers() {
                       {u.email}
                       {u.phone && <span className="block text-xs">{u.phone}</span>}
                     </td>
-                    <td>{u.linkedStudentIds?.length ? u.linkedStudentIds.map((id) => studentNames.get(id) || 'Former student').join(', ') : <Badge tone="amber">No student linked</Badge>}</td>
+                    <td>
+                      {u.linkedStudentIds?.length ? u.linkedStudentIds.map((id) => studentNames.get(id) || 'Former student').join(', ') : !waitingFor(u.id).length && <Badge tone="amber">No student linked</Badge>}
+                      {waitingFor(u.id).length > 0 && <span className="block text-xs text-amber-800">Not set up yet: {waitingFor(u.id).join(', ')}</span>}
+                    </td>
                   </>
                 ) : (
                   <>
@@ -130,6 +139,11 @@ export default function AdminUsers() {
                 </td>
                 <td>
                   <div className="flex justify-end gap-1">
+                    {u.role === 'student' && u.active && (
+                      <Button size="sm" variant="ghost" onClick={() => setAssigning(u)} aria-label={`Assign a mentor to ${u.displayName}`}>
+                        <UserPlus className="size-4" /> Assign mentor
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => setEditing(u)} aria-label={`Edit ${u.displayName}`}>
                       <Pencil className="size-4" />
                     </Button>
@@ -168,7 +182,57 @@ export default function AdminUsers() {
       <Modal open={Boolean(credentials)} onClose={() => setCredentials(null)} title="Login details">
         {credentials && <CredentialsCard {...credentials} />}
       </Modal>
+      <Modal open={Boolean(assigning)} onClose={() => setAssigning(null)} title={assigning ? `Assign a mentor to ${assigning.displayName}` : 'Assign a mentor'}>
+        {assigning && <AssignMentor student={assigning} onClose={() => setAssigning(null)} />}
+      </Modal>
     </>
+  );
+}
+
+/** Students a parent registered who have not opened their set-up link yet, with a way to send a fresh one. */
+function PendingSetups({ list, onChange }: { list: PendingStudentSetup[]; onChange(list: PendingStudentSetup[]): void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  if (!list.length) return null;
+
+  const resend = async (s: PendingStudentSetup) => {
+    if (!window.confirm(`Email a new set-up link for ${s.name} to ${s.email}? The old link will stop working.`)) return;
+    setBusy(s.id);
+    try {
+      onChange(await api.post<PendingStudentSetup[]>(`/api/admin/student-setups/${s.id}/resend`));
+      toast(`A new link went to ${s.email}.`);
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card className="mb-6">
+      <h2 className="font-semibold">Registered by a parent, not set up yet</h2>
+      <p className="mt-1 text-sm text-ink-soft">These students get a profile once they open the emailed link and finish the form. The parent can also resend it from their dashboard.</p>
+      <ul className="mt-3 flex flex-col gap-2">
+        {list.map((s) => (
+          <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand-50 px-3 py-2.5 text-sm">
+            <span>
+              <span className="block font-medium">{s.name}</span>
+              <span className="text-ink-muted">
+                Registered by {s.parent ? `${s.parent.name} (${s.parent.email})` : 'a removed parent account'} · link sent to {s.sentToParent ? 'the parent' : s.email} {fmtRelative(s.sentAt)}
+              </span>
+            </span>
+            <span className="flex items-center gap-2">
+              {s.expired ? <Badge tone="red">Link expired</Badge> : <Badge tone="amber"><MailCheck className="size-3" /> Link sent</Badge>}
+              {s.parent && (
+                <Button size="sm" variant="ghost" loading={busy === s.id} onClick={() => void resend(s)}>
+                  Resend link
+                </Button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
