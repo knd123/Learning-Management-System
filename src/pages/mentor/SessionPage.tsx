@@ -1,8 +1,10 @@
+import clsx from 'clsx';
 import { CalendarX2, CheckCircle2, FolderOpen, PlayCircle, Video } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import type { MentorCourseDetail, MentorSessionDetail } from '../../../shared/api.ts';
-import type { AttendanceMark } from '../../../shared/types.ts';
+import { NOT_HELD_REASONS } from '../../../shared/classes.ts';
+import type { AttendanceMark, ClassNotHeld, NotHeldReason } from '../../../shared/types.ts';
 import { AttachmentLink } from '../../components/Attachments.tsx';
 import { emptyHomework, HomeworkFields, homeworkPayload, type HomeworkDraft } from '../../components/HomeworkFields.tsx';
 import { MentorSessionBadges, Stars } from '../../components/MentorSessions.tsx';
@@ -31,7 +33,11 @@ export default function MentorSession() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="flex flex-col gap-6 lg:col-span-3">
           {session.status === 'cancelled' ? (
-            <Notice icon={<CalendarX2 className="mt-0.5 size-4" />}>This class was cancelled. Restore it below if it happened after all.</Notice>
+            session.notHeld ? (
+              <NotHeldNotice notHeld={session.notHeld} />
+            ) : (
+              <Notice icon={<CalendarX2 className="mt-0.5 size-4" />}>This class was cancelled. Restore it below if it happened after all.</Notice>
+            )
           ) : started ? (
             <ReportCard data={data} onSaved={reload} />
           ) : (
@@ -97,6 +103,7 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
   const [hw, setHw] = useState<HomeworkDraft>(emptyHomework);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [held, setHeld] = useState(true);
   const courseDetail = useApi<MentorCourseDetail>(hwMode === 'existing' && editing ? `/api/mentor/courses/${course.id}` : null);
 
   useEffect(() => {
@@ -202,7 +209,29 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
   return (
     <Card>
       <h2 className="mb-1 font-semibold">{report ? 'Edit class report' : 'Post-class report'}</h2>
-      <p className="mb-5 text-sm text-ink-soft">A quick log of today's class. It takes about a minute.</p>
+      <p className="mb-4 text-sm text-ink-soft">A quick log of today's class. It takes about a minute.</p>
+      <div className="mb-5 flex flex-wrap gap-2" role="radiogroup" aria-label="Did this class take place?">
+        {(
+          [
+            [true, 'The class took place'],
+            [false, 'The class didn’t take place'],
+          ] as Array<[boolean, string]>
+        ).map(([value, label]) => (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={held === value}
+            key={label}
+            onClick={() => setHeld(value)}
+            className={`rounded-full px-3 py-1.5 text-sm font-semibold ${held === value ? 'bg-brand-700 text-white' : 'bg-sand-100 text-ink-soft hover:bg-sand-200'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {!held ? (
+        <NotHeldForm sessionId={session.id} afterStart onDone={onSaved} />
+      ) : (
       <form onSubmit={submit} className="flex flex-col gap-5">
         {error && <ErrorBox message={error} />}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -296,6 +325,7 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
           )}
         </div>
       </form>
+      )}
     </Card>
   );
 }
@@ -337,6 +367,8 @@ function RecordingField({ data, value, onChange }: { data: MentorSessionDetail; 
 function ManageCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): void }) {
   const toast = useToast();
   const { session } = data;
+  const started = Date.now() >= new Date(session.startAt).getTime();
+  const [cancelling, setCancelling] = useState(false);
   const [startAt, setStartAt] = useState(toLocalInput(session.startAt));
   const [linkOverride, setLinkOverride] = useState(session.joinUrl !== data.course.meetingUrl ? session.joinUrl : '');
   const [busy, setBusy] = useState<string | null>(null);
@@ -381,17 +413,89 @@ function ManageCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
           <Button variant="secondary" loading={busy === 'status'} onClick={() => patch('status', { status: 'scheduled' }, 'Class restored.')}>
             Restore class
           </Button>
+        ) : started ? (
+          <p className="text-sm text-ink-soft">Class didn’t take place? Say so at the top of the class report.</p>
+        ) : cancelling ? (
+          <NotHeldForm sessionId={session.id} afterStart={false} onDone={onSaved} onBack={() => setCancelling(false)} />
         ) : (
-          <Button
-            variant="ghost"
-            className="self-start text-red-600 hover:bg-red-50"
-            loading={busy === 'status'}
-            onClick={() => window.confirm('Cancel this class? Students will see it as cancelled.') && patch('status', { status: 'cancelled' }, 'Class cancelled.')}
-          >
+          <Button variant="ghost" className="self-start text-red-600 hover:bg-red-50" onClick={() => setCancelling(true)}>
             <CalendarX2 className="size-4" /> Cancel this class
           </Button>
         )}
       </div>
     </Card>
+  );
+}
+
+/**
+ * Why a class doesn't take place, instead of the class report (or before the class, to cancel it).
+ * The Abugida team is notified and checks it against the class records.
+ */
+function NotHeldForm({ sessionId, afterStart, onDone, onBack }: { sessionId: string; afterStart: boolean; onDone(): void; onBack?(): void }) {
+  const toast = useToast();
+  const [reason, setReason] = useState<NotHeldReason | ''>('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!reason) return setError(afterStart ? 'Choose why the class didn’t take place.' : 'Choose why the class is cancelled.');
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/api/mentor/sessions/${encodeURIComponent(sessionId)}/not-held`, { reason, note });
+      toast(afterStart ? 'Reported. The Abugida team has been told.' : 'Class cancelled. The Abugida team has been told.');
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-2 text-sm font-medium">{afterStart ? 'Why didn’t the class take place?' : 'Why is this class cancelled?'}</legend>
+        {(Object.entries(NOT_HELD_REASONS) as Array<[NotHeldReason, string]>).map(([value, label]) => (
+          <label key={value} className={clsx('flex cursor-pointer items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-sm transition', reason === value ? 'border-brand-600 bg-brand-50/50' : 'border-sand-200 hover:border-brand-300')}>
+            <input type="radio" name={`not-held-${sessionId}`} checked={reason === value} onChange={() => setReason(value)} className="size-4 accent-brand-700" />
+            {label}
+          </label>
+        ))}
+      </fieldset>
+      <Field label="Details for the Abugida team (optional)">
+        {(fid) => <Textarea id={fid} rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. The student was sick; we'll catch up next week." />}
+      </Field>
+      <p className="text-xs text-ink-muted">
+        {afterStart ? 'You don’t need to fill in the rest of the report. ' : 'Students will see the class as cancelled. '}
+        The Abugida team is notified and checks this against the class records, such as whether the student joined through the portal.
+      </p>
+      {error && <ErrorBox message={error} />}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" loading={busy}>
+          {afterStart ? 'Report class not held' : 'Cancel this class'}
+        </Button>
+        {onBack && (
+          <Button type="button" variant="secondary" onClick={onBack} disabled={busy}>
+            Keep the class
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+/** What was reported about a class that didn't take place. */
+function NotHeldNotice({ notHeld }: { notHeld: ClassNotHeld }) {
+  return (
+    <Notice icon={<CalendarX2 className="mt-0.5 size-4" />}>
+      <p className="font-semibold">{notHeld.afterStart ? 'Reported as not taking place' : 'Cancelled in advance'}: {NOT_HELD_REASONS[notHeld.reason].toLowerCase()}.</p>
+      {notHeld.note && <p className="mt-1 whitespace-pre-wrap">“{notHeld.note}”</p>}
+      <p className="mt-1 text-xs">
+        Reported {fmtDateTime(notHeld.reportedAt)}. The Abugida team was notified.{' '}
+        {notHeld.afterStart ? 'If the class did take place after all, restore it below and submit the class report.' : 'If it goes ahead after all, restore it below.'}
+      </p>
+    </Notice>
   );
 }

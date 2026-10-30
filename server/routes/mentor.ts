@@ -28,6 +28,7 @@ import { committedHours } from '../services/matching.ts';
 import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { attemptIdFor, effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
+import { reportNotHeld, restoreClass } from '../services/notHeld.ts';
 import { attachRecording, recordingLink } from '../services/recordings.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
@@ -292,15 +293,25 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     }),
   );
 
-  // Reschedule, cancel / restore, or set a one-off link for a single class.
+  // A class that didn't (or won't) take place: the reason instead of the report. The team is told.
+  router.post(
+    '/sessions/:id/not-held',
+    h(async (req, res) => {
+      const { session, course } = await sessionForTeacher(deps, req.user!, req.params.id);
+      res.json(await reportNotHeld(deps, req.user!, session, course, { reason: req.body?.reason, note: req.body?.note }));
+    }),
+  );
+
+  // Reschedule, restore, or set a one-off link for a single class. Cancelling goes through /not-held, with a reason.
   router.patch(
     '/sessions/:id',
     h(async (req, res) => {
-      const { session } = await sessionForTeacher(deps, req.user!, req.params.id);
+      const { session, course } = await sessionForTeacher(deps, req.user!, req.params.id);
       const changes: Partial<ClassSession> = { updatedAt: deps.now().toISOString() };
-      if (req.body?.status !== undefined) {
-        if (!['scheduled', 'cancelled'].includes(req.body.status)) throw badRequest('Unknown status.');
-        changes.status = req.body.status;
+      if (req.body?.status === 'cancelled') throw badRequest('Say why the class isn’t taking place: use “Class didn’t take place”.');
+      if (req.body?.status !== undefined && req.body.status !== 'scheduled') throw badRequest('Unknown status.');
+      if (req.body?.status === 'scheduled' && session.status === 'cancelled') {
+        await restoreClass(deps, req.user!, session, course);
       }
       if (req.body?.startAt !== undefined) {
         const startAt = isoDate(req.body.startAt, 'Start time', true)!;

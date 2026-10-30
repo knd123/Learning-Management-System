@@ -53,6 +53,7 @@ export function mentorSessionView(session: ClassSession, course: Course, now: Da
     slides: session.report?.slides,
     studentNames: course.studentIds.map((id) => studentsById.get(id)?.displayName || 'Student'),
     report: session.report,
+    notHeld: session.notHeld,
     recordingUrl: session.recording?.url,
     remindersSent: Object.keys(session.reminders || {}).sort((a, b) => Number(a) - Number(b)),
     needsReport: ended && session.status !== 'cancelled' && !session.report,

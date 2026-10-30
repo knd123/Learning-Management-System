@@ -57,6 +57,7 @@ export interface PendingFeedback {
 /** Mentor-side view of a session: adds report, recording and reminder details. */
 export interface MentorSessionView extends SessionView {
   feedback?: Array<{ rating: number; comment: string; studentName: string; createdAt: string }>;
+  notHeld?: import('./types.ts').ClassNotHeld;
   studentNames: string[];
   report?: SessionReport;
   recordingUrl?: string;

@@ -194,6 +194,20 @@ export interface SessionRecording {
 
 export type SessionStatus = 'scheduled' | 'cancelled';
 
+/** Why a class didn't take place, as the mentor reported it. */
+export type NotHeldReason = 'mentor_emergency' | 'student_emergency' | 'family_request';
+
+/** A class the mentor reported as not taking place (before it, or in the class report). The team is told. */
+export interface ClassNotHeld {
+  reason: NotHeldReason;
+  /** Details for the Abugida team. */
+  note?: string;
+  reportedAt: string;
+  reportedBy: string;
+  /** Reported once the class time had started, instead of in advance. */
+  afterStart: boolean;
+}
+
 export interface ClassSession {
   id: string;
   courseId: string;
@@ -202,6 +216,8 @@ export interface ClassSession {
   /** Slot this session was generated from; stays fixed when rescheduled. */
   originalStartAt: string;
   status: SessionStatus;
+  /** Set (with status "cancelled") when the mentor reports the class didn't or won't take place. */
+  notHeld?: ClassNotHeld;
   meetingUrlOverride?: string;
   joins?: Record<string, string>; // studentId -> first join time
   report?: SessionReport;
@@ -488,6 +504,7 @@ export type EmailKind =
   | 'account'
   | 'password_reset'
   | 'invite'
+  | 'class_not_held'
   | 'test';
 
 export interface EmailLog {
