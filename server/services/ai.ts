@@ -24,6 +24,11 @@ export interface HomeworkGenInput {
   gradeLevel: number;
   curriculum?: string;
   recentTopics: string[];
+  /** What the homework practises and what the student should be able to do afterwards. */
+  topic?: string;
+  learningGoal?: string;
+  /** What was covered in the class this homework follows. */
+  classTopics?: string;
   focus?: string;
   difficulty: 'easier' | 'standard' | 'challenging';
   estimatedMinutes: number;
@@ -199,6 +204,9 @@ This is a monthly assessment taken under exam conditions in 30 minutes, without 
 
   async generateHomework(input: HomeworkGenInput): Promise<{ title: string; instructions: string }> {
     const prompt = `Draft a homework assignment for "${input.courseTitle}" (${input.subject}, grade ${input.gradeLevel}).
+${input.topic ? `Homework topic: ${input.topic}` : ''}
+${input.learningGoal ? `Learning goal (the student should be able to): ${input.learningGoal}` : ''}
+${input.classTopics ? `Covered in today's class: ${input.classTopics}` : ''}
 Recent class topics: ${input.recentTopics.length ? input.recentTopics.join('; ') : '(none recorded)'}
 ${input.focus ? `Mentor's focus request: ${input.focus}` : ''}
 Difficulty: ${input.difficulty}. Target time: about ${input.estimatedMinutes} minutes.

@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import type { MentorOverview, StudentOverview } from '../shared/api.ts';
 import type { Course, PublicUser } from '../shared/types.ts';
 import { DisabledAi } from '../server/services/ai.ts';
-import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
+import { Client, type Harness, heldReport, seedAdmin, startHarness } from './helpers.ts';
 
 async function setupSchool(h: Harness) {
   const admin = new Client(h);
@@ -128,7 +128,8 @@ describe('a month in the life of a 1-on-1 class', () => {
     form.set('topicsCovered', 'Adding fractions with unlike denominators');
     form.set('attendance', JSON.stringify({}));
     form.set('slides', new Blob([Buffer.from('pptx-bytes')], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }), 'Fractions week 1.pptx');
-    form.set('homework', JSON.stringify({ mode: 'new', title: 'Fractions practice', instructions: 'Solve problems 1-10.', dueAt: '2026-10-07T20:00:00Z' }));
+    form.set('homework', JSON.stringify({ mode: 'new', topic: 'Adding fractions', title: 'Fractions practice', instructions: 'Solve problems 1-10.', dueAt: '2026-10-07T20:00:00Z' }));
+    form.append('homeworkFiles', new Blob([Buffer.from('%PDF-1.4 worksheet')], { type: 'application/pdf' }), 'Fractions worksheet.pdf');
     // The recording link is part of the report: required, and it must be the class's video, not the folder.
     assert.match((await mentor.form('/api/mentor/sessions/' + sessionId() + '/report', form, 400)).error, /recording/);
     form.set('recordingUrl', 'https://drive.google.com/drive/folders/abebaFolder123');
@@ -323,13 +324,7 @@ describe('without an AI key', () => {
       const mentor = new Client(h);
       await mentor.login('mentor.sara', 'mentor-pass-1');
       h.clock.now = new Date('2026-10-05T21:30:00Z');
-      const form = new FormData();
-      form.set('date', '2026-10-05');
-      form.set('durationMinutes', '60');
-      form.set('topicsCovered', 'Place value');
-      form.set('slidesUrl', 'https://docs.google.com/presentation/d/abc123/edit');
-      form.set('attendance', JSON.stringify({ [school.student.id]: 'present' }));
-      form.set('recordingUrl', 'https://drive.google.com/file/d/1RecordingFile123/view');
+      const form = heldReport({ topics: 'Place value', attendance: { [school.student.id]: 'present' }, recordingUrl: 'https://drive.google.com/file/d/1RecordingFile123/view' });
       await mentor.form(`/api/mentor/sessions/${school.course.id}_20261005T2000Z/report`, form);
       await mentor.post(`/api/mentor/courses/${school.course.id}/homework/ai-draft`, {}, 503);
 

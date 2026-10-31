@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router';
 import type { MentorCourseDetail } from '../../../shared/api.ts';
 import type { Curriculum, Homework } from '../../../shared/types.ts';
 import { AttachmentList, AttachmentPicker, type PickedLinks } from '../../components/Attachments.tsx';
-import { emptyHomework, HomeworkFields, homeworkPayload } from '../../components/HomeworkFields.tsx';
+import { emptyHomework, HomeworkFields, homeworkPayload, homeworkProblem } from '../../components/HomeworkFields.tsx';
 import { MentorSessionRow } from '../../components/MentorSessions.tsx';
 import { Badge, Button, Card, EmptyState, ErrorBox, ExternalButton, Field, Input, Loading, Modal, Notice, PageHeader, SectionTitle, Select, Tabs, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
@@ -156,6 +156,8 @@ function HomeworkTab({ data, onChange }: { data: MentorCourseDetail; onChange():
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
+    const problem = homeworkProblem(draft, false);
+    if (problem) return setError(problem);
     setBusy(true);
     setError(null);
     try {
@@ -166,6 +168,11 @@ function HomeworkTab({ data, onChange }: { data: MentorCourseDetail; onChange():
       form.set('dueAt', p.dueAt);
       form.set('links', JSON.stringify(p.links));
       form.set('aiGenerated', String(p.aiGenerated));
+      form.set('topic', p.topic);
+      form.set('learningGoal', p.learningGoal);
+      form.set('difficulty', p.difficulty);
+      form.set('estimatedMinutes', String(p.estimatedMinutes));
+      form.set('aiDraftId', p.aiDraftId);
       draft.files.forEach((f) => form.append('files', f));
       await api.post<Homework>(`/api/mentor/courses/${data.course.id}/homework`, form);
       toast('Homework assigned.');

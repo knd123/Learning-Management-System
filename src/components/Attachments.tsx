@@ -45,6 +45,7 @@ export function AttachmentPicker({
   onLinks,
   accept,
   label = 'Attach files',
+  allowLinks = true,
 }: {
   files: File[];
   onFiles(files: File[]): void;
@@ -52,6 +53,8 @@ export function AttachmentPicker({
   onLinks(links: PickedLinks[]): void;
   accept?: string;
   label?: string;
+  /** Off where only uploaded files will do (e.g. so families never open a mentor's own Drive). */
+  allowLinks?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState('');
@@ -88,6 +91,7 @@ export function AttachmentPicker({
           <Paperclip className="size-4" /> {label}
         </Button>
       </div>
+      {allowLinks && (
       <div className="flex gap-2">
         <Input
           type="url"
@@ -106,6 +110,7 @@ export function AttachmentPicker({
           <Plus className="size-4" />
         </Button>
       </div>
+      )}
       {(files.length > 0 || links.length > 0) && (
         <ul className="flex flex-col gap-1.5">
           {files.map((f, i) => (

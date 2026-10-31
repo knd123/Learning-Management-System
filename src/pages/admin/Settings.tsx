@@ -137,6 +137,17 @@ export default function AdminSettings() {
           {data?.updatedAt && data.updatedAt > '1971' && <p className="text-sm text-ink-muted">Last saved {fmtDateTime(data.updatedAt)}</p>}
         </div>
       </form>
+
+      <Card className="mt-8 flex flex-col gap-2">
+        <h2 className="font-semibold">Homework data</h2>
+        <p className="text-sm text-ink-soft">
+          Every homework with its topic, learning goal, difficulty and time, the AI suggestion it started from (if any) and how students did: hand-in rate, on-time rate and average score. No names or contact
+          details. Use it to judge homework quality or to train models on it.
+        </p>
+        <a href="/api/admin/homework-data" download className="self-start rounded-xl bg-sand-100 px-4 py-2 text-sm font-semibold text-ink hover:bg-sand-200">
+          Download homework data (JSON)
+        </a>
+      </Card>
     </>
   );
 }

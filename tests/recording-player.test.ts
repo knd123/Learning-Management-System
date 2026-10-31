@@ -4,7 +4,7 @@ import type { SessionView } from '../shared/api.ts';
 import type { ClassSession, Course, PublicUser } from '../shared/types.ts';
 import { C } from '../server/db/store.ts';
 import { VIDEO_CHUNK_BYTES } from '../server/routes/student.ts';
-import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
+import { Client, seedAdmin, startHarness, type Harness, heldReport } from './helpers.ts';
 
 const NY = 'America/New_York';
 const VIDEO = 'https://drive.google.com/file/d/1ClassVideo2026/view?usp=sharing&resourcekey=0-abcDEF';
@@ -24,15 +24,7 @@ describe('class recordings play inside the portal, never on Google Drive', () =>
   /** The video request a browser's player makes, with the student's cookie. */
   const play = (client: Client, range?: string) => fetch(h.baseUrl + streamPath(), { headers: { cookie: client.cookie, ...(range ? { range } : {}) } });
 
-  const report = (recordingUrl: string, expect = 200) => {
-    const form = new FormData();
-    form.set('date', '2026-10-05');
-    form.set('durationMinutes', '60');
-    form.set('topicsCovered', 'Fractions');
-    form.set('slidesUrl', 'https://docs.google.com/presentation/d/abc123/edit');
-    form.set('recordingUrl', recordingUrl);
-    return mentor.form(`/api/mentor/sessions/${sessionId()}/report`, form, expect);
-  };
+  const report = (recordingUrl: string, expect = 200) => mentor.form(`/api/mentor/sessions/${sessionId()}/report`, heldReport({ recordingUrl }), expect);
 
   before(async () => {
     h = await startHarness('2026-10-05T12:00:00Z');

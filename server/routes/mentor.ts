@@ -7,13 +7,14 @@ import type {
   MentorCourseDetail,
   MentorOverview,
   MentorProfile,
-  MentorSessionView,
   MentorSessionDetail,
+  MentorSessionView,
+  PendingClassReport,
   QuizResults,
   QuizWithStats,
   ReviewItem,
 } from '../../shared/api.ts';
-import type { AttendanceMark, Attachment, ClassFeedback, ClassSession, Course, Homework, Quiz, QuizAttempt, QuizQuestion, QuizSession, SessionReport, Settings, Submission } from '../../shared/types.ts';
+import type { AttendanceMark, Attachment, ClassFeedback, ClassSession, Course, Homework, HomeworkAiDraft, HomeworkDifficulty, Quiz, QuizAttempt, QuizQuestion, QuizSession, SessionReport, Settings, Submission } from '../../shared/types.ts';
 import { isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
 import { requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -28,6 +29,8 @@ import { committedHours } from '../services/matching.ts';
 import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { attemptIdFor, effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
+import { classFileProblem } from '../../shared/classes.ts';
+import { sendClassReport } from '../services/classReports.ts';
 import { reportNotHeld, restoreClass } from '../services/notHeld.ts';
 import { attachRecording, recordingLink } from '../services/recordings.ts';
 import { ensureSessions } from '../services/schedule.ts';
@@ -324,13 +327,29 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     }),
   );
 
+  const DIFFICULTIES: HomeworkDifficulty[] = ['easier', 'standard', 'challenging'];
+
+  /** The structured homework fields from a form: what it practises, for the AI draft and for judging homework quality later. */
+  function homeworkFields(body: Record<string, unknown>, required: boolean) {
+    const topic = str(body.topic, 'Homework topic', { required, max: 200 });
+    return {
+      topic: topic || undefined,
+      learningGoal: str(body.learningGoal, 'Learning goal', { max: 500 }) || undefined,
+      difficulty: DIFFICULTIES.includes(body.difficulty as HomeworkDifficulty) ? (body.difficulty as HomeworkDifficulty) : required ? ('standard' as const) : undefined,
+      estimatedMinutes: num(body.estimatedMinutes || undefined, 'Time needed', { min: 5, max: 180 }),
+      aiDraftId: str(body.aiDraftId, 'AI draft', { max: 100 }) || undefined,
+    };
+  }
+
   async function createHomework(
     req: import('express').Request,
     course: Course,
-    input: { title: string; instructions: string; dueAt?: string; links: unknown; aiGenerated?: boolean; sessionId?: string },
+    input: { title: string; instructions: string; dueAt?: string; links: unknown; aiGenerated?: boolean; sessionId?: string } & ReturnType<typeof homeworkFields>,
     files: Express.Multer.File[],
   ): Promise<Homework> {
     if (!input.title) throw badRequest('Homework title is required.');
+    const draft = input.aiDraftId ? await deps.store.get<HomeworkAiDraft>(C.homeworkDrafts, input.aiDraftId) : null;
+    const aiDraft = draft && draft.courseId === course.id ? { title: draft.title, instructions: draft.instructions, generatedAt: draft.createdAt } : undefined;
     const attachments: Attachment[] = [];
     for (const file of files) attachments.push(await saveUpload(deps, file, { uploadedBy: req.user!.id, purpose: 'homework', courseId: course.id }));
     attachments.push(...linkAttachments(input.links));
@@ -345,13 +364,44 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       attachments,
       dueAt: input.dueAt,
       assignedAt: now,
-      aiGenerated: input.aiGenerated || undefined,
+      aiGenerated: input.aiGenerated || Boolean(aiDraft) || undefined,
+      topic: input.topic,
+      learningGoal: input.learningGoal,
+      difficulty: input.difficulty,
+      estimatedMinutes: input.estimatedMinutes,
+      aiDraft,
       createdAt: now,
       updatedAt: now,
     };
     await deps.store.put(C.homework, homework);
     return homework;
   }
+
+  // The class the after-class pop-up asks about: the oldest of the last 14 days that ended without a report.
+  router.get(
+    '/reports/pending',
+    h(async (req, res) => {
+      if (req.user!.role !== 'mentor') return void res.json({ pending: null });
+      const now = deps.now();
+      const waiting: Array<{ session: ClassSession; course: Course }> = [];
+      for (const course of await coursesFor(deps, req.user!)) {
+        for (const session of await ensureSessions(deps, course, new Date(now.getTime() - 14 * ONE_DAY), now)) {
+          if (session.status !== 'cancelled' && !session.report && new Date(session.endAt) <= now) waiting.push({ session, course });
+        }
+      }
+      const first = waiting.sort((a, b) => a.session.startAt.localeCompare(b.session.startAt))[0];
+      if (!first) return void res.json({ pending: null });
+      const people = await usersById(deps, first.course.studentIds);
+      const pending: PendingClassReport = {
+        sessionId: first.session.id,
+        courseTitle: first.course.title,
+        studentNames: first.course.studentIds.map((id) => people.get(id)?.displayName || 'Student'),
+        startAt: first.session.startAt,
+        endAt: first.session.endAt,
+      };
+      res.json({ pending });
+    }),
+  );
 
   // The quick post-class report: date, duration, slides, homework (+ topics and attendance).
   router.post(
@@ -377,42 +427,42 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         attendance[studentId] = mark && ATTENDANCE.includes(mark) ? mark : session.joins?.[studentId] ? 'present' : 'absent';
       }
 
-      let slides: Attachment | undefined = session.report?.slides;
-      if (files.slides?.[0]) {
-        slides = await saveUpload(deps, files.slides[0], { uploadedBy: req.user!.id, purpose: 'slides', courseId: course.id, relatedId: session.id });
-      } else if (req.body?.slidesUrl) {
-        slides = { kind: 'link', url: httpUrl(req.body.slidesUrl, 'Slides link'), name: 'Class slides' };
-      }
-      if (!slides) throw badRequest('Please attach the PowerPoint (or a link to the slides) for this class.');
+      // Slides are uploaded files: a link to the mentor's own Google Slides would show families their Google account.
+      if (!files.slides?.[0] && req.body?.slidesUrl) throw badRequest('Upload the slides as a file (PowerPoint or PDF) instead of a link.');
+      if (!files.slides?.[0] && !session.report?.slides) throw badRequest('Attach the PowerPoint slides for this class (PowerPoint or PDF).');
+      const tooBig = (files.slides?.[0] && classFileProblem(files.slides[0], 'slides')) || (files.homeworkFiles || []).map((f) => classFileProblem(f, 'worksheet')).find(Boolean);
+      if (tooBig) throw badRequest(tooBig);
       const recordingUrl = await recordingLink(deps, req.body?.recordingUrl, false);
       if (!recordingUrl && !session.recording && course.requiresRecording) {
         throw badRequest("Paste the link to this class's recording. Upload it to the student's folder in your Google Drive first.");
       }
 
-      let homeworkId = session.report?.homeworkId;
-      const hwInput = jsonField<{ mode?: 'none' | 'new' | 'existing'; title?: string; instructions?: string; dueAt?: string; links?: unknown; homeworkId?: string; aiGenerated?: boolean }>(req.body?.homework, {});
+      // Every class that took place has homework: new (with its worksheet) or already assigned.
+      const hwInput = jsonField<Record<string, unknown> & { mode?: 'new' | 'existing'; homeworkId?: string }>(req.body?.homework, {});
+      let homework: Homework | undefined;
+      let newHomework: Parameters<typeof createHomework>[2] | undefined;
       if (hwInput.mode === 'new') {
-        const hw = await createHomework(
-          req,
-          course,
-          {
-            title: str(hwInput.title, 'Homework title', { required: true, max: 200 }),
-            instructions: str(hwInput.instructions, 'Homework instructions', { max: 20000 }),
-            dueAt: isoDate(hwInput.dueAt, 'Due date'),
-            links: hwInput.links,
-            aiGenerated: hwInput.aiGenerated,
-            sessionId: session.id,
-          },
-          files.homeworkFiles || [],
-        );
-        homeworkId = hw.id;
+        const fields = homeworkFields(hwInput, true);
+        if (!files.homeworkFiles?.length) throw badRequest('Attach the homework worksheet (PDF, Word or a photo).');
+        newHomework = {
+          ...fields,
+          title: str(hwInput.title, 'Homework title', { max: 200 }) || fields.topic!,
+          instructions: str(hwInput.instructions, 'Homework instructions', { max: 20000 }),
+          dueAt: isoDate(hwInput.dueAt, 'Due date'),
+          links: [],
+          aiGenerated: hwInput.aiGenerated === true,
+          sessionId: session.id,
+        };
       } else if (hwInput.mode === 'existing' && hwInput.homeworkId) {
-        const hw = await deps.store.get<Homework>(C.homework, hwInput.homeworkId);
-        if (!hw || hw.courseId !== course.id) throw badRequest('That homework belongs to another class.');
-        homeworkId = hw.id;
-      } else if (hwInput.mode === 'none') {
-        homeworkId = undefined;
+        homework = (await deps.store.get<Homework>(C.homework, hwInput.homeworkId)) || undefined;
+        if (!homework || homework.courseId !== course.id) throw badRequest('That homework belongs to another class.');
+      } else {
+        throw badRequest('Assign homework for this class: new homework with its worksheet, or homework already assigned.');
       }
+
+      const slides: Attachment = files.slides?.[0] ? await saveUpload(deps, files.slides[0], { uploadedBy: req.user!.id, purpose: 'slides', courseId: course.id, relatedId: session.id }) : session.report!.slides!;
+      if (newHomework) homework = await createHomework(req, course, newHomework, files.homeworkFiles || []);
+      const homeworkId = homework!.id;
 
       const report: SessionReport = {
         submittedAt: deps.now().toISOString(),
@@ -422,14 +472,21 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         topicsCovered,
         notes: notes || undefined,
         slides,
-        shareSlidesWithStudents: req.body?.shareSlidesWithStudents !== 'false',
+        // The slides are part of the class report the student and family see.
+        shareSlidesWithStudents: true,
         homeworkId,
         attendance,
+        familySentAt: session.report?.familySentAt,
       };
       let updated = (await deps.store.patch<ClassSession>(C.sessions, session.id, { report, updatedAt: deps.now().toISOString() }))!;
       // The recording goes live for students with the report and disappears after the viewing window.
       if (recordingUrl && recordingUrl !== session.recording?.url) {
         updated = (await attachRecording(deps, updated, course, recordingUrl, req.user!, await getSettings(deps.store))).session;
+      }
+      // The first report goes to the student and the family; later edits don't send it again.
+      if (!session.report) {
+        await sendClassReport(deps, updated, course, homework);
+        updated = (await deps.store.patch<ClassSession>(C.sessions, session.id, { report: { ...updated.report!, familySentAt: deps.now().toISOString() } }))!;
       }
       res.json(updated);
     }),
@@ -465,6 +522,8 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     upload.array('files', 8),
     h(async (req, res) => {
       const course = await courseForTeacher(deps, req.user!, req.params.id);
+      const tooBig = ((req.files as Express.Multer.File[]) || []).map((f) => classFileProblem(f, 'worksheet')).find(Boolean);
+      if (tooBig) throw badRequest(tooBig);
       const homework = await createHomework(
         req,
         course,
@@ -474,6 +533,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
           dueAt: isoDate(req.body?.dueAt, 'Due date'),
           links: jsonField(req.body?.links, []),
           aiGenerated: req.body?.aiGenerated === 'true',
+          ...homeworkFields(req.body || {}, false),
         },
         (req.files as Express.Multer.File[]) || [],
       );
@@ -499,11 +559,16 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
           gradeLevel: course.gradeLevel,
           curriculum: (await currentCurriculum(deps, course.id))?.content,
           recentTopics,
+          topic: str(req.body?.topic, 'Topic', { max: 200 }) || undefined,
+          learningGoal: str(req.body?.learningGoal, 'Learning goal', { max: 500 }) || undefined,
+          classTopics: str(req.body?.classTopics, 'Class topics', { max: 2000 }) || undefined,
           focus: str(req.body?.focus, 'Focus', { max: 1000 }) || undefined,
           difficulty,
           estimatedMinutes: num(req.body?.estimatedMinutes, 'Time', { min: 5, max: 180 }) || 30,
         });
-        res.json(draft);
+        const saved: HomeworkAiDraft = { id: crypto.randomUUID(), courseId: course.id, mentorId: req.user!.id, title: draft.title, instructions: draft.instructions, createdAt: deps.now().toISOString() };
+        await deps.store.put(C.homeworkDrafts, saved);
+        res.json({ ...draft, draftId: saved.id });
       } catch (err) {
         aiError(err);
       }

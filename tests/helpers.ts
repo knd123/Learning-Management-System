@@ -113,7 +113,7 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(start: string, opts: { ai?: AiService } = {}): Promise<Harness> {
+export async function startHarness(start: string, opts: { ai?: AiService; maxUploadMb?: number } = {}): Promise<Harness> {
   // TEST_STORE=firestore (with FIRESTORE_EMULATOR_HOST set) runs the API tests on Firestore.
   const store: Store = process.env.TEST_STORE === 'firestore' ? firestoreTestStore(`demo-${crypto.randomUUID().slice(0, 8)}`) : new MemoryStore();
   const mailer = new LogMailer();
@@ -134,7 +134,7 @@ export async function startHarness(start: string, opts: { ai?: AiService } = {})
     sessionSecret: 'test-secret-test-secret-test-secret-123',
     sessionDays: 90,
     secureCookies: false,
-    maxUploadMb: 5,
+    maxUploadMb: opts.maxUploadMb ?? 5,
     cronSecret: 'cron-secret',
     dataBackend: 'memory',
   };
@@ -215,4 +215,21 @@ export class Client {
   async login(username: string, password: string) {
     return this.post('/api/auth/login', { username, password });
   }
+}
+
+/**
+ * A complete "the class took place" report: what was covered, the recording link, the slides file and
+ * new homework with its worksheet. Pass `homework` to change the homework, or `false` to leave it out.
+ */
+export function heldReport(opts: { date?: string; topics?: string; recordingUrl?: string; attendance?: Record<string, string>; homework?: Record<string, unknown> | false; slides?: boolean; worksheet?: boolean } = {}): FormData {
+  const form = new FormData();
+  form.set('date', opts.date ?? '2026-10-05');
+  form.set('durationMinutes', '60');
+  form.set('topicsCovered', opts.topics ?? 'Fractions');
+  if (opts.attendance) form.set('attendance', JSON.stringify(opts.attendance));
+  if (opts.recordingUrl !== '') form.set('recordingUrl', opts.recordingUrl ?? 'https://drive.google.com/file/d/1ClassVideo2026/view');
+  if (opts.slides !== false) form.set('slides', new Blob([Buffer.from('pptx-bytes')], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }), 'Class slides.pptx');
+  if (opts.homework !== false) form.set('homework', JSON.stringify({ mode: 'new', topic: 'Fraction practice', instructions: 'Solve 1-10.', ...(opts.homework || {}) }));
+  if (opts.homework !== false && opts.worksheet !== false) form.append('homeworkFiles', new Blob([Buffer.from('%PDF-1.4 worksheet')], { type: 'application/pdf' }), 'Worksheet.pdf');
+  return form;
 }

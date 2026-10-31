@@ -24,6 +24,7 @@ import type { ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router';
 import type { Role } from '../../shared/types.ts';
 import { useAuth } from '../lib/auth.tsx';
+import { ClassReportPrompt } from './ClassReportPrompt.tsx';
 import { FeedbackPrompt } from './FeedbackPrompt.tsx';
 import { NotificationBell } from './Notifications.tsx';
 
@@ -177,6 +178,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">{children}</main>
       {user.role === 'student' && <FeedbackPrompt />}
+      {user.role === 'mentor' && <ClassReportPrompt />}
     </div>
   );
 }

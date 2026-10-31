@@ -175,6 +175,8 @@ export interface SessionReport {
   shareSlidesWithStudents: boolean;
   homeworkId?: string;
   attendance: Record<string, AttendanceMark>;
+  /** When the report went to the student and the family (once, on the first submission). */
+  familySentAt?: string;
 }
 
 export interface SessionRecording {
@@ -230,6 +232,8 @@ export interface ClassSession {
   updatedAt: string;
 }
 
+export type HomeworkDifficulty = 'easier' | 'standard' | 'challenging';
+
 export interface Homework {
   id: string;
   courseId: string;
@@ -241,8 +245,27 @@ export interface Homework {
   dueAt?: string;
   assignedAt: string;
   aiGenerated?: boolean;
+  // What the homework practises, in a fixed shape: it steers the AI draft, and with the students'
+  // results it is the data for judging (and later training on) homework quality.
+  topic?: string;
+  /** What the student should be able to do afterwards. */
+  learningGoal?: string;
+  difficulty?: HomeworkDifficulty;
+  estimatedMinutes?: number;
+  /** The AI's suggestion as generated, kept beside the mentor's final version. */
+  aiDraft?: { title: string; instructions: string; generatedAt: string };
   createdAt: string;
   updatedAt: string;
+}
+
+/** An AI homework suggestion, kept so the homework assigned from it can record the original. */
+export interface HomeworkAiDraft {
+  id: string;
+  courseId: string;
+  mentorId: string;
+  title: string;
+  instructions: string;
+  createdAt: string;
 }
 
 export interface Submission {
@@ -505,6 +528,7 @@ export type EmailKind =
   | 'password_reset'
   | 'invite'
   | 'class_not_held'
+  | 'class_report'
   | 'test';
 
 export interface EmailLog {

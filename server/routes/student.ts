@@ -145,14 +145,17 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const course = await courseForStudent(deps, req.user!, req.params.id);
       const now = deps.now();
       const mentor = await deps.store.get<{ displayName: string }>(C.users, course.mentorId);
-      const [view, sessions, homework] = await Promise.all([
+      const [view, recent, all, homework] = await Promise.all([
         studentCourse(course, mentor?.displayName || 'Mentor'),
         ensureSessions(deps, course, new Date(now.getTime() - 30 * ONE_DAY), new Date(now.getTime() + 30 * ONE_DAY)),
+        deps.store.find<ClassSession>(C.sessions, { courseId: course.id }),
         homeworkFor([course], req.user!.id),
       ]);
+      // The class folder keeps every class report, however old; the coming month's classes come from the schedule.
+      const byId = new Map([...all.filter((s) => s.report && s.status !== 'cancelled'), ...recent].map((s) => [s.id, s]));
       const detail: StudentCourseDetail = {
         course: view,
-        sessions: sessions.map((s) => sessionView(s, course, now, req.user!.id)),
+        sessions: [...byId.values()].sort((a, b) => a.startAt.localeCompare(b.startAt)).map((s) => sessionView(s, course, now, req.user!.id)),
         homework,
       };
       res.json(detail);

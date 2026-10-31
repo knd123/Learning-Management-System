@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import type { MentorOverview, MentorSessionDetail, SessionView } from '../shared/api.ts';
 import type { AppNotification, ClassSession, Course, PublicUser, StudentProgress } from '../shared/types.ts';
-import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
+import { Client, seedAdmin, startHarness, type Harness, heldReport } from './helpers.ts';
 
 const NY = 'America/New_York';
 
@@ -19,15 +19,7 @@ describe('a class that didn’t take place', () => {
   const notifications = async (c: Client) => (await c.get<{ notifications: AppNotification[] }>('/api/notifications')).notifications;
   const notHeldEmails = () => h.mailer.sent.filter((e) => e.subject.startsWith('Class not held:'));
 
-  const report = (sessionId: string, expect = 200) => {
-    const form = new FormData();
-    form.set('date', '2026-10-05');
-    form.set('durationMinutes', '60');
-    form.set('topicsCovered', 'Fractions');
-    form.set('slidesUrl', 'https://docs.google.com/presentation/d/abc123/edit');
-    form.set('recordingUrl', 'https://drive.google.com/file/d/1ClassVideo2026/view');
-    return mentor.form(`/api/mentor/sessions/${sessionId}/report`, form, expect);
-  };
+  const report = (sessionId: string, expect = 200) => mentor.form(`/api/mentor/sessions/${sessionId}/report`, heldReport(), expect);
 
   before(async () => {
     h = await startHarness('2026-10-05T12:00:00Z');

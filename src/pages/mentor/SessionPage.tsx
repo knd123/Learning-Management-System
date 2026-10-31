@@ -1,20 +1,22 @@
 import clsx from 'clsx';
 import { CalendarX2, CheckCircle2, FolderOpen, PlayCircle, Video } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import type { MentorCourseDetail, MentorSessionDetail } from '../../../shared/api.ts';
-import { NOT_HELD_REASONS } from '../../../shared/classes.ts';
+import { classFileProblem, MAX_CLASS_FILE_MB, NOT_HELD_REASONS } from '../../../shared/classes.ts';
 import type { AttendanceMark, ClassNotHeld, NotHeldReason } from '../../../shared/types.ts';
 import { AttachmentLink } from '../../components/Attachments.tsx';
-import { emptyHomework, HomeworkFields, homeworkPayload, type HomeworkDraft } from '../../components/HomeworkFields.tsx';
+import { emptyHomework, HomeworkFields, homeworkPayload, homeworkProblem, type HomeworkDraft } from '../../components/HomeworkFields.tsx';
 import { MentorSessionBadges, Stars } from '../../components/MentorSessions.tsx';
-import { Badge, Button, Card, Checkbox, ErrorBox, ExternalButton, Field, Input, Loading, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
+import { Badge, Button, Card, ErrorBox, ExternalButton, Field, Input, Loading, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtDateTime, fmtDay, fmtTimeRange, localYmd, toLocalInput } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 export default function MentorSession() {
   const { id } = useParams();
+  // The after-class pop-up opens this page with ?held=yes or ?held=no.
+  const [params] = useSearchParams();
   const { data, error, loading, reload } = useApi<MentorSessionDetail>(`/api/mentor/sessions/${encodeURIComponent(id!)}`);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox message={error || 'Could not load this class.'} onRetry={reload} />;
@@ -39,7 +41,7 @@ export default function MentorSession() {
               <Notice icon={<CalendarX2 className="mt-0.5 size-4" />}>This class was cancelled. Restore it below if it happened after all.</Notice>
             )
           ) : started ? (
-            <ReportCard data={data} onSaved={reload} />
+            <ReportCard data={data} onSaved={reload} initialHeld={params.get('held') !== 'no'} />
           ) : (
             <Notice tone="blue">The class report opens when the class starts. After class, log the date, duration, slides and homework here.</Notice>
           )}
@@ -81,9 +83,17 @@ function FeedbackCard({ data }: { data: MentorSessionDetail }) {
   );
 }
 
-type HomeworkMode = 'none' | 'new' | 'existing';
+type HomeworkMode = 'new' | 'existing';
 
-function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): void }) {
+/** Files sent with one report: the server takes up to 32 MB per request. */
+const MAX_REPORT_MB = 30;
+
+/**
+ * After a class: did it take place? If not, the reason (the team is told). If it did, the report:
+ * what was covered, the recording link, the slides and the homework with its worksheet. It goes to
+ * the student and the family and stays in the student's class folder; the team sees it too.
+ */
+function ReportCard({ data, onSaved, initialHeld }: { data: MentorSessionDetail; onSaved(): void; initialHeld: boolean }) {
   const toast = useToast();
   const { session, course, students } = data;
   const report = session.report;
@@ -95,15 +105,13 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
   const [notes, setNotes] = useState(report?.notes || '');
   const [attendance, setAttendance] = useState<Record<string, AttendanceMark>>(() => Object.fromEntries(students.map((s) => [s.id, report?.attendance[s.id] || 'present'])));
   const [slidesFile, setSlidesFile] = useState<File | null>(null);
-  const [slidesUrl, setSlidesUrl] = useState('');
-  const [shareSlides, setShareSlides] = useState(report?.shareSlidesWithStudents ?? true);
   const [recordingUrl, setRecordingUrl] = useState(session.recordingUrl || '');
-  const [hwMode, setHwMode] = useState<HomeworkMode>(report ? (report.homeworkId ? 'existing' : 'none') : 'new');
+  const [hwMode, setHwMode] = useState<HomeworkMode>(report?.homeworkId ? 'existing' : 'new');
   const [existingHw, setExistingHw] = useState(report?.homeworkId || '');
   const [hw, setHw] = useState<HomeworkDraft>(emptyHomework);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [held, setHeld] = useState(true);
+  const [held, setHeld] = useState(initialHeld);
   const courseDetail = useApi<MentorCourseDetail>(hwMode === 'existing' && editing ? `/api/mentor/courses/${course.id}` : null);
 
   useEffect(() => {
@@ -112,6 +120,13 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    const files = [...(slidesFile ? [slidesFile] : []), ...(hwMode === 'new' ? hw.files : [])];
+    const problem =
+      (!slidesFile && !report?.slides && 'Attach the PowerPoint slides for this class.') ||
+      (slidesFile && classFileProblem(slidesFile, 'slides')) ||
+      (hwMode === 'new' ? homeworkProblem(hw, true) : !existingHw && 'Choose the homework already assigned.') ||
+      (files.reduce((sum, f) => sum + f.size, 0) > MAX_REPORT_MB * 1024 * 1024 && `The slides and worksheet are over ${MAX_REPORT_MB} MB together. Save the slides as a PDF or make the files smaller.`);
+    if (problem) return setError(problem);
     setBusy(true);
     setError(null);
     try {
@@ -121,20 +136,16 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
       form.set('topicsCovered', topics);
       form.set('notes', notes);
       form.set('attendance', JSON.stringify(attendance));
-      form.set('shareSlidesWithStudents', String(shareSlides));
       form.set('recordingUrl', recordingUrl);
       if (slidesFile) form.set('slides', slidesFile);
-      else if (slidesUrl) form.set('slidesUrl', slidesUrl);
       if (hwMode === 'new') {
         form.set('homework', JSON.stringify({ mode: 'new', ...homeworkPayload(hw) }));
         hw.files.forEach((f) => form.append('homeworkFiles', f));
-      } else if (hwMode === 'existing') {
-        form.set('homework', JSON.stringify({ mode: 'existing', homeworkId: existingHw }));
       } else {
-        form.set('homework', JSON.stringify({ mode: 'none' }));
+        form.set('homework', JSON.stringify({ mode: 'existing', homeworkId: existingHw }));
       }
       await api.post(`/api/mentor/sessions/${encodeURIComponent(session.id)}/report`, form);
-      toast('Class report submitted. Thank you!');
+      toast(report ? 'Class report saved.' : 'Class report sent to the student and the family. Thank you!');
       setEditing(false);
       onSaved();
     } catch (err) {
@@ -241,9 +252,11 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
         <Field label="What did you cover?" hint="Used for progress tracking and monthly quizzes.">
           {(fid) => <Textarea id={fid} rows={3} required value={topics} onChange={(e) => setTopics(e.target.value)} placeholder="e.g. Adding fractions with unlike denominators; word problems" />}
         </Field>
-        <div className="flex flex-col gap-2">
-          <p className="text-sm font-medium">PowerPoint for this class</p>
-          {report?.slides && !slidesFile && !slidesUrl && (
+        <RecordingField data={data} value={recordingUrl} onChange={setRecordingUrl} />
+        <div className="flex flex-col gap-2 rounded-2xl border border-sand-200 p-4">
+          <p className="text-sm font-medium">PowerPoint slides for this class</p>
+          <p className="text-xs text-ink-muted">Upload the file (PowerPoint or PDF), up to {MAX_CLASS_FILE_MB} MB: the student and family can download it from the class. Using Google Slides? Choose File → Download first. Too big? Save it as a PDF.</p>
+          {report?.slides && !slidesFile && (
             <div className="flex items-center gap-2 text-sm text-ink-soft">
               Current: <AttachmentLink attachment={report.slides} />
             </div>
@@ -252,12 +265,45 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
             type="file"
             accept=".ppt,.pptx,.pdf,.key,.odp"
             onChange={(e) => setSlidesFile(e.target.files?.[0] || null)}
+            aria-label="PowerPoint slides"
             className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:font-semibold file:text-brand-800 hover:file:bg-brand-100"
           />
-          {!slidesFile && <Input type="url" placeholder="…or paste a Google Slides / OneDrive link" value={slidesUrl} onChange={(e) => setSlidesUrl(e.target.value)} />}
-          <Checkbox label="Let students download the slides for revision" checked={shareSlides} onChange={setShareSlides} />
         </div>
-        <RecordingField data={data} value={recordingUrl} onChange={setRecordingUrl} />
+        <div className="rounded-2xl border border-sand-200 p-4">
+          <p className="mb-3 text-sm font-medium">Homework for this class</p>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(
+              [
+                ['new', 'Assign new homework'],
+                ['existing', 'Already assigned'],
+              ] as Array<[HomeworkMode, string]>
+            ).map(([mode, label]) => (
+              <button
+                type="button"
+                key={mode}
+                onClick={() => setHwMode(mode)}
+                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${hwMode === mode ? 'bg-brand-700 text-white' : 'bg-sand-100 text-ink-soft hover:bg-sand-200'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {hwMode === 'new' && <HomeworkFields courseId={course.id} value={hw} onChange={setHw} aiEnabled={data.aiEnabled} classTopics={topics} worksheetRequired allowLinks={false} />}
+          {hwMode === 'existing' && (
+            <Field label="Homework">
+              {(fid) => (
+                <Select id={fid} value={existingHw} onChange={(e) => setExistingHw(e.target.value)} required>
+                  <option value="">Choose homework…</option>
+                  {courseDetail.data?.homework.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.title}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
+        </div>
         {students.length > 0 && (
           <div>
             <p className="mb-2 text-sm font-medium">Attendance</p>
@@ -275,45 +321,10 @@ function ReportCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
             </div>
           </div>
         )}
-        <div className="rounded-2xl border border-sand-200 p-4">
-          <p className="mb-3 text-sm font-medium">Homework for this class</p>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {(
-              [
-                ['new', 'Assign new homework'],
-                ['existing', 'Already assigned'],
-                ['none', 'No homework'],
-              ] as Array<[HomeworkMode, string]>
-            ).map(([mode, label]) => (
-              <button
-                type="button"
-                key={mode}
-                onClick={() => setHwMode(mode)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${hwMode === mode ? 'bg-brand-700 text-white' : 'bg-sand-100 text-ink-soft hover:bg-sand-200'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {hwMode === 'new' && <HomeworkFields courseId={course.id} value={hw} onChange={setHw} aiEnabled={data.aiEnabled} />}
-          {hwMode === 'existing' && (
-            <Field label="Homework">
-              {(fid) => (
-                <Select id={fid} value={existingHw} onChange={(e) => setExistingHw(e.target.value)} required>
-                  <option value="">Choose homework…</option>
-                  {courseDetail.data?.homework.map((h) => (
-                    <option key={h.id} value={h.id}>
-                      {h.title}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          )}
-        </div>
         <Field label="Notes for the Abugida team (optional)" hint="Not shown to students or parents.">
           {(fid) => <Textarea id={fid} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />}
         </Field>
+        {!report && <p className="text-xs text-ink-muted">When you submit, the report goes to the student and the family (without the recording link or your notes) and stays in the student's class folder. The Abugida team sees it too.</p>}
         <div className="flex gap-2">
           <Button type="submit" size="lg" loading={busy}>
             {report ? 'Save report' : 'Submit report'}

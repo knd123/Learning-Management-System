@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import type { AdminCourseRow, MatchRequestDetail, MatchRequestRow, ParentChildDetail, ReportRow } from '../shared/api.ts';
 import type { PublicUser } from '../shared/types.ts';
-import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
+import { Client, seedAdmin, startHarness, type Harness, heldReport } from './helpers.ts';
 
 const NY = 'America/New_York';
 const week = [{ weekday: 1, start: '15:00', end: '20:00' }, { weekday: 3, start: '15:00', end: '20:00' }];
@@ -81,14 +81,7 @@ describe('privacy: mentors and families never see each other’s contact details
     await mentor.patch(`/api/mentor/submissions/${review.submissions[0].submission.id}`, { score: 90, feedback: 'Great work!' });
 
     h.clock.now = new Date('2026-10-05T21:30:00Z');
-    const report = new FormData();
-    report.set('date', '2026-10-05');
-    report.set('durationMinutes', '60');
-    report.set('topicsCovered', 'Fractions');
-    report.set('slidesUrl', 'https://docs.google.com/presentation/d/abc123/edit');
-    report.set('attendance', JSON.stringify({ [nahom.id]: 'present' }));
-    report.set('recordingUrl', 'https://drive.google.com/file/d/1NahomMathRecording/view');
-    await mentor.form(`/api/mentor/sessions/${ids.session}/report`, report);
+    await mentor.form(`/api/mentor/sessions/${ids.session}/report`, heldReport({ attendance: { [nahom.id]: 'present' }, recordingUrl: 'https://drive.google.com/file/d/1NahomMathRecording/view', homework: { mode: 'existing', homeworkId: ids.homework }, worksheet: false }));
     await student.post('/api/student/feedback', { sessionId: ids.session, rating: 5, comment: 'Clear explanations' }, 201);
 
     h.clock.now = new Date('2026-10-20T14:00:00Z');

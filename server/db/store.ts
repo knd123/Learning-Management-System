@@ -48,6 +48,7 @@ export const C = {
   rewards: 'rewards',
   passwordResets: 'passwordResets',
   invites: 'invites',
+  homeworkDrafts: 'homeworkDrafts',
 } as const;
 
 function matches(doc: Record<string, unknown>, where: Where = {}, options: FindOptions = {}): boolean {

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import type { AdminCourseRow, AdminOverview, ApprovalCounts, CurriculumRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ParentRequestRow, ReportDetail, ReportRow, RewardRow } from '../../shared/api.ts';
-import type { ClassFeedback, ClassSession, Course, EmailLog, MatchRequest, ParentLinkRequest, ParentReport, RewardRequest, ReportNarrative, Role, ScheduleSlot, Settings } from '../../shared/types.ts';
+import type { AdminCourseRow, AdminOverview, ApprovalCounts, CurriculumRow, HomeworkDataRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ParentRequestRow, ReportDetail, ReportRow, RewardRow } from '../../shared/api.ts';
+import type { ClassFeedback, ClassSession, Course, EmailLog, Homework, MatchRequest, ParentLinkRequest, ParentReport, RewardRequest, ReportNarrative, Role, ScheduleSlot, Settings, Submission } from '../../shared/types.ts';
 import { isValidHm, isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
 import { generatePassword, hashPassword, requireRole, toAdminUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -660,6 +660,46 @@ export function adminRoutes(deps: Deps): Router {
         text: 'This is a test email from the learning platform. If you received it, email delivery works.',
       });
       res.json(log);
+    }),
+  );
+
+  // Every homework with what it practised, how it was made and how students did, as a JSON file:
+  // the data for judging homework quality and training models on it. No names or contact details.
+  router.get(
+    '/homework-data',
+    h(async (_req, res) => {
+      const [homework, courses, submissions] = await Promise.all([deps.store.find<Homework>(C.homework), deps.store.find<Course>(C.courses), deps.store.find<Submission>(C.submissions)]);
+      const courseById = new Map(courses.map((c) => [c.id, c]));
+      const rows: HomeworkDataRow[] = homework
+        .sort((a, b) => a.assignedAt.localeCompare(b.assignedAt))
+        .map((hw) => {
+          const course = courseById.get(hw.courseId);
+          const handedIn = submissions.filter((s) => s.homeworkId === hw.id);
+          const scores = handedIn.map((s) => s.score).filter((s): s is number => typeof s === 'number');
+          return {
+            homeworkId: hw.id,
+            subject: course?.subject || '',
+            gradeLevel: course?.gradeLevel || 0,
+            topic: hw.topic,
+            learningGoal: hw.learningGoal,
+            difficulty: hw.difficulty,
+            estimatedMinutes: hw.estimatedMinutes,
+            title: hw.title,
+            instructions: hw.instructions,
+            worksheetFiles: hw.attachments.filter((a) => a.kind === 'file').length,
+            aiGenerated: Boolean(hw.aiGenerated),
+            aiDraft: hw.aiDraft ? { title: hw.aiDraft.title, instructions: hw.aiDraft.instructions } : undefined,
+            changedFromAiDraft: hw.aiDraft ? hw.aiDraft.instructions.trim() !== hw.instructions.trim() || hw.aiDraft.title.trim() !== hw.title.trim() : undefined,
+            assignedAt: hw.assignedAt,
+            dueAt: hw.dueAt,
+            students: course?.studentIds.length || 0,
+            handedIn: handedIn.length,
+            handedInOnTime: handedIn.filter((s) => !hw.dueAt || s.submittedAt <= hw.dueAt).length,
+            averageScore: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
+          };
+        });
+      res.setHeader('Content-Disposition', `attachment; filename="homework-data-${monthInZone(deps.now(), 'UTC')}.json"`);
+      res.json(rows);
     }),
   );
 

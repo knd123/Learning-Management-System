@@ -44,6 +44,42 @@ export interface SessionView {
   attended?: boolean;
 }
 
+/**
+ * One homework, for judging (and later training models on) homework quality: what it practised and
+ * how it was made, next to how students did. No names or contact details.
+ */
+export interface HomeworkDataRow {
+  homeworkId: string;
+  subject: string;
+  gradeLevel: number;
+  topic?: string;
+  learningGoal?: string;
+  difficulty?: import('./types.ts').HomeworkDifficulty;
+  estimatedMinutes?: number;
+  title: string;
+  instructions: string;
+  worksheetFiles: number;
+  aiGenerated: boolean;
+  /** The AI's suggestion, when the homework started from one, and whether the mentor changed it. */
+  aiDraft?: { title: string; instructions: string };
+  changedFromAiDraft?: boolean;
+  assignedAt: string;
+  dueAt?: string;
+  students: number;
+  handedIn: number;
+  handedInOnTime: number;
+  averageScore: number | null;
+}
+
+/** A finished class waiting for its mentor's report: the after-class pop-up asks whether it took place. */
+export interface PendingClassReport {
+  sessionId: string;
+  courseTitle: string;
+  studentNames: string[];
+  startAt: string;
+  endAt: string;
+}
+
 /** A finished class waiting for the student's rating. */
 export interface PendingFeedback {
   sessionId: string;

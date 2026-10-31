@@ -1,4 +1,4 @@
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import type { StudentCourseDetail } from '../../../shared/api.ts';
 import { AttachmentLink } from '../../components/Attachments.tsx';
 import { HomeworkCard } from '../../components/Homework.tsx';
@@ -30,21 +30,37 @@ export default function StudentClass() {
           </section>
           <section>
             <SectionTitle>Past classes</SectionTitle>
+            {/* Every class report stays here: what was covered, the slides and the homework. Only the recording goes after its viewing window. */}
             <div className="flex flex-col gap-2">
               {past.length ? (
-                past.map((s) => (
-                  <div key={s.id} className="flex flex-col gap-2">
-                    <StudentSessionRow session={s} showCourse={false} />
-                    {s.slides && (
-                      <div className="ml-[4.5rem] flex flex-wrap items-center gap-2 text-sm text-ink-soft">
-                        Slides: <AttachmentLink attachment={s.slides} />
-                      </div>
-                    )}
-                    {s.recording?.state === 'expired' && <p className="ml-[4.5rem] text-xs text-ink-muted">Recording was available until {fmtDateTime(s.recording.availableUntil)}.</p>}
-                  </div>
-                ))
+                past.map((s) => {
+                  const homework = s.homeworkId ? data.homework.find((h) => h.id === s.homeworkId) : undefined;
+                  return (
+                    <div key={s.id} className="flex flex-col gap-2">
+                      <StudentSessionRow session={s} showCourse={false} />
+                      {(s.slides || homework || s.recording?.state === 'expired') && (
+                        <div className="ml-[4.5rem] flex flex-col gap-1 text-sm text-ink-soft">
+                          {s.slides && (
+                            <span className="flex flex-wrap items-center gap-2">
+                              Slides: <AttachmentLink attachment={s.slides} />
+                            </span>
+                          )}
+                          {homework && (
+                            <span>
+                              Homework:{' '}
+                              <Link to={`/student/homework/${homework.id}`} className="font-medium text-brand-700 hover:underline">
+                                {homework.title}
+                              </Link>
+                            </span>
+                          )}
+                          {s.recording?.state === 'expired' && <span className="text-xs text-ink-muted">Recording was available until {fmtDateTime(s.recording.availableUntil)}.</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               ) : (
-                <p className="text-sm text-ink-muted">No past classes in the last 30 days.</p>
+                <p className="text-sm text-ink-muted">No classes yet.</p>
               )}
             </div>
           </section>

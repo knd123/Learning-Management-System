@@ -44,8 +44,10 @@ describe('students choosing a mentor', () => {
     const s = view.mentors[0];
     assert.deepEqual([s.subjects, s.minGrade, s.maxGrade, s.academicLevel, s.hasRoom, s.teachesYourGrade], [['Math', 'Physics'], 6, 12, "Bachelor's degree", true, true]);
     assert.deepEqual([view.mentors[1].id, view.mentors[1].hasRoom], [hana.id, false]); // no capacity left
-    assert.ok(!JSON.stringify(view.mentors).includes('@'), 'no email addresses');
-    assert.ok(!JSON.stringify(view.mentors).includes('555'), 'no phone numbers');
+    // Random ids can contain "555" by chance, so only the details are checked.
+    const details = JSON.stringify(view.mentors.map(({ id: _id, ...rest }) => rest));
+    assert.ok(!details.includes('@'), 'no email addresses');
+    assert.ok(!details.includes('555'), 'no phone numbers');
     assert.deepEqual(view.subjects.map((x) => [x.subject, x.status, x.hoursPerWeek]), [['Math', 'waiting', 2]]);
   });
 
