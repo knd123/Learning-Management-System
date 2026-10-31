@@ -56,7 +56,7 @@ export default function ResetPasswordPage() {
 
   if (!info.valid) {
     return (
-      <SignupLayout title="This link doesn't work anymore" subtitle="Reset links work for 60 minutes and only once.">
+      <SignupLayout title="This link doesn't work anymore" subtitle="Password links work for a limited time and only once. Ask for a new one below.">
         <div className="flex flex-col gap-5">
           <Notice>This reset link has expired or was already used. Ask for a new one and use the newest email.</Notice>
           <div>

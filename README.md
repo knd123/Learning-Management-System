@@ -161,7 +161,7 @@ The built-in scheduler handles reminders, quizzes and reports (`INTERNAL_SCHEDUL
 2. **Mentors.** Share `APP_URL/signup/mentor` with new mentors and approve them under **Approvals**, or add each mentor yourself with their email (for reminders and pairing emails), subjects, grade range, **weekly availability** and **weekly capacity in hours**. Mentors can also keep these up to date themselves under "Availability & subjects".
 3. **Students.**
    - Share the sign-up link (`APP_URL/signup`) with families. Each sign-up shows up under **Match requests**, where you approve a mentor.
-   - Or add students yourself under People → Students; they join the pairing queue too.
+   - Or add students yourself under People → Students; they join the pairing queue too. For a student who hasn't signed up in time, **Quick add** needs only the name, grade and email: the student (or a parent, without a student email) gets a 7-day link to choose a password, the list shows **Profile incomplete** with what's missing, and the rest is filled in later with Edit or by the student in My profile.
    - Add each student's **recording folder** for each mentor (People → Student → Recording folders) so mentors know where to upload recordings. Students and parents never see these folder links.
 4. **Parents.** Share `APP_URL/signup/parent`. Approve each request under **Approvals → Parent requests**, or add parents yourself under People → Parents.
 5. **Mentors** sign in, add the class link for each new class, and upload the curriculum for each class. The Q4 window is open now. You can extend it in Settings, and a class's first curriculum can be uploaded at any time.

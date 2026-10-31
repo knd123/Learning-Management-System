@@ -1,6 +1,7 @@
 import { BookOpen, CalendarDays, ClipboardList, PlayCircle, Sparkles } from 'lucide-react';
 import { Link } from 'react-router';
 import type { StudentOverview } from '../../../shared/api.ts';
+import { missingStudentDetails } from '../../../shared/profile.ts';
 import { HomeworkCard } from '../../components/Homework.tsx';
 import { StudentRequests } from '../../components/StudentRequests.tsx';
 import { isLive, JoinButton, StudentSessionRow } from '../../components/Sessions.tsx';
@@ -17,6 +18,8 @@ export default function StudentHome() {
 
   const next = data.upcoming.find((s) => s.status !== 'cancelled');
   const later = data.upcoming.filter((s) => s !== next).slice(0, 5);
+  // Students the team added with just a name, grade and email finish their profile here.
+  const missing = missingStudentDetails(user!);
 
   return (
     <div className="flex flex-col gap-8">
@@ -26,6 +29,16 @@ export default function StudentHome() {
         </h1>
         <p className="mt-1 text-ink-soft">Here's what's coming up for you.</p>
       </div>
+
+      {missing.length > 0 && (
+        <Card className="flex flex-wrap items-center justify-between gap-4 border-amber-200 bg-amber-50">
+          <div>
+            <p className="font-semibold">Finish your profile</p>
+            <p className="mt-1 text-sm text-ink-soft">So we can pair you with the right mentor and keep your family updated, please add: {missing.join(', ')}.</p>
+          </div>
+          <ButtonLink to="/student/profile">Finish my profile</ButtonLink>
+        </Card>
+      )}
 
       {!data.courses.length ? (
         <Card className="bg-linear-to-br from-amber-50 to-white">

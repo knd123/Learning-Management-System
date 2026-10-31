@@ -12,6 +12,9 @@ export const SELF_SERVICE_ROLES: Role[] = ['student', 'parent', 'mentor'];
 
 export const RESET_LINK_MINUTES = 60;
 
+/** How long the "choose your password" link for an account the team created keeps working. */
+export const SETUP_LINK_DAYS = 7;
+
 /** A one-time reset link. The document id is a hash of the token, so the link itself is never stored. */
 export interface PasswordReset {
   id: string;
@@ -54,19 +57,7 @@ export async function requestPasswordReset(deps: Deps, role: Role, identifier: s
   for (const user of await accountsFor(deps, role, identifier)) {
     const to = resetRecipients(user);
     if (!to.length) continue;
-    // Only the newest link works.
-    for (const old of await deps.store.find<PasswordReset>(C.passwordResets, { userId: user.id })) await deps.store.remove(C.passwordResets, old.id);
-    const token = crypto.randomBytes(32).toString('base64url');
-    const now = deps.now();
-    await deps.store.put<PasswordReset>(C.passwordResets, {
-      id: hashToken(token),
-      userId: user.id,
-      createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + RESET_LINK_MINUTES * 60_000).toISOString(),
-    });
-
-    // The fragment never reaches the server, so the token stays out of request logs.
-    const link = `${deps.appUrl}/reset-password#token=${token}`;
+    const { token, link } = await newLink(deps, user, RESET_LINK_MINUTES);
     const name = user.displayName || user.username;
     const account = `${user.role} account "${user.username}"${user.displayName ? ` (${user.displayName})` : ''}`;
     const text = [
@@ -91,6 +82,47 @@ ${emailButton(link, 'Choose a new password')}
     sent += 1;
   }
   return sent;
+}
+
+/** A fresh one-time link to choose a password; only the newest link for an account works. */
+async function newLink(deps: Deps, user: UserRecord, minutes: number): Promise<{ token: string; link: string }> {
+  for (const old of await deps.store.find<PasswordReset>(C.passwordResets, { userId: user.id })) await deps.store.remove(C.passwordResets, old.id);
+  const token = crypto.randomBytes(32).toString('base64url');
+  const now = deps.now();
+  await deps.store.put<PasswordReset>(C.passwordResets, {
+    id: hashToken(token),
+    userId: user.id,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + minutes * 60_000).toISOString(),
+  });
+  // The fragment never reaches the server, so the token stays out of request logs.
+  return { token, link: `${deps.appUrl}/reset-password#token=${token}` };
+}
+
+/**
+ * For a student the team added (say, one who hadn't signed up in time): emails them, or their parents
+ * if they have no email, a link to choose their own password and then finish their profile.
+ * Returns where it went.
+ */
+export async function sendAccountSetupLink(deps: Deps, user: UserRecord): Promise<string[]> {
+  const to = resetRecipients(user);
+  if (!to.length) return [];
+  const settings = await getSettings(deps.store);
+  const { token, link } = await newLink(deps, user, SETUP_LINK_DAYS * 24 * 60);
+  const forParent = !user.email;
+  const name = user.displayName.split(/\s+/)[0] || user.username;
+  const greeting = forParent ? 'Hello,' : `Hi ${name},`;
+  const intro = forParent
+    ? `The ${settings.organizationName} team created a student account for ${user.displayName}. Choose a password for it, then sign in and finish the profile: subjects, weekly availability and parent details.`
+    : `The ${settings.organizationName} team created your student account. Choose your password, then sign in and finish your profile: your subjects, weekly availability and a parent's details.`;
+  const text = [greeting, '', intro, '', `Username: ${user.username}`, `Choose the password here (the link works for ${SETUP_LINK_DAYS} days and only once):`, link, '', `Questions? Email ${settings.adminNotificationEmail}.`].join('\n');
+  const html = emailLayout(
+    'Your account is ready',
+    `<p>${escapeHtml(greeting)}</p><p style="line-height:1.6">${escapeHtml(intro)}</p><p>Username: <strong>${escapeHtml(user.username)}</strong></p>${emailButton(link, 'Choose a password')}<p style="color:#55605c;font-size:14px">The link works for ${SETUP_LINK_DAYS} days and only once. Questions? Email ${escapeHtml(settings.adminNotificationEmail)}.</p>`,
+    settings.organizationName,
+  );
+  await sendEmail(deps, 'account', { to, subject: `Your ${settings.organizationName} account is ready`, text, html }, user.id, { hide: [token] });
+  return to;
 }
 
 /** The account a reset link belongs to, or null when the link is unknown, used or expired. */

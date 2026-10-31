@@ -2,6 +2,7 @@ import { Copy, KeyRound, MailCheck, Pencil, Plus, Search, UserPlus } from 'lucid
 import { useState, type FormEvent } from 'react';
 import type { AdminCourseRow, PendingStudentSetup, PublicConfig } from '../../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../../shared/hours.ts';
+import { missingStudentDetails } from '../../../shared/profile.ts';
 import type { AvailabilityWindow, PublicUser, Role } from '../../../shared/types.ts';
 import { AvailabilityEditor } from '../../components/Availability.tsx';
 import { ParentsEditor, parentsOf, parentsProblem } from '../../components/ParentsEditor.tsx';
@@ -25,7 +26,7 @@ export default function AdminUsers() {
   const [role, setRole] = useState<Role>('student');
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<PublicUser | 'new' | null>(null);
-  const [credentials, setCredentials] = useState<{ username: string; password: string; name: string } | null>(null);
+  const [credentials, setCredentials] = useState<{ username: string; password: string; name: string; setupLinkSentTo?: string[] } | null>(null);
   const [assigning, setAssigning] = useState<PublicUser | null>(null);
   const { data, error, loading, reload } = useApi<PublicUser[]>(`/api/admin/users?role=${role}`);
   const students = useApi<PublicUser[]>(role === 'parent' ? '/api/admin/users?role=student' : null);
@@ -101,7 +102,15 @@ export default function AdminUsers() {
           <tbody>
             {rows.map((u) => (
               <tr key={u.id}>
-                <td className="font-medium">{u.displayName}</td>
+                <td className="font-medium">
+                  {u.displayName}
+                  {u.role === 'student' && missingStudentDetails(u).length > 0 && (
+                    <span className="mt-1 block" title={`Still needed: ${missingStudentDetails(u).join(', ')}`}>
+                      <Badge tone="amber">Profile incomplete</Badge>
+                      <span className="mt-0.5 block text-xs font-normal text-ink-muted">Needs {missingStudentDetails(u).join(', ')}</span>
+                    </span>
+                  )}
+                </td>
                 <td className="text-ink-soft">@{u.username}</td>
                 {role === 'student' ? (
                   <>
@@ -236,11 +245,16 @@ function PendingSetups({ list, onChange }: { list: PendingStudentSetup[]; onChan
   );
 }
 
-export function CredentialsCard({ username, password, name }: { username: string; password: string; name: string }) {
+export function CredentialsCard({ username, password, name, setupLinkSentTo }: { username: string; password: string; name: string; setupLinkSentTo?: string[] }) {
   const toast = useToast();
   const text = `Abugida Education login for ${name}\nWebsite: ${window.location.origin}\nUsername: ${username}\nPassword: ${password}`;
   return (
     <div className="flex flex-col gap-4">
+      {setupLinkSentTo?.length ? (
+        <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-900">
+          We emailed {setupLinkSentTo.join(', ')} a link to choose a password (it works for 7 days). After signing in, {name} is asked to finish the profile. You can also share the details below.
+        </p>
+      ) : null}
       <p className="text-sm text-ink-soft">Share these details with {name} (or their parent). The password is shown only once.</p>
       <dl className="grid grid-cols-[100px_1fr] gap-2 rounded-xl bg-sand-50 p-4 text-sm">
         <dt className="text-ink-muted">Website</dt>
@@ -263,7 +277,7 @@ export function CredentialsCard({ username, password, name }: { username: string
   );
 }
 
-export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUser | null; onClose(): void; onSaved(created?: { username: string; password: string; name: string }): void }) {
+export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: PublicUser | null; onClose(): void; onSaved(created?: { username: string; password: string; name: string; setupLinkSentTo?: string[] }): void }) {
   const config = useApi<PublicConfig>('/api/auth/config');
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [username, setUsername] = useState(user?.username || '');
@@ -305,6 +319,9 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
   const [studentQuery, setStudentQuery] = useState('');
   const students = useApi<PublicUser[]>(role === 'parent' ? '/api/admin/users?role=student' : null);
   const [queueForPairing, setQueueForPairing] = useState(true);
+  // A student who hasn't signed up in time can be added with just a name, grade and email; the rest comes later.
+  const [quick, setQuick] = useState(!user && role === 'student');
+  const [sendSetupLink, setSendSetupLink] = useState(true);
   const [active, setActive] = useState(user?.active ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -319,7 +336,9 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
     setError(null);
     const body: Record<string, unknown> = { displayName, username, timezone };
     if (role !== 'student' || email) body.email = email;
-    if (role === 'student') {
+    if (quick) {
+      Object.assign(body, { grade: Number(grade), createMatchRequest: false, sendSetupLink: sendSetupLink && Boolean(email) });
+    } else if (role === 'student') {
       Object.assign(body, { grade: Number(grade), schoolName, city, state, subjects, availability, notes, googleEmail });
       if (folderMentors.length) {
         body.driveFolders = Object.fromEntries(folderMentors.map((m) => [m.id, folderFor(m.id)]));
@@ -336,8 +355,8 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
         await api.patch(`/api/admin/users/${user.id}`, { ...body, active });
         onSaved();
       } else {
-        const r = await api.post<{ user: PublicUser; password: string }>('/api/admin/users', { ...body, role, password: password || undefined });
-        onSaved({ username: r.user.username, password: r.password, name: r.user.displayName });
+        const r = await api.post<{ user: PublicUser; password: string; setupLinkSentTo?: string[] }>('/api/admin/users', { ...body, role, password: password || undefined });
+        onSaved({ username: r.user.username, password: r.password, name: r.user.displayName, setupLinkSentTo: r.setupLinkSentTo });
       }
     } catch (err) {
       setError(errorMessage(err));
@@ -359,6 +378,30 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
   return (
     <Modal open onClose={onClose} title={user ? `Edit ${user.displayName}` : `Add ${role === 'admin' ? 'team member' : role}`} wide>
       <form onSubmit={submit} className="flex flex-col gap-4">
+        {!user && role === 'student' && (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="How much to fill in now">
+              {(
+                [
+                  [true, 'Quick add'],
+                  [false, 'Full profile'],
+                ] as Array<[boolean, string]>
+              ).map(([value, label]) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={quick === value}
+                  key={label}
+                  onClick={() => setQuick(value)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold ${quick === value ? 'bg-brand-700 text-white' : 'bg-sand-100 text-ink-soft hover:bg-sand-200'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {quick && <p className="text-sm text-ink-soft">For a student who hasn't signed up in time: just the name, grade and email now. Fill in the rest later with Edit, or let the student finish it in My profile.</p>}
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Full name">
             {(id) => (
@@ -386,7 +429,20 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
             </Field>
           )}
         </div>
-        {role === 'student' && (
+        {quick && (
+          <>
+            <Field label="Grade" className="max-w-xs">
+              {(id) => gradeSelect(id, grade, setGrade)}
+            </Field>
+            <Checkbox
+              label="Email a link to choose a password and finish the profile"
+              hint={email ? `Sent to ${email}. It works for 7 days.` : 'Add the student email above to send it.'}
+              checked={sendSetupLink && Boolean(email)}
+              onChange={setSendSetupLink}
+            />
+          </>
+        )}
+        {role === 'student' && !quick && (
           <>
             <hr className="border-sand-200" />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

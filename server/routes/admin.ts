@@ -18,6 +18,7 @@ import { committedHours } from '../services/matching.ts';
 import { approveMatchItem, closeMatchRequest, createMatchRequest, declineMatchItem, isPairableMentor, loadRequest, openTeamRequest, planSuggestions, requestDetail } from '../services/pairing.ts';
 import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../services/profiles.ts';
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
+import { sendAccountSetupLink } from '../services/passwordReset.ts';
 import { recordingState } from '../services/recordings.ts';
 import { resyncFutureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
@@ -177,7 +178,9 @@ export function adminRoutes(deps: Deps): Router {
       if (role === 'student' && user.subjects?.length && body.createMatchRequest !== false) {
         await createMatchRequest(deps, user, { kind: 'new_student', subjects: user.subjects });
       }
-      res.status(201).json({ user: toAdminUser(user), password });
+      // A quick-added student can get a link to choose their own password and finish their profile.
+      const setupLinkSentTo = role === 'student' && body.sendSetupLink === true ? await sendAccountSetupLink(deps, user) : [];
+      res.status(201).json({ user: toAdminUser(user), password, setupLinkSentTo });
     }),
   );
 
