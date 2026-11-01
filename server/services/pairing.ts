@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { FindMentorView, MatchItemDetail, MatchRequestDetail, MentorRequestView, StudentRequestView, StudentSubjectStatus } from '../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, hoursBySubject, MAX_WEEKLY_HOURS, MIN_SUBJECT_HOURS } from '../../shared/hours.ts';
-import type { Course, MatchItem, MatchRequest, ScheduleSlot, Settings } from '../../shared/types.ts';
+import type { AppNotification, Course, MatchItem, MatchRequest, ScheduleSlot, Settings } from '../../shared/types.ts';
 import { ymdInZone } from '../../shared/time.ts';
 import { toAdminUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -152,15 +152,31 @@ export async function requestDetail(deps: Deps, request: MatchRequest): Promise<
   if (!student) throw notFound('Student');
   const { mentors, courses } = await matchingContext(deps);
   const now = deps.now();
-  const people = await usersById(deps, [...request.items.flatMap((i) => [i.mentorId, i.suggestedMentorId]).filter((x): x is string => Boolean(x))]);
-  const courseById = new Map(courses.map((c) => [c.id, c]));
+  // Approved pairings show their class as it is now, archived or not.
+  const pairedClasses = (await Promise.all(request.items.filter((i) => i.status === 'approved' && i.courseId).map((i) => deps.store.get<Course>(C.courses, i.courseId!)))).filter((c): c is Course => Boolean(c));
+  const people = await usersById(deps, [...request.items.flatMap((i) => [i.mentorId, i.suggestedMentorId]), ...pairedClasses.map((c) => c.mentorId)].filter((x): x is string => Boolean(x)));
+  const courseById = new Map([...courses, ...pairedClasses].map((c) => [c.id, c]));
   const plan = planSuggestions(student, request.items.filter((i) => i.status === 'pending'), mentors, courses, now);
-  const items: MatchItemDetail[] = request.items.map((item) => ({
-    item,
-    mentorName: item.mentorId ? people.get(item.mentorId)?.displayName : undefined,
-    courseTitle: item.courseId ? courseById.get(item.courseId)?.title : undefined,
-    candidates: plan.get(item.id) || [],
-  }));
+  const items: MatchItemDetail[] = request.items.map((item) => {
+    const course = item.status === 'approved' && item.courseId ? courseById.get(item.courseId) : undefined;
+    return {
+      item,
+      mentorName: item.mentorId ? people.get(item.mentorId)?.displayName : undefined,
+      courseTitle: item.courseId ? courseById.get(item.courseId)?.title : undefined,
+      course: course && {
+        id: course.id,
+        mentorId: course.mentorId,
+        mentorName: people.get(course.mentorId)?.displayName,
+        weeklyHours: course.weeklyHours,
+        schedule: course.schedule,
+        timezone: course.timezone,
+        meetingUrl: course.meetingUrl,
+        startDate: course.startDate,
+        active: course.active,
+      },
+      candidates: plan.get(item.id) || [],
+    };
+  });
   const mentorNames = new Map(mentors.map((m) => [m.id, m.displayName]));
   // Mentors who signed up but are not approved yet can be paired too; pairing approves them.
   const applicants = (await deps.store.find<UserRecord>(C.users, { role: 'mentor', mentorStatus: 'pending' })).filter((m) => m.active);
@@ -250,6 +266,74 @@ export async function declineMatchItem(deps: Deps, admin: UserRecord, request: M
   return updated;
 }
 
+export interface EditPairingInput extends ApproveInput {
+  /** Also email the student and parents when the mentor changes (the portal is always updated). */
+  emailFamily: boolean;
+}
+
+/**
+ * Corrects an approved pairing after a mistake (the mentor, hours or class times): updates the class
+ * and the pairing record. A new mentor gets the new-student email; see announceMentorChange.
+ */
+export async function editApprovedMatchItem(deps: Deps, admin: UserRecord, request: MatchRequest, itemId: string, input: EditPairingInput): Promise<MatchRequest> {
+  const item = request.items.find((i) => i.id === itemId);
+  if (!item) throw notFound('Subject');
+  if (item.status !== 'approved' || !item.courseId) throw badRequest('Only approved pairings can be edited.');
+  const course = await deps.store.get<Course>(C.courses, item.courseId);
+  if (!course) throw badRequest('The class for this pairing no longer exists. Pair the subject again from the student’s profile.');
+  const [student, mentor] = await Promise.all([deps.store.get<UserRecord>(C.users, request.studentId), deps.store.get<UserRecord>(C.users, input.mentorId)]);
+  if (!student) throw notFound('Student');
+  if (!isPairableMentor(mentor)) throw badRequest('Choose an active mentor.');
+  if (mentor.mentorStatus === 'pending') await decideMentor(deps, mentor.id, true, '');
+
+  const now = deps.now().toISOString();
+  const updatedCourse = (await deps.store.patch<Course>(C.courses, course.id, {
+    mentorId: mentor.id,
+    weeklyHours: input.hoursPerWeek,
+    schedule: input.schedule,
+    meetingUrl: input.meetingUrl,
+    startDate: input.startDate || course.startDate,
+    updatedAt: now,
+  }))!;
+  await resyncFutureSessions(deps, updatedCourse);
+  const updated: MatchRequest = {
+    ...request,
+    updatedAt: now,
+    items: request.items.map((i) => (i.id === itemId ? { ...i, mentorId: mentor.id, hoursPerWeek: input.hoursPerWeek, editedAt: now, editedBy: admin.id } : i)),
+  };
+  await deps.store.put(C.matchRequests, updated);
+
+  const settings = await getSettings(deps.store);
+  // The family and mentors were told about the mentor on the pairing record, even if the class changed since.
+  const told = item.mentorId || course.mentorId;
+  if (told !== mentor.id) {
+    await announceMentorChange(deps, student, await deps.store.get<UserRecord>(C.users, told), mentor, updatedCourse, settings, input.emailFamily);
+  } else if (JSON.stringify(course.schedule) !== JSON.stringify(updatedCourse.schedule) || course.weeklyHours !== updatedCourse.weeklyHours) {
+    const times = formatSlots(updatedCourse.schedule, updatedCourse.timezone).join('; ') || 'The team will confirm the class times shortly.';
+    await notify(deps, student.id, `Class times updated: ${course.subject}`, `${hoursText(updatedCourse.weeklyHours)}. ${times}`, `/student/classes/${course.id}`);
+    await notify(deps, mentor.id, `Class times updated: ${student.displayName}`, `${course.subject}, ${hoursText(updatedCourse.weeklyHours)}. ${times}`, `/mentor/classes/${course.id}`);
+  }
+  return updated;
+}
+
+/**
+ * The team changed a class's mentor on the Classes page: keeps the pairing record in step,
+ * and a new mentor gets the new-student email (as when the pairing is edited).
+ */
+export async function classMentorChanged(deps: Deps, before: Course, after: Course): Promise<void> {
+  const request = after.matchRequestId ? await deps.store.get<MatchRequest>(C.matchRequests, after.matchRequestId) : null;
+  const item = request?.items.find((i) => i.status === 'approved' && i.courseId === after.id);
+  const told = item?.mentorId || before.mentorId;
+  if (request && item && item.mentorId !== after.mentorId) {
+    const now = deps.now().toISOString();
+    await deps.store.put(C.matchRequests, { ...request, updatedAt: now, items: request.items.map((i) => (i.id === item.id ? { ...i, mentorId: after.mentorId, editedAt: now } : i)) });
+  }
+  if (told === after.mentorId || !after.active) return;
+  const [student, previous, mentor] = await Promise.all([deps.store.get<UserRecord>(C.users, after.studentIds[0]), deps.store.get<UserRecord>(C.users, told), deps.store.get<UserRecord>(C.users, after.mentorId)]);
+  if (!student || !mentor) return;
+  await announceMentorChange(deps, student, previous, mentor, after, await getSettings(deps.store), false);
+}
+
 /** Marks a request as handled (e.g. a subject removal), declining anything still pending. */
 export async function closeMatchRequest(deps: Deps, admin: UserRecord, request: MatchRequest): Promise<MatchRequest> {
   const now = deps.now().toISOString();
@@ -284,13 +368,27 @@ export async function studentRequests(deps: Deps, studentId: string): Promise<St
   }));
 }
 
-async function announcePairing(deps: Deps, student: UserRecord, mentor: UserRecord, course: Course, settings: Settings) {
-  const times = formatSlots(course.schedule, course.timezone);
-  const timesText = times.length ? times : ['Class times will be confirmed by the team shortly.'];
-  const org = settings.organizationName;
-  const hours = `${course.weeklyHours} hour${course.weeklyHours === 1 ? '' : 's'} per week`;
+function hoursText(hours: number | undefined): string {
+  return hours ? `${hours} hour${hours === 1 ? '' : 's'} per week` : 'hours to be confirmed';
+}
 
-  await notify(deps, student.id, `You're paired with ${mentor.displayName}`, `${mentor.displayName} will be your ${course.subject} mentor (${hours}).`, `/student/classes/${course.id}`);
+/** The student's "You're paired" notice; rewritten in place when the team corrects the mentor. */
+function pairedNotice(mentor: UserRecord, course: Course) {
+  return { title: `You're paired with ${mentor.displayName}`, body: `${mentor.displayName} will be your ${course.subject} mentor (${hoursText(course.weeklyHours)}).` };
+}
+
+function classTimes(course: Course): string[] {
+  const times = formatSlots(course.schedule, course.timezone);
+  return times.length ? times : ['Class times will be confirmed by the team shortly.'];
+}
+
+async function announcePairing(deps: Deps, student: UserRecord, mentor: UserRecord, course: Course, settings: Settings) {
+  const timesText = classTimes(course);
+  const org = settings.organizationName;
+  const hours = hoursText(course.weeklyHours);
+
+  const paired = pairedNotice(mentor, course);
+  await notify(deps, student.id, paired.title, paired.body, `/student/classes/${course.id}`);
   await notify(deps, mentor.id, `New student: ${student.displayName}`, `${student.displayName} (grade ${student.grade ?? '—'}) for ${course.subject}, ${hours}.`, `/mentor/classes/${course.id}`);
 
   if (student.email) {
@@ -319,23 +417,90 @@ async function announcePairing(deps: Deps, student: UserRecord, mentor: UserReco
     }, course.id);
   }
 
-  if (mentor.email) {
-    const details: Array<[string, string | undefined]> = [
-      ['Student', student.displayName],
-      ['Grade', student.grade ? String(student.grade) : undefined],
-      ['School', student.schoolName],
-      ['Location', [student.city, student.state].filter(Boolean).join(', ') || undefined],
-      ['Subject', course.subject],
-      ['Hours per week', String(course.weeklyHours)],
-      ['Notes from the family', student.notes],
-    ];
+  await emailNewStudent(deps, student, mentor, course, settings);
+}
+
+/** The new-student email a mentor gets when paired (on approval, or when the team corrects a pairing). */
+async function emailNewStudent(deps: Deps, student: UserRecord, mentor: UserRecord, course: Course, settings: Settings) {
+  if (!mentor.email) return;
+  const timesText = classTimes(course);
+  const details: Array<[string, string | undefined]> = [
+    ['Student', student.displayName],
+    ['Grade', student.grade ? String(student.grade) : undefined],
+    ['School', student.schoolName],
+    ['Location', [student.city, student.state].filter(Boolean).join(', ') || undefined],
+    ['Subject', course.subject],
+    ['Hours per week', course.weeklyHours ? String(course.weeklyHours) : undefined],
+    ['Notes from the family', student.notes],
+  ];
+  await sendEmail(deps, 'pairing', {
+    to: [mentor.email],
+    subject: `New student: ${student.displayName} (${course.subject})`,
+    text: [`Hi ${firstName(mentor.displayName)},`, '', `You have been paired with a new student.`, ...details.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`), '', 'Weekly class times:', ...timesText.map((t) => `- ${t}`), '', `Please add the class link before the first class: ${deps.appUrl}/mentor/classes/${course.id}`].join('\n'),
+    html: emailLayout(
+      'You have a new student',
+      `<p style="line-height:1.6">Hi ${escapeHtml(firstName(mentor.displayName))},</p><p style="line-height:1.6">You have been paired with a new student.</p>${rows(details)}<p style="margin:0 0 6px;font-weight:600">Weekly class times</p>${list(timesText)}<p style="line-height:1.6">Please add the class link before the first class.</p>${emailButton(`${deps.appUrl}/mentor/classes/${course.id}`, 'Open the class')}`,
+      settings.organizationName,
+    ),
+  }, course.id);
+}
+
+/**
+ * After the team corrects a pairing's mentor: the new mentor gets the new-student email and notice;
+ * the student's "You're paired" notice is rewritten to name the new mentor and shown again as new;
+ * the previous mentor's "New student" notice becomes "Class moved", and their other notices about
+ * the class point to their dashboard (the class is no longer theirs). The student and parents are
+ * emailed only when the team asks for it.
+ */
+async function announceMentorChange(deps: Deps, student: UserRecord, previous: UserRecord | null, mentor: UserRecord, course: Course, settings: Settings, emailFamily: boolean) {
+  const now = deps.now().toISOString();
+  const noticesOf = (userId: string) => deps.store.find<AppNotification>(C.notifications, { userId });
+
+  const studentLink = `/student/classes/${course.id}`;
+  const paired = pairedNotice(mentor, course);
+  const stale = (await noticesOf(student.id)).filter((n) => n.link === studentLink && n.title.startsWith("You're paired with"));
+  for (const n of stale) await deps.store.patch<AppNotification>(C.notifications, n.id, { ...paired, createdAt: now, readAt: undefined });
+  if (!stale.length) await notify(deps, student.id, paired.title, paired.body, studentLink);
+
+  if (previous && previous.id !== mentor.id) {
+    const moved = { title: `Class moved: ${student.displayName}`, body: `The Abugida team moved ${firstName(student.displayName)}'s ${course.subject} class to another mentor. It is no longer in your classes.`, link: '/mentor' };
+    const theirs = (await noticesOf(previous.id)).filter((n) => n.link?.includes(course.id));
+    const welcome = theirs.find((n) => n.title.startsWith('New student:'));
+    for (const n of theirs) await deps.store.patch<AppNotification>(C.notifications, n.id, n === welcome ? { ...moved, createdAt: now, readAt: undefined } : { link: '/mentor' });
+    if (!welcome) await notify(deps, previous.id, moved.title, moved.body, moved.link);
+  }
+
+  await notify(deps, mentor.id, `New student: ${student.displayName}`, `${student.displayName} (grade ${student.grade ?? '—'}) for ${course.subject}, ${hoursText(course.weeklyHours)}.`, `/mentor/classes/${course.id}`);
+  await emailNewStudent(deps, student, mentor, course, settings);
+
+  if (!emailFamily) return;
+  const timesText = classTimes(course);
+  const org = settings.organizationName;
+  const instead = previous && previous.id !== mentor.id ? ` (instead of ${previous.displayName})` : '';
+  const first = firstName(student.displayName);
+  if (student.email) {
+    const intro = `An update to your pairing: ${mentor.displayName} is now your ${course.subject} mentor${instead}.`;
     await sendEmail(deps, 'pairing', {
-      to: [mentor.email],
-      subject: `New student: ${student.displayName} (${course.subject})`,
-      text: [`Hi ${firstName(mentor.displayName)},`, '', `You have been paired with a new student.`, ...details.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`), '', 'Weekly class times:', ...timesText.map((t) => `- ${t}`), '', `Please add the class link before the first class: ${deps.appUrl}/mentor/classes/${course.id}`].join('\n'),
+      to: [student.email],
+      subject: `Update: ${mentor.displayName} is your ${course.subject} mentor`,
+      text: [`Hi ${first},`, '', intro, '', 'Your weekly classes:', ...timesText.map((t) => `- ${t}`), '', `Open the portal: ${deps.appUrl}${studentLink}`, '', `— ${org}`].join('\n'),
       html: emailLayout(
-        'You have a new student',
-        `<p style="line-height:1.6">Hi ${escapeHtml(firstName(mentor.displayName))},</p><p style="line-height:1.6">You have been paired with a new student.</p>${rows(details)}<p style="margin:0 0 6px;font-weight:600">Weekly class times</p>${list(timesText)}<p style="line-height:1.6">Please add the class link before the first class.</p>${emailButton(`${deps.appUrl}/mentor/classes/${course.id}`, 'Open the class')}`,
+        'Your mentor has changed',
+        `<p style="line-height:1.6">Hi ${escapeHtml(first)},</p><p style="line-height:1.6">${escapeHtml(intro)}</p><p style="margin:0 0 6px;font-weight:600">Your weekly classes</p>${list(timesText)}${emailButton(`${deps.appUrl}${studentLink}`, 'Open my class')}`,
+        org,
+      ),
+    }, course.id);
+  }
+  const parentEmails = (student.parentEmails || []).filter((e) => e !== student.email);
+  if (parentEmails.length) {
+    const intro = `An update to ${first}'s pairing: ${mentor.displayName} is now ${first}'s ${course.subject} mentor${instead}.`;
+    await sendEmail(deps, 'pairing', {
+      to: parentEmails,
+      subject: `Update: ${first}'s ${course.subject} mentor is ${mentor.displayName}`,
+      text: [`Hello${student.parentName ? ` ${student.parentName}` : ''},`, '', intro, '', 'Weekly class times:', ...timesText.map((t) => `- ${t}`), '', `Questions? Email us at ${settings.adminNotificationEmail}.`, '', `— ${org}`].join('\n'),
+      html: emailLayout(
+        `${first}'s mentor has changed`,
+        `<p style="line-height:1.6">Hello${student.parentName ? ` ${escapeHtml(student.parentName)}` : ''},</p><p style="line-height:1.6">${escapeHtml(intro)}</p><p style="margin:0 0 6px;font-weight:600">Weekly class times</p>${list(timesText)}<p style="color:#55605c;font-size:13px">Questions? Email us at ${escapeHtml(settings.adminNotificationEmail)}.</p>`,
         org,
       ),
     }, course.id);

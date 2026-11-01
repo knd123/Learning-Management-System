@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Pencil, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import type { MatchItemDetail, MatchRequestDetail, MentorCandidate } from '../../../shared/api.ts';
@@ -7,7 +7,7 @@ import type { ScheduleSlot } from '../../../shared/types.ts';
 import { availabilityText } from '../../components/Availability.tsx';
 import { ScheduleEditor } from '../../components/ScheduleEditor.tsx';
 import { parentsOf } from '../../components/ParentsEditor.tsx';
-import { Badge, Button, Card, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
+import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtDateTime, fmtRelative, fmtSlot, localYmd, REQUEST_KIND_LABEL, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
@@ -150,6 +150,7 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [note, setNote] = useState('');
 
   useEffect(() => {
@@ -176,9 +177,25 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
           <p className="mt-2 text-sm text-ink-soft">
             Class created: <Link to={`/mentor/classes/${item.courseId}`} className="font-medium text-brand-800 hover:underline">{detail.courseTitle || 'Open class'}</Link>
             {item.decidedAt && ` · ${fmtDateTime(item.decidedAt)}`}
+            {item.editedAt && ` · edited ${fmtDateTime(item.editedAt)}`}
           </p>
         )}
+        {detail.course && detail.course.mentorId !== item.mentorId && (
+          <div className="mt-3">
+            <Notice icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>
+              The class is now with <strong>{detail.course.mentorName || 'another mentor'}</strong>, but this pairing still names {detail.mentorName}, so the student’s portal shows the wrong mentor and {detail.course.mentorName || 'the new mentor'} hasn’t had the new-student email. Choose <strong>Edit pairing</strong> and save to fix it.
+            </Notice>
+          </div>
+        )}
         {item.note && <p className="mt-2 text-sm text-ink-soft">Note: {item.note}</p>}
+        {detail.course && (
+          <div className="mt-3">
+            <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+              <Pencil className="size-4" /> Edit pairing
+            </Button>
+          </div>
+        )}
+        {editOpen && detail.course && <EditPairing requestId={requestId} detail={detail} course={detail.course} mentors={mentors} onClose={() => setEditOpen(false)} onSaved={(d) => { setEditOpen(false); onChange(d); }} />}
       </Card>
     );
   }
@@ -331,5 +348,90 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
         </div>
       </Modal>
     </Card>
+  );
+}
+
+/** Corrects an approved pairing after a mistake: the mentor, hours, class times or class link. */
+function EditPairing({ requestId, detail, course, mentors, onClose, onSaved }: {
+  requestId: string;
+  detail: MatchItemDetail;
+  course: NonNullable<MatchItemDetail['course']>;
+  mentors: MatchRequestDetail['mentors'];
+  onClose(): void;
+  onSaved(d: MatchRequestDetail): void;
+}) {
+  const toast = useToast();
+  const { item } = detail;
+  // The class's mentor is preselected: if the team already changed it on the Classes page, saving finishes the job.
+  const [mentorId, setMentorId] = useState(course.mentorId);
+  const [hours, setHours] = useState(String(course.weeklyHours ?? item.hoursPerWeek));
+  const [schedule, setSchedule] = useState<ScheduleSlot[]>(course.schedule);
+  const [meetingUrl, setMeetingUrl] = useState(course.meetingUrl);
+  const [startDate, setStartDate] = useState(course.startDate);
+  const [emailFamily, setEmailFamily] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const options = mentors.some((m) => m.id === course.mentorId) ? mentors : [{ id: course.mentorId, displayName: course.mentorName || 'Current mentor' }, ...mentors];
+  const chosen = options.find((m) => m.id === mentorId);
+  const told = detail.mentorName || 'the previous mentor';
+  const newMentor = mentorId !== item.mentorId;
+
+  const save = async () => {
+    if (!mentorId) return setError('Choose a mentor.');
+    setBusy(true);
+    setError(null);
+    try {
+      onSaved(await api.patch<MatchRequestDetail>(`/api/admin/matches/${requestId}/items/${item.id}`, { mentorId, hoursPerWeek: Number(hours), schedule, meetingUrl, startDate, emailFamily: newMentor && emailFamily }));
+      toast(newMentor ? `Pairing updated. ${chosen?.displayName} has been emailed.` : 'Pairing updated.');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Edit ${item.subject} pairing`} wide>
+      <div className="flex flex-col gap-5">
+        {error && <ErrorBox message={error} />}
+        <Field label="Mentor" className="max-w-sm">
+          {(fid) => (
+            <Select id={fid} value={mentorId} onChange={(e) => setMentorId(e.target.value)}>
+              {options.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.displayName}
+                  {'applicationPending' in m && m.applicationPending ? ' (application waiting)' : ''}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        {newMentor && (
+          <Notice tone="blue">
+            <p>
+              <strong>{chosen?.displayName}</strong> gets the new-student email and a notice in the portal. The student’s pairing notice will name {chosen?.displayName}, and {told} is told in the portal that the class moved.
+            </p>
+            <div className="mt-3">
+              <Checkbox label="Also email the student and parents about the new mentor" checked={emailFamily} onChange={setEmailFamily} />
+            </div>
+          </Notice>
+        )}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Hours per week">{(fid) => <Input id={fid} type="number" min={0.5} max={30} step={0.25} value={hours} onChange={(e) => setHours(e.target.value)} />}</Field>
+          <Field label="First class on or after">{(fid) => <Input id={fid} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
+        </div>
+        <Field label={`Weekly class times (${course.timezone.replace(/_/g, ' ')})`}>{() => <ScheduleEditor value={schedule} onChange={setSchedule} />}</Field>
+        <Field label="Class link (optional)">{(fid) => <Input id={fid} type="url" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)} placeholder="https://meet.google.com/…" />}</Field>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} loading={busy}>
+            Save pairing
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

@@ -267,6 +267,8 @@ export interface MatchItemDetail {
   item: MatchItem;
   mentorName?: string;
   courseTitle?: string;
+  /** The class an approved pairing created, as it is now (the team can edit the pairing from here). */
+  course?: { id: string; mentorId: string; mentorName?: string; weeklyHours?: number; schedule: ScheduleSlot[]; timezone: string; meetingUrl: string; startDate: string; active: boolean };
   candidates: MentorCandidate[];
 }
 

@@ -15,7 +15,7 @@ import { runScheduledJobs, type JobResult } from '../services/jobs.ts';
 import { approveParentRequest, declineParentRequest, decideMentor, isApprovedMentor } from '../services/accounts.ts';
 import { decideReward } from '../services/rewards.ts';
 import { committedHours } from '../services/matching.ts';
-import { approveMatchItem, closeMatchRequest, createMatchRequest, declineMatchItem, isPairableMentor, loadRequest, openTeamRequest, planSuggestions, requestDetail } from '../services/pairing.ts';
+import { approveMatchItem, classMentorChanged, closeMatchRequest, createMatchRequest, declineMatchItem, editApprovedMatchItem, isPairableMentor, loadRequest, openTeamRequest, planSuggestions, requestDetail, type ApproveInput } from '../services/pairing.ts';
 import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../services/profiles.ts';
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
 import { sendAccountSetupLink } from '../services/passwordReset.ts';
@@ -319,6 +319,7 @@ export function adminRoutes(deps: Deps): Router {
       const input = await courseInput(req.body || {}, existing);
       const updated = (await deps.store.patch<Course>(C.courses, existing.id, { ...input, updatedAt: deps.now().toISOString() }))!;
       await resyncFutureSessions(deps, updated);
+      await classMentorChanged(deps, existing, updated);
       res.json(updated);
     }),
   );
@@ -485,19 +486,33 @@ export function adminRoutes(deps: Deps): Router {
     return hours;
   };
 
+  const pairingInput = (body: Record<string, unknown> = {}): ApproveInput => {
+    const startDate = str(body.startDate, 'First class date');
+    if (startDate && !isValidYmd(startDate)) throw badRequest('First class date must be a valid date.');
+    return {
+      mentorId: str(body.mentorId, 'Mentor', { required: true }),
+      hoursPerWeek: quarterHours(body.hoursPerWeek),
+      schedule: parseSchedule(body.schedule ?? []),
+      meetingUrl: httpUrl(body.meetingUrl, 'Class link'),
+      startDate: startDate || undefined,
+    };
+  };
+
   router.post(
     '/matches/:id/items/:itemId/approve',
     h(async (req, res) => {
       const request = await loadRequest(deps, req.params.id);
-      const startDate = str(req.body?.startDate, 'First class date');
-      if (startDate && !isValidYmd(startDate)) throw badRequest('First class date must be a valid date.');
-      await approveMatchItem(deps, req.user!, request, req.params.itemId, {
-        mentorId: str(req.body?.mentorId, 'Mentor', { required: true }),
-        hoursPerWeek: quarterHours(req.body?.hoursPerWeek),
-        schedule: parseSchedule(req.body?.schedule ?? []),
-        meetingUrl: httpUrl(req.body?.meetingUrl, 'Class link'),
-        startDate: startDate || undefined,
-      });
+      await approveMatchItem(deps, req.user!, request, req.params.itemId, pairingInput(req.body));
+      res.json(await requestDetail(deps, await loadRequest(deps, request.id)));
+    }),
+  );
+
+  // Corrects an approved pairing (a wrong mentor, hours or class times).
+  router.patch(
+    '/matches/:id/items/:itemId',
+    h(async (req, res) => {
+      const request = await loadRequest(deps, req.params.id);
+      await editApprovedMatchItem(deps, req.user!, request, req.params.itemId, { ...pairingInput(req.body), emailFamily: req.body?.emailFamily === true });
       res.json(await requestDetail(deps, await loadRequest(deps, request.id)));
     }),
   );

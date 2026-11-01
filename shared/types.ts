@@ -130,6 +130,9 @@ export interface MatchItem {
   note?: string;
   decidedAt?: string;
   decidedBy?: string;
+  /** Set when the team corrected the approved pairing (mentor, hours or class times). */
+  editedAt?: string;
+  editedBy?: string;
 }
 
 /** A student's request for mentor pairing (at sign-up, after changing subjects, or for a mentor they chose). */
