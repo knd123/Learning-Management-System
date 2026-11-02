@@ -438,6 +438,34 @@ export interface AdminCourseRow {
   studentNames: string[];
 }
 
+/** Weekly class times the team is planning, checked against the mentor's and the student's other classes. */
+export interface ClashCheck {
+  mentorId: string;
+  studentIds: string[];
+  schedule: ScheduleSlot[];
+  timezone: string;
+  startDate: string;
+  endDate?: string;
+  /** The class being edited, which can't clash with itself. */
+  ignoreCourseId?: string;
+}
+
+/** Another active class at an overlapping time for the same mentor or student. */
+export interface ClassClash {
+  courseId: string;
+  courseTitle: string;
+  mentorName: string;
+  /** The mentor teaches the other class too. */
+  sameMentor: boolean;
+  /** The planned students who are also in the other class. */
+  studentNames: string[];
+  /** The other class's weekly times that overlap, in its own timezone. */
+  slots: ScheduleSlot[];
+  timezone: string;
+  /** When the two would first overlap. */
+  firstAt: string;
+}
+
 export interface CurriculumRow {
   course: Course;
   mentorName: string;

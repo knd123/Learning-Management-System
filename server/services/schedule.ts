@@ -1,11 +1,15 @@
-import type { ClassSession, Course } from '../../shared/types.ts';
+import type { ClashCheck, ClassClash } from '../../shared/api.ts';
+import type { ClassSession, Course, ScheduleSlot } from '../../shared/types.ts';
 import { addDaysYmd, ONE_DAY, weekdayOfYmd, ymdInZone, zonedTimeToUtc } from '../../shared/time.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
+import { usersById } from './access.ts';
 
 /** Sessions are only materialised inside this window around "now". */
 const PAST_HORIZON_DAYS = 45;
 const FUTURE_HORIZON_DAYS = 120;
+/** Planned class times are checked for clashes over this many weeks of real dates. */
+const CLASH_WEEKS = 8;
 
 export function sessionIdFor(courseId: string, start: Date): string {
   const iso = start.toISOString(); // 2026-10-12T15:00:00.000Z
@@ -13,7 +17,7 @@ export function sessionIdFor(courseId: string, start: Date): string {
 }
 
 /** Concrete class times generated from a course's weekly schedule within [from, to). */
-export function occurrences(course: Course, from: Date, to: Date): Array<{ startAt: Date; endAt: Date }> {
+export function occurrences(course: Pick<Course, 'schedule' | 'timezone' | 'startDate' | 'endDate'>, from: Date, to: Date): Array<{ startAt: Date; endAt: Date }> {
   const out: Array<{ startAt: Date; endAt: Date }> = [];
   if (!course.schedule.length || to <= from) return out;
   const tz = course.timezone;
@@ -94,4 +98,43 @@ export async function resyncFutureSessions(deps: Deps, course: Course): Promise<
 /** URL students use to join this session. */
 export function joinUrl(session: ClassSession, course: Course): string {
   return session.meetingUrlOverride || course.meetingUrl;
+}
+
+/**
+ * Other active classes that would overlap the planned weekly times for the same
+ * mentor or one of the same students. Real dates over the coming weeks are
+ * compared, so start and end dates, timezones and clock changes all count.
+ */
+export async function findClashes(deps: Deps, plan: ClashCheck): Promise<ClassClash[]> {
+  if (!plan.schedule.length) return [];
+  const from = new Date(Math.max(deps.now().getTime(), zonedTimeToUtc(plan.startDate, '00:00', plan.timezone).getTime()));
+  const to = new Date(from.getTime() + CLASH_WEEKS * 7 * ONE_DAY);
+  const shares = (c: Course) => (plan.mentorId && c.mentorId === plan.mentorId) || c.studentIds.some((id) => plan.studentIds.includes(id));
+  const others = (await deps.store.find<Course>(C.courses)).filter((c) => c.active && c.id !== plan.ignoreCourseId && shares(c));
+  if (!others.length) return [];
+  const planned = occurrences(plan, from, to);
+  const people = await usersById(deps, others.flatMap((c) => [c.mentorId, ...c.studentIds]));
+  const out: ClassClash[] = [];
+  for (const other of others) {
+    const slots: ScheduleSlot[] = [];
+    let first: Date | undefined;
+    for (const slot of other.schedule) {
+      const hit = occurrences({ ...other, schedule: [slot] }, from, to).find((b) => planned.some((a) => a.startAt < b.endAt && b.startAt < a.endAt));
+      if (!hit) continue;
+      slots.push(slot);
+      if (!first || hit.startAt < first) first = hit.startAt;
+    }
+    if (!first) continue;
+    out.push({
+      courseId: other.id,
+      courseTitle: other.title,
+      mentorName: people.get(other.mentorId)?.displayName || 'Mentor',
+      sameMentor: other.mentorId === plan.mentorId,
+      studentNames: other.studentIds.filter((id) => plan.studentIds.includes(id)).map((id) => people.get(id)?.displayName || 'Student'),
+      slots,
+      timezone: other.timezone,
+      firstAt: first.toISOString(),
+    });
+  }
+  return out.sort((a, b) => a.firstAt.localeCompare(b.firstAt));
 }

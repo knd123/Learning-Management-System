@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router';
 import type { MatchItemDetail, MatchRequestDetail, MentorCandidate } from '../../../shared/api.ts';
 import type { ScheduleSlot } from '../../../shared/types.ts';
 import { availabilityText } from '../../components/Availability.tsx';
+import { ClashWarning, useClashes } from '../../components/ClashWarning.tsx';
 import { ScheduleEditor } from '../../components/ScheduleEditor.tsx';
 import { parentsOf } from '../../components/ParentsEditor.tsx';
 import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
@@ -68,7 +69,7 @@ export default function AdminMatch() {
             </Notice>
           )}
           {data.items.map((detail) => (
-            <ItemCard key={detail.item.id} requestId={request.id} detail={detail} mentors={data.mentors} studentTz={student.timezone} onChange={(d) => setData(d)} />
+            <ItemCard key={detail.item.id} requestId={request.id} detail={detail} mentors={data.mentors} studentId={student.id} studentTz={student.timezone} onChange={(d) => setData(d)} />
           ))}
         </div>
 
@@ -134,7 +135,7 @@ export default function AdminMatch() {
   );
 }
 
-function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { requestId: string; detail: MatchItemDetail; mentors: MatchRequestDetail['mentors']; studentTz: string; onChange(d: MatchRequestDetail): void }) {
+function ItemCard({ requestId, detail, mentors, studentId, studentTz, onChange }: { requestId: string; detail: MatchItemDetail; mentors: MatchRequestDetail['mentors']; studentId: string; studentTz: string; onChange(d: MatchRequestDetail): void }) {
   const toast = useToast();
   const { item, candidates } = detail;
   // Default to the mentor the team picked when assigning by hand, else the one the student asked for,
@@ -152,6 +153,8 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
   const [declineOpen, setDeclineOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [note, setNote] = useState('');
+  // The class is created in the student's timezone.
+  const clashes = useClashes(item.status === 'pending' && mentorId ? { mentorId, studentIds: [studentId], schedule, timezone: studentTz, startDate } : null);
 
   useEffect(() => {
     const c = candidates.find((x) => x.mentorId === mentorId);
@@ -195,7 +198,7 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
             </Button>
           </div>
         )}
-        {editOpen && detail.course && <EditPairing requestId={requestId} detail={detail} course={detail.course} mentors={mentors} onClose={() => setEditOpen(false)} onSaved={(d) => { setEditOpen(false); onChange(d); }} />}
+        {editOpen && detail.course && <EditPairing requestId={requestId} detail={detail} course={detail.course} mentors={mentors} studentId={studentId} onClose={() => setEditOpen(false)} onSaved={(d) => { setEditOpen(false); onChange(d); }} />}
       </Card>
     );
   }
@@ -207,7 +210,8 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
   const approve = async () => {
     if (!mentorId) return setError('Choose a mentor first.');
     const name = mentors.find((m) => m.id === mentorId)?.displayName;
-    if (!window.confirm(`Pair with ${name}? This ${applicant ? 'approves their mentor application, ' : ''}creates the class and emails the student, the parent and the mentor.`)) return;
+    const clash = clashes.length ? `\n\nThese times clash with ${clashes.length === 1 ? 'another class' : `${clashes.length} other classes`}. Approve anyway?` : '';
+    if (!window.confirm(`Pair with ${name}? This ${applicant ? 'approves their mentor application, ' : ''}creates the class and emails the student, the parent and the mentor.${clash}`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -317,6 +321,7 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
           <Field label={`Weekly class times (student's timezone: ${studentTz.replace(/_/g, ' ')})`} hint="Prefilled from the time both are free. Leave empty to set times later on the Classes page.">
             {() => <ScheduleEditor value={schedule} onChange={setSchedule} />}
           </Field>
+          <ClashWarning clashes={clashes} />
           <Field label="Class link (optional)" hint="The mentor can add or change it later.">
             {(fid) => <Input id={fid} type="url" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)} placeholder="https://meet.google.com/…" />}
           </Field>
@@ -352,11 +357,12 @@ function ItemCard({ requestId, detail, mentors, studentTz, onChange }: { request
 }
 
 /** Corrects an approved pairing after a mistake: the mentor, hours, class times or class link. */
-function EditPairing({ requestId, detail, course, mentors, onClose, onSaved }: {
+function EditPairing({ requestId, detail, course, mentors, studentId, onClose, onSaved }: {
   requestId: string;
   detail: MatchItemDetail;
   course: NonNullable<MatchItemDetail['course']>;
   mentors: MatchRequestDetail['mentors'];
+  studentId: string;
   onClose(): void;
   onSaved(d: MatchRequestDetail): void;
 }) {
@@ -371,6 +377,7 @@ function EditPairing({ requestId, detail, course, mentors, onClose, onSaved }: {
   const [emailFamily, setEmailFamily] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clashes = useClashes(mentorId ? { mentorId, studentIds: [studentId], schedule, timezone: course.timezone, startDate, ignoreCourseId: course.id } : null);
 
   const options = mentors.some((m) => m.id === course.mentorId) ? mentors : [{ id: course.mentorId, displayName: course.mentorName || 'Current mentor' }, ...mentors];
   const chosen = options.find((m) => m.id === mentorId);
@@ -422,6 +429,7 @@ function EditPairing({ requestId, detail, course, mentors, onClose, onSaved }: {
           <Field label="First class on or after">{(fid) => <Input id={fid} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
         </div>
         <Field label={`Weekly class times (${course.timezone.replace(/_/g, ' ')})`}>{() => <ScheduleEditor value={schedule} onChange={setSchedule} />}</Field>
+        <ClashWarning clashes={clashes} />
         <Field label="Class link (optional)">{(fid) => <Input id={fid} type="url" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)} placeholder="https://meet.google.com/…" />}</Field>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>

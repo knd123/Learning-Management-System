@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import type { AdminCourseRow, AdminOverview, ApprovalCounts, CurriculumRow, HomeworkDataRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ParentRequestRow, ReportDetail, ReportRow, RewardRow } from '../../shared/api.ts';
 import type { ClassFeedback, ClassSession, Course, EmailLog, Homework, MatchRequest, ParentLinkRequest, ParentReport, RewardRequest, ReportNarrative, Role, ScheduleSlot, Settings, Submission } from '../../shared/types.ts';
-import { isValidHm, isValidYmd, monthInZone, ONE_DAY } from '../../shared/time.ts';
+import { isValidHm, isValidYmd, monthInZone, ONE_DAY, ymdInZone } from '../../shared/time.ts';
 import { generatePassword, hashPassword, requireRole, toAdminUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
@@ -20,7 +20,7 @@ import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../servi
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
 import { sendAccountSetupLink } from '../services/passwordReset.ts';
 import { recordingState } from '../services/recordings.ts';
-import { resyncFutureSessions } from '../services/schedule.ts';
+import { findClashes, resyncFutureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 import { connectParents, pendingStudentSetups, resendStudentInviteForTeam } from '../services/invites.ts';
@@ -504,6 +504,26 @@ export function adminRoutes(deps: Deps): Router {
       const request = await loadRequest(deps, req.params.id);
       await approveMatchItem(deps, req.user!, request, req.params.itemId, pairingInput(req.body));
       res.json(await requestDetail(deps, await loadRequest(deps, request.id)));
+    }),
+  );
+
+  // Warns the team, while they set class times, about other classes at the same time for the mentor or student.
+  router.post(
+    '/clashes',
+    h(async (req, res) => {
+      const body = req.body || {};
+      const tz = timezone(body.timezone, (await getSettings(deps.store)).timezone);
+      const date = (value: unknown) => (typeof value === 'string' && isValidYmd(value) ? value : undefined);
+      const clashes = await findClashes(deps, {
+        mentorId: typeof body.mentorId === 'string' ? body.mentorId : '',
+        studentIds: Array.isArray(body.studentIds) ? body.studentIds.map(String) : [],
+        schedule: parseSchedule(body.schedule ?? []),
+        timezone: tz,
+        startDate: date(body.startDate) || ymdInZone(deps.now(), tz),
+        endDate: date(body.endDate),
+        ignoreCourseId: typeof body.ignoreCourseId === 'string' ? body.ignoreCourseId : undefined,
+      });
+      res.json({ clashes });
     }),
   );
 

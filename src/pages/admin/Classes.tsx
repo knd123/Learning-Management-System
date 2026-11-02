@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import type { AdminCourseRow } from '../../../shared/api.ts';
 import type { Course, PublicUser, ScheduleSlot } from '../../../shared/types.ts';
+import { ClashWarning, useClashes } from '../../components/ClashWarning.tsx';
 import { ScheduleEditor } from '../../components/ScheduleEditor.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
 import { Badge, Button, Checkbox, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, Select, Table, useToast } from '../../components/ui.tsx';
@@ -114,6 +115,7 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
   const [studentQuery, setStudentQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clashes = useClashes(active ? { mentorId, studentIds, schedule, timezone, startDate, endDate: endDate || undefined, ignoreCourseId: course?.id } : null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -206,6 +208,7 @@ function ClassForm({ course, onClose, onSaved }: { course: Course | null; onClos
           <Field label="First class date">{(id) => <Input id={id} type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
           <Field label="Last class date (optional)">{(id) => <Input id={id} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />}</Field>
         </div>
+        <ClashWarning clashes={clashes} />
         <Checkbox label="Remind the mentor to upload recordings" hint="Emails at 12 and 24 hours after each class until the recording link is added." checked={requiresRecording} onChange={setRequiresRecording} />
         {course && <Checkbox label="Class is active" hint="Archived classes disappear from schedules." checked={active} onChange={setActive} />}
         <div className="flex justify-end gap-2">
