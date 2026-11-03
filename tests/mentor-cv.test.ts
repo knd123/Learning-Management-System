@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import type { MentorProfile } from '../shared/api.ts';
-import type { PublicUser } from '../shared/types.ts';
+import type { AppNotification, EmailLog, PublicUser } from '../shared/types.ts';
+import { C } from '../server/db/store.ts';
 import { Client, mentorApplication, seedAdmin, startHarness, type Harness } from './helpers.ts';
 
 const NY = 'America/New_York';
@@ -80,5 +81,80 @@ describe('mentor CVs: sent with the application, for the Abugida team only', () 
     assert.equal((await sara.get<MentorProfile>('/api/mentor/profile')).user.cv, undefined);
     assert.equal((await replace(sara, { name: 'Sara CV.doc', type: 'application/msword' })).user.cv?.name, 'Sara CV.doc');
     await replace(admin, { name: 'CV.pdf', type: 'application/pdf' }, 403);
+  });
+});
+
+describe('asking a mentor without a CV for one', () => {
+  let h: Harness;
+  let admin: Client;
+  let samrawit: Client;
+  let applicant: PublicUser;
+  const ask = (id: string, expect = 200) => admin.post<PublicUser & { error?: string }>(`/api/admin/approvals/mentors/${id}/request-cv`, {}, expect);
+  const cvRequests = () => h.mailer.sent.filter((e) => /add your CV/.test(e.subject));
+
+  before(async () => {
+    h = await startHarness('2026-11-03T12:00:00Z');
+    admin = new Client(h);
+    const creds = await seedAdmin(h);
+    await admin.login(creds.username, creds.password);
+    await admin.put('/api/admin/settings', { timezone: NY });
+    samrawit = new Client(h);
+    applicant = (await samrawit.form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication({
+      displayName: 'Samrawit Endale', email: 'samrawit@example.org', academicLevel: "Bachelor's degree", subjects: ['Math'],
+      availability: [{ weekday: 2, start: '16:00', end: '20:00' }], weeklyCapacityHours: 6, timezone: NY, username: 'samrawit.endale', password: 'samrawit-pass-1',
+    }), 201)).user;
+    // She applied before CVs were asked for.
+    await h.store.patch(C.users, applicant.id, { cv: undefined });
+  });
+  after(() => h.close());
+
+  it('emails the mentor from the platform with how to add the CV, and notes when it was asked', async () => {
+    const asked = await ask(applicant.id);
+    assert.equal(asked.cvRequestedAt, '2026-11-03T12:00:00.000Z');
+    const [email] = cvRequests();
+    assert.deepEqual(email.to, ['samrawit@example.org']);
+    assert.equal(email.subject, 'Your Abugida Education mentor application: please add your CV');
+    for (const part of ['Hi Samrawit,', 'To finish reviewing your application, we need your CV.', 'your username is samrawit.endale', '“Your CV”: a PDF or Word file, up to 5 MB', '/forgot-password']) {
+      assert.ok(email.text.includes(part), `the email says: ${part}`);
+    }
+    assert.match(email.html!, /\/mentor\/profile/);
+    assert.equal(email.replyTo, 'info@abugidaeducation.com', 'replies go to the team');
+    const log = (await admin.get<EmailLog[]>('/api/admin/emails')).find((e) => e.kind === 'cv_request')!;
+    assert.equal(log.relatedId, applicant.id);
+
+    const notices = (await samrawit.get<{ notifications: AppNotification[] }>('/api/notifications')).notifications;
+    assert.ok(notices.some((n) => n.title === 'Please add your CV' && n.link === '/mentor/profile'));
+    assert.equal((await admin.get<PublicUser[]>('/api/admin/approvals/mentors'))[0].cvRequestedAt, '2026-11-03T12:00:00.000Z');
+  });
+
+  it('can ask again, and tells the team when the CV arrives', async () => {
+    h.clock.now = new Date('2026-11-05T09:00:00Z');
+    assert.equal((await ask(applicant.id)).cvRequestedAt, '2026-11-05T09:00:00.000Z');
+    assert.equal(cvRequests().length, 2);
+
+    const form = new FormData();
+    form.set('cv', new Blob([Buffer.from('%PDF-1.4 cv')], { type: 'application/pdf' }), 'Samrawit CV.pdf');
+    await samrawit.request('PUT', '/api/mentor/cv', undefined, { form });
+    const told = (await admin.get<{ notifications: AppNotification[] }>('/api/notifications')).notifications.find((n) => n.title === 'CV added: Samrawit Endale')!;
+    assert.deepEqual([told.body, told.link], ['The application is ready to review.', '/admin/approvals?tab=mentors']);
+    assert.match((await ask(applicant.id, 400)).error!, /already added a CV/);
+  });
+
+  it('only asks active mentors, and only the team can ask', async () => {
+    const sara = (await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'mentor', username: 'sara', password: 'mentor-pass-1', displayName: 'Sara Bekele', email: 'sara@example.org', subjects: ['Math'], timezone: NY }, 201)).user;
+    const approved = await ask(sara.id);
+    assert.ok(approved.cvRequestedAt, 'mentors approved before CVs were asked for can be asked too');
+    assert.equal(cvRequests().at(-1)!.subject, 'Please add your CV to Abugida Education');
+    assert.match(cvRequests().at(-1)!.text, /collecting CVs from all our mentors/);
+
+    const zed = (await new Client(h).form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication({
+      displayName: 'Zed Bekele', email: 'zed@example.org', academicLevel: "Bachelor's degree", subjects: ['Math'],
+      availability: [{ weekday: 2, start: '16:00', end: '20:00' }], weeklyCapacityHours: 6, timezone: NY, username: 'zed', password: 'zed-pass-12',
+    }), 201)).user;
+    await h.store.patch(C.users, zed.id, { cv: undefined });
+    await admin.post(`/api/admin/approvals/mentors/${zed.id}`, { decision: 'decline' });
+    assert.match((await ask(zed.id, 400)).error!, /not active/);
+    await ask('nobody', 404);
+    await samrawit.post(`/api/admin/approvals/mentors/${sara.id}/request-cv`, {}, 403);
   });
 });

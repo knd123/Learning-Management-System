@@ -25,6 +25,7 @@ import { mentorRequestsFor } from '../services/pairing.ts';
 import { AiUnavailableError } from '../services/ai.ts';
 import { currentCurriculum, curriculumEditPermission, curriculumVersions, curriculumWindow, saveCurriculum } from '../services/curriculum.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
+import { notifyAdmins } from '../services/notifications.ts';
 import { committedHours } from '../services/matching.ts';
 import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
@@ -151,7 +152,10 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const problem = cvProblem(req.file);
       if (problem) throw badRequest(problem);
       const cv = await saveUpload(deps, req.file, { uploadedBy: user.id, purpose: 'cv' });
-      res.json(await mentorProfile((await deps.store.patch<UserRecord>(C.users, user.id, { cv }))!));
+      const updated = (await deps.store.patch<UserRecord>(C.users, user.id, { cv }))!;
+      const applying = user.mentorStatus === 'pending';
+      await notifyAdmins(deps, `${user.cv ? 'CV updated' : 'CV added'}: ${user.displayName}`, applying ? 'The application is ready to review.' : 'Open it from the Mentors page.', applying ? '/admin/approvals?tab=mentors' : '/admin/mentors');
+      res.json(await mentorProfile(updated));
     }),
   );
 

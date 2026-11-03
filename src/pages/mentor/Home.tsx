@@ -41,6 +41,15 @@ export default function MentorHome() {
               </Link>{' '}
               up to date — we use them to find the right students for you. Questions? Email <ContactEmail />.
             </p>
+            {!user!.cv && (
+              <p className="mt-2 font-semibold">
+                One more step: add your CV on your{' '}
+                <Link to="/mentor/profile" className="underline">
+                  Availability &amp; subjects
+                </Link>{' '}
+                page, so the team can finish reviewing your application.
+              </p>
+            )}
           </Notice>
         )}
 

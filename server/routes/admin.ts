@@ -12,7 +12,7 @@ import { usersById } from '../services/access.ts';
 import { curriculumVersions } from '../services/curriculum.ts';
 import { sendEmail } from '../services/email.ts';
 import { runScheduledJobs, type JobResult } from '../services/jobs.ts';
-import { approveParentRequest, declineParentRequest, decideMentor, isApprovedMentor } from '../services/accounts.ts';
+import { approveParentRequest, declineParentRequest, decideMentor, isApprovedMentor, requestMentorCv } from '../services/accounts.ts';
 import { decideReward } from '../services/rewards.ts';
 import { committedHours } from '../services/matching.ts';
 import { classReportDetail, classReportRows, setReportReviewed } from '../services/classReports.ts';
@@ -629,6 +629,14 @@ export function adminRoutes(deps: Deps): Router {
       const mentors = await deps.store.find<UserRecord>(C.users, { role: 'mentor' });
       const wanted = req.query.status === 'decided' ? ['approved', 'declined'] : ['pending'];
       res.json(mentors.filter((m) => wanted.includes(m.mentorStatus || '')).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toAdminUser));
+    }),
+  );
+
+  // Emails a mentor who has no CV on file, asking them to add it in the portal.
+  router.post(
+    '/approvals/mentors/:id/request-cv',
+    h(async (req, res) => {
+      res.json(toAdminUser(await requestMentorCv(deps, req.params.id)));
     }),
   );
 

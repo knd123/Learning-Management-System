@@ -65,6 +65,8 @@ export interface PublicUser {
   academicLevel?: string;
   /** The mentor's CV, sent with the application or added later. Only the mentor and the Abugida team can open it. */
   cv?: Attachment;
+  /** When the team last emailed the mentor asking for their CV. */
+  cvRequestedAt?: string;
   /** Self-registered mentors wait for the team's approval before they can be paired. */
   mentorStatus?: 'pending' | 'approved' | 'declined';
   // Mentor and parent contact
@@ -538,6 +540,7 @@ export type EmailKind =
   | 'invite'
   | 'class_not_held'
   | 'class_report'
+  | 'cv_request'
   | 'test';
 
 export interface EmailLog {

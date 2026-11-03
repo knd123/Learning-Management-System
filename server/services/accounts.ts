@@ -3,9 +3,10 @@ import type { ParentLinkRequest } from '../../shared/types.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
-import { badRequest, notFound } from '../http.ts';
+import { MAX_CV_MB } from '../../shared/profile.ts';
+import { badRequest, HttpError, notFound } from '../http.ts';
 import { firstName } from './access.ts';
-import { emailButton, emailLayout, emailTable, escapeHtml, sendEmail } from './email.ts';
+import { emailButton, emailLayout, emailList, emailTable, escapeHtml, sendEmail } from './email.ts';
 import { notify, notifyAdmins } from './notifications.ts';
 import { getSettings } from './settings.ts';
 
@@ -82,6 +83,43 @@ export async function decideMentor(deps: Deps, mentorId: string, approve: boolea
         }, mentor.id);
   }
   return updated;
+}
+
+/**
+ * Emails a mentor who has no CV on file (from the platform's address, like every other email) and
+ * puts a notice in their bell, with how to add it in the portal. The team can ask again later.
+ */
+export async function requestMentorCv(deps: Deps, mentorId: string): Promise<UserRecord> {
+  const mentor = await deps.store.get<UserRecord>(C.users, mentorId);
+  if (!mentor || mentor.role !== 'mentor') throw notFound('Mentor');
+  if (!mentor.active || mentor.mentorStatus === 'declined') throw badRequest(`${mentor.displayName}'s account is not active.`);
+  if (mentor.cv) throw badRequest(`${mentor.displayName} has already added a CV.`);
+  if (!mentor.email) throw badRequest(`${mentor.displayName} has no email address on file.`);
+  const settings = await getSettings(deps.store);
+  const org = settings.organizationName;
+  const applying = mentor.mentorStatus === 'pending';
+  const intro = applying
+    ? `Thank you for applying to mentor with ${org}. To finish reviewing your application, we need your CV.`
+    : `We are collecting CVs from all our mentors, and we don't have yours yet.`;
+  const steps = [
+    `Sign in at ${deps.appUrl}/login (your username is ${mentor.username}).`,
+    `Open “Availability & subjects” and add your CV under “Your CV”: a PDF or Word file, up to ${MAX_CV_MB} MB.`,
+  ];
+  const link = `${deps.appUrl}/mentor/profile`;
+  const forgot = `Forgot your password? Reset it at ${deps.appUrl}/forgot-password.`;
+  const log = await sendEmail(deps, 'cv_request', {
+    to: [mentor.email],
+    subject: applying ? `Your ${org} mentor application: please add your CV` : `Please add your CV to ${org}`,
+    text: [`Hi ${firstName(mentor.displayName)},`, '', intro, '', ...steps.map((s, i) => `${i + 1}. ${s}`), '', forgot, '', 'Questions? Just reply to this email.'].join('\n'),
+    html: emailLayout(
+      'Please add your CV',
+      `<p style="line-height:1.6">Hi ${escapeHtml(firstName(mentor.displayName))},</p><p style="line-height:1.6">${escapeHtml(intro)}</p>${emailList(steps)}${emailButton(link, 'Add my CV')}<p style="color:#55605c;font-size:13px">${escapeHtml(forgot)} Questions? Just reply to this email.</p>`,
+      org,
+    ),
+  }, mentor.id);
+  if (log.status === 'failed') throw new HttpError(502, `The email to ${mentor.email} could not be sent: ${log.error}`);
+  await notify(deps, mentor.id, 'Please add your CV', applying ? 'The Abugida team needs your CV to finish reviewing your application.' : 'The Abugida team is collecting CVs from all mentors.', '/mentor/profile');
+  return (await deps.store.patch<UserRecord>(C.users, mentor.id, { cvRequestedAt: deps.now().toISOString() }))!;
 }
 
 // --- Parent access requests ----------------------------------------------------

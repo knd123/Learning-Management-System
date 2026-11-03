@@ -167,7 +167,7 @@ function MentorApplications({ decided, onChange }: { decided: boolean; onChange(
             </div>
             <div className="sm:col-span-3">
               <dt className="font-medium text-ink-muted">CV</dt>
-              <dd className="mt-1">{m.cv ? <CvView cv={m.cv} /> : <span className="text-ink-muted">No CV attached (applied before CVs were asked for).</span>}</dd>
+              <dd className="mt-1">{m.cv ? <CvView cv={m.cv} /> : <RequestCv mentor={m} onSent={reload} />}</dd>
             </div>
           </dl>
           {!decided && (
@@ -406,6 +406,41 @@ function CvView({ cv }: { cv: Attachment }) {
         <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
           Show it here
         </Button>
+      )}
+    </div>
+  );
+}
+
+/** For a mentor without a CV: emails them from the platform's address, asking them to add it in the portal. */
+function RequestCv({ mentor, onSent }: { mentor: PublicUser; onSent(): Promise<unknown> | void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const requested = mentor.cvRequestedAt ? ` · requested ${fmtDateTime(mentor.cvRequestedAt)}` : '';
+  if (!mentor.active || mentor.mentorStatus === 'declined') return <span className="text-ink-muted">No CV attached.</span>;
+
+  const send = async () => {
+    if (!window.confirm(`Email ${mentor.displayName} at ${mentor.email} asking for a CV?`)) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/admin/approvals/mentors/${mentor.id}/request-cv`);
+      toast(`CV request sent to ${mentor.email}.`);
+      await onSent();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <span className="text-ink-muted">No CV attached{requested}.</span>
+      {mentor.email ? (
+        <Button variant="secondary" size="sm" onClick={send} loading={busy}>
+          <Mail className="size-4" /> {mentor.cvRequestedAt ? 'Request again' : 'Request CV'}
+        </Button>
+      ) : (
+        <span className="text-xs text-ink-muted">No email address on file.</span>
       )}
     </div>
   );

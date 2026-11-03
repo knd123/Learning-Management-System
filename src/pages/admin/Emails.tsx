@@ -24,6 +24,7 @@ const KIND_LABEL: Record<EmailLog['kind'], string> = {
   password_reset: 'Password reset',
   class_not_held: 'Class not held',
   class_report: 'Class report',
+  cv_request: 'CV request',
   test: 'Test',
 };
 
