@@ -3,10 +3,12 @@ import { Router } from 'express';
 import type { PublicConfig, ResetLinkInfo } from '../../shared/api.ts';
 import { C, type Store } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
+import { cvProblem, MAX_CV_MB } from '../../shared/profile.ts';
 import type { Role } from '../../shared/types.ts';
-import { badRequest, HttpError, h, num, str } from '../http.ts';
+import { badRequest, HttpError, h, jsonField, num, str } from '../http.ts';
 import { createToken, hashPassword, LoginLimiter, SESSION_COOKIE, toPublicUser, verifyPassword, type UserRecord } from '../auth.ts';
 import { announceMentorApplication, createParentRequest } from '../services/accounts.ts';
+import { saveUpload } from '../services/files.ts';
 import type { GoogleIdentity } from '../services/google.ts';
 import { createMatchRequest, emailAdminNewStudent } from '../services/pairing.ts';
 import { completePasswordReset, findResetAccount, requestPasswordReset, SELF_SERVICE_ROLES } from '../services/passwordReset.ts';
@@ -15,6 +17,7 @@ import { announceFamilySignup, closeInvites, connectParents, findInvite, inviteI
 import { ACADEMIC_LEVELS, applyProfile, parseEmail } from '../services/profiles.ts';
 import { getSettings } from '../services/settings.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
+import type { Upload } from './upload.ts';
 
 const ROLE_NAMES: Record<Role, string> = { student: 'student', parent: 'parent', mentor: 'mentor', admin: 'Abugida team' };
 
@@ -43,7 +46,7 @@ export async function assertUsernameAvailable(store: Store, username: string, ex
   if (existing && existing.id !== exceptId) throw new HttpError(409, `The username "${username}" is already taken. Please choose another one.`);
 }
 
-export function authRoutes(deps: Deps): Router {
+export function authRoutes(deps: Deps, upload: Upload): Router {
   const router = Router();
   const limiter = new LoginLimiter();
   const signupLimiter = new LoginLimiter(10, 60 * 60_000);
@@ -226,13 +229,20 @@ export function authRoutes(deps: Deps): Router {
   }
 
   // Mentor self-registration: they can sign in right away but are only paired once the team approves them.
+  // The application comes with the mentor's CV: the form's fields as JSON in "data", the CV as a file.
   router.post(
     '/signup/mentor',
+    upload.single('cv'),
     h(async (req, res) => {
       const settings = await getSettings(deps.store);
       if (!settings.allowMentorSignup) throw new HttpError(403, `Mentor sign-up is closed. Please email ${settings.adminNotificationEmail}.`);
+      if (typeof req.body?.data === 'string') req.body = jsonField<Record<string, unknown>>(req.body.data, {});
       const { user, body } = await newAccount(req, 'mentor', settings.timezone);
       applyProfile(user, body, 'mentor', { timezone: settings.timezone, intake: true });
+      if (!req.file) throw badRequest(`Attach your CV (PDF or Word, up to ${MAX_CV_MB} MB).`);
+      const problem = cvProblem(req.file);
+      if (problem) throw badRequest(problem);
+      user.cv = await saveUpload(deps, req.file, { uploadedBy: user.id, purpose: 'cv' });
       user.mentorStatus = 'pending';
       countSignup(req);
       await deps.store.put(C.users, user);

@@ -42,6 +42,7 @@ export async function announceMentorApplication(deps: Deps, mentor: UserRecord):
     ['Email', mentor.email],
     ['Phone', mentor.phone],
     ['Academic level', mentor.academicLevel],
+    ['CV', mentor.cv ? `${mentor.cv.name} (open it with the application in the portal)` : undefined],
     ['Subjects', mentor.subjects?.join(', ')],
     ['Hours per week', mentor.weeklyCapacityHours !== undefined ? String(mentor.weeklyCapacityHours) : undefined],
     ['Availability', mentor.availability?.length ? `${mentor.availability.map((w) => `${DAYS[w.weekday]} ${w.start}–${w.end}`).join(', ')} (${mentor.timezone})` : undefined],

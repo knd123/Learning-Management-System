@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { MentorProfile } from '../../../shared/api.ts';
-import type { AvailabilityWindow } from '../../../shared/types.ts';
+import { CV_ACCEPT, cvProblem, MAX_CV_MB } from '../../../shared/profile.ts';
+import type { Attachment, AvailabilityWindow } from '../../../shared/types.ts';
+import { AttachmentLink } from '../../components/Attachments.tsx';
 import { AvailabilityEditor } from '../../components/Availability.tsx';
 import { SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
@@ -107,6 +109,71 @@ export default function MentorProfilePage() {
           Save
         </Button>
       </form>
+      <CvCard
+        cv={data.user.cv}
+        onSaved={(updated) => {
+          setData(updated);
+          setUser(updated.user);
+        }}
+      />
     </>
+  );
+}
+
+/** The mentor's CV, which only they and the Abugida team can open. Mentors approved before CVs were asked for add theirs here. */
+function CvCard({ cv, onSaved }: { cv?: Attachment; onSaved(profile: MentorProfile): void }) {
+  const toast = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [inputKey, setInputKey] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const upload = async () => {
+    const problem = file ? cvProblem(file) : 'Choose your CV first.';
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.set('cv', file!);
+      onSaved(await api.put<MentorProfile>('/api/mentor/cv', form));
+      setFile(null);
+      setInputKey((k) => k + 1);
+      toast(cv ? 'Your CV was replaced.' : 'Your CV was added.');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="mt-6 flex max-w-3xl flex-col gap-3">
+      <div>
+        <h2 className="font-semibold">Your CV</h2>
+        <p className="text-sm text-ink-soft">A PDF or Word file, up to {MAX_CV_MB} MB. Only the Abugida team sees it.</p>
+      </div>
+      {cv ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-ink-soft">
+          Current: <AttachmentLink attachment={cv} />
+        </div>
+      ) : (
+        <p className="text-sm text-amber-800">You haven’t added your CV yet.</p>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          key={inputKey}
+          type="file"
+          accept={CV_ACCEPT}
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          aria-label="CV file"
+          className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:font-semibold file:text-brand-800 hover:file:bg-brand-100"
+        />
+        <Button variant="secondary" onClick={upload} loading={busy} disabled={!file}>
+          {cv ? 'Replace CV' : 'Upload CV'}
+        </Button>
+      </div>
+      {error && <ErrorBox message={error} />}
+    </Card>
   );
 }

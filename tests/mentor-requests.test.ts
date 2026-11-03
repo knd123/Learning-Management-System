@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import type { FindMentorView, MatchRequestDetail, MatchRequestRow, MentorOverview, StudentOverview } from '../shared/api.ts';
 import type { AppNotification, PublicUser } from '../shared/types.ts';
-import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
+import { Client, mentorApplication, seedAdmin, startHarness, type Harness } from './helpers.ts';
 
 const NY = 'America/New_York';
 
@@ -24,10 +24,10 @@ describe('students choosing a mentor', () => {
     const mentor = async (body: Record<string, unknown>) => (await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'mentor', password: 'mentor-pass-1', timezone: NY, availability: week, ...body }, 201)).user;
     sara = await mentor({ username: 'sara', displayName: 'Sara Bekele', email: 'sara@example.org', phone: '+1 202 555 0101', academicLevel: "Bachelor's degree", subjects: ['Math', 'Physics'], minGrade: 6, maxGrade: 12, weeklyCapacityHours: 10 });
     hana = await mentor({ username: 'hana', displayName: 'Hana Girma', email: 'hana@example.org', subjects: ['Chemistry'], minGrade: 9, maxGrade: 12, weeklyCapacityHours: 0 });
-    pending = (await new Client(h).post<{ user: PublicUser }>('/api/auth/signup/mentor', {
+    pending = (await new Client(h).form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication({
       displayName: 'Mekdes Alemu', email: 'mekdes@example.org', username: 'mekdes', password: 'mentor-pass-2', academicLevel: 'Graduate student',
       subjects: ['Math'], availability: week, weeklyCapacityHours: 5, timezone: NY,
-    }, 201)).user;
+    }), 201)).user;
     student = new Client(h);
     await student.post('/api/auth/signup', {
       displayName: 'Nahom Tadesse', email: 'nahom@example.com', schoolName: 'Wilson High School', city: 'Washington', state: 'DC', grade: 9,

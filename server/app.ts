@@ -59,7 +59,7 @@ export function createApp(deps: Deps) {
 
   const upload = createUpload(deps.maxUploadMb);
   app.use('/api', sessionMiddleware(deps));
-  app.use('/api/auth', authRoutes(deps));
+  app.use('/api/auth', authRoutes(deps, upload));
   app.use('/api/student', studentRoutes(deps, upload));
   app.use('/api/mentor', mentorRoutes(deps, upload));
   app.use('/api/parent', parentRoutes(deps));

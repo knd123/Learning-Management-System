@@ -30,6 +30,7 @@ import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { attemptIdFor, effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
 import { classFileProblem } from '../../shared/classes.ts';
+import { cvProblem, MAX_CV_MB } from '../../shared/profile.ts';
 import { sendClassReport, tellTeamAboutReport } from '../services/classReports.ts';
 import { reportNotHeld, restoreClass } from '../services/notHeld.ts';
 import { attachRecording, recordingLink } from '../services/recordings.ts';
@@ -136,6 +137,21 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const maxGrade = changes.maxGrade ?? user.maxGrade;
       if (minGrade !== undefined && maxGrade !== undefined && minGrade > maxGrade) throw badRequest('The lowest grade must not be above the highest grade.');
       res.json(await mentorProfile((await deps.store.patch<UserRecord>(C.users, user.id, changes))!));
+    }),
+  );
+
+  // A mentor adds or replaces their CV. Only they and the Abugida team can open it.
+  router.put(
+    '/cv',
+    upload.single('cv'),
+    h(async (req, res) => {
+      const user = req.user!;
+      if (user.role !== 'mentor') throw forbidden('Only mentors have a CV here.');
+      if (!req.file) throw badRequest(`Choose your CV (PDF or Word, up to ${MAX_CV_MB} MB).`);
+      const problem = cvProblem(req.file);
+      if (problem) throw badRequest(problem);
+      const cv = await saveUpload(deps, req.file, { uploadedBy: user.id, purpose: 'cv' });
+      res.json(await mentorProfile((await deps.store.patch<UserRecord>(C.users, user.id, { cv }))!));
     }),
   );
 

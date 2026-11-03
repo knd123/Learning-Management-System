@@ -5,6 +5,7 @@ import type { MentorDirectoryRow } from '../../../shared/api.ts';
 import type { PublicUser } from '../../../shared/types.ts';
 import { AvailabilityDays, availabilityText } from '../../components/Availability.tsx';
 import { Badge, Button, Checkbox, ErrorBox, Loading, Modal, PageHeader, Select, Table, useToast } from '../../components/ui.tsx';
+import { fileUrl } from '../../lib/api.ts';
 import { useApi } from '../../lib/useApi.ts';
 import { AssignMentor, isPairableMentor } from './AssignMentor.tsx';
 import { CredentialsCard, UserForm } from './Users.tsx';
@@ -99,6 +100,11 @@ export default function AdminMentors() {
                   <p className="font-medium">{mentor.displayName}</p>
                   <p className="text-xs text-ink-muted">{mentor.email}</p>
                   {mentor.academicLevel && <p className="text-xs text-ink-muted">{mentor.academicLevel}</p>}
+                  {mentor.cv?.kind === 'file' && (
+                    <a href={fileUrl(mentor.cv.fileId)} target="_blank" rel="noopener noreferrer" className="block text-xs font-medium text-brand-700 hover:underline">
+                      CV
+                    </a>
+                  )}
                   {mentor.mentorStatus === 'pending' && (
                     <Link to="/admin/approvals?tab=mentors">
                       <Badge tone="amber">Application waiting</Badge>

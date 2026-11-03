@@ -63,6 +63,8 @@ export interface PublicUser {
   maxGrade?: number;
   weeklyCapacityHours?: number;
   academicLevel?: string;
+  /** The mentor's CV, sent with the application or added later. Only the mentor and the Abugida team can open it. */
+  cv?: Attachment;
   /** Self-registered mentors wait for the team's approval before they can be paired. */
   mentorStatus?: 'pending' | 'approved' | 'declined';
   // Mentor and parent contact

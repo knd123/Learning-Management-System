@@ -2,8 +2,10 @@ import { AlertTriangle, BadgeCheck, CheckCircle2, Coffee, GraduationCap, HeartHa
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type { ApprovalCounts, ParentRequestRow, RewardRow } from '../../../shared/api.ts';
-import type { PublicUser } from '../../../shared/types.ts';
+import type { Attachment, PublicUser } from '../../../shared/types.ts';
+import { AttachmentLink } from '../../components/Attachments.tsx';
 import { AvailabilityDays } from '../../components/Availability.tsx';
+import { FilePreview } from '../../components/FilePreview.tsx';
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorBox, Field, Loading, Modal, PageHeader, Select, Tabs, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtDate, fmtDateTime, monthLabel, tzAbbrev } from '../../lib/format.ts';
@@ -162,6 +164,10 @@ function MentorApplications({ decided, onChange }: { decided: boolean; onChange(
               <dd className="mt-1">
                 <AvailabilityDays windows={m.availability} />
               </dd>
+            </div>
+            <div className="sm:col-span-3">
+              <dt className="font-medium text-ink-muted">CV</dt>
+              <dd className="mt-1">{m.cv ? <CvView cv={m.cv} /> : <span className="text-ink-muted">No CV attached (applied before CVs were asked for).</span>}</dd>
             </div>
           </dl>
           {!decided && (
@@ -375,6 +381,32 @@ function Rewards({ decided, onChange }: { decided: boolean; onChange(): void }) 
           )}
         </Card>
       ))}
+    </div>
+  );
+}
+
+/** An applicant's CV: the file to open or download, and a PDF shown right here on request. */
+function CvView({ cv }: { cv: Attachment }) {
+  const [open, setOpen] = useState(false);
+  const pdf = cv.kind === 'file' && (cv.mime === 'application/pdf' || cv.name.toLowerCase().endsWith('.pdf'));
+  if (open) {
+    return (
+      <div className="flex flex-col gap-2">
+        <FilePreview attachment={cv} />
+        <Button variant="ghost" size="sm" className="self-start" onClick={() => setOpen(false)}>
+          Hide CV
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <AttachmentLink attachment={cv} />
+      {pdf && (
+        <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+          Show it here
+        </Button>
+      )}
     </div>
   );
 }

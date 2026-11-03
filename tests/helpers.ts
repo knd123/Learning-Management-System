@@ -217,6 +217,14 @@ export class Client {
   }
 }
 
+/** A mentor application as the sign-up form sends it: the fields as JSON, with a CV file unless `cv` is false. */
+export function mentorApplication(fields: Record<string, unknown>, cv: { name: string; type: string; bytes?: Uint8Array } | false = { name: 'CV.pdf', type: 'application/pdf' }): FormData {
+  const form = new FormData();
+  form.set('data', JSON.stringify(fields));
+  if (cv) form.set('cv', new Blob([cv.bytes ?? Buffer.from('%PDF-1.4 cv')], { type: cv.type }), cv.name);
+  return form;
+}
+
 /**
  * A complete "the class took place" report: what was covered, the recording link, the slides file and
  * new homework with its worksheet. Pass `homework` to change the homework, or `false` to leave it out.

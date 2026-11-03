@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import type { MentorDirectoryRow, MentorOverview, ParentChildDetail, ParentOverview, ParentRequestRow, RewardRow } from '../shared/api.ts';
 import type { Course, PublicUser, QuizAttempt, StudentQuizView } from '../shared/types.ts';
 import { C } from '../server/db/store.ts';
-import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
+import { Client, mentorApplication, seedAdmin, startHarness, type Harness } from './helpers.ts';
 
 const NY = 'America/New_York';
 
@@ -97,8 +97,8 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
       username: 'hana',
       password: 'hana-pass-1',
     };
-    await applicant.post('/api/auth/signup/mentor', { ...form, academicLevel: '' }, 400);
-    const { user } = await applicant.post('/api/auth/signup/mentor', form, 201);
+    await applicant.form('/api/auth/signup/mentor', mentorApplication({ ...form, academicLevel: '' }), 400);
+    const { user } = await applicant.form('/api/auth/signup/mentor', mentorApplication(form), 201);
     assert.equal(user.mentorStatus, 'pending');
     assert.ok(h.mailer.sent.some((e) => e.subject === 'New mentor application: Hana Girma' && e.to[0] === 'info@abugidaeducation.com'));
     assert.equal((await applicant.get<MentorOverview>('/api/mentor/overview')).approved, false);

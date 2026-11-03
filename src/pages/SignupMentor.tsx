@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router';
 import type { PublicConfig } from '../../shared/api.ts';
+import { CV_ACCEPT, cvProblem, MAX_CV_MB } from '../../shared/profile.ts';
 import type { AvailabilityWindow, PublicUser } from '../../shared/types.ts';
 import { AvailabilityEditor } from '../components/Availability.tsx';
 import { SignupLayout } from '../components/SignupLayout.tsx';
@@ -29,6 +30,7 @@ export default function SignupMentorPage() {
   const [hours, setHours] = useState('');
   const [timezone, setTimezone] = useState(browserTimeZone());
   const [availability, setAvailability] = useState<AvailabilityWindow[]>([]);
+  const [cv, setCv] = useState<File | null>(null);
   const [username, setUsername] = useState('');
   const [usernameTouched, setUsernameTouched] = useState(false);
   const [password, setPassword] = useState('');
@@ -49,6 +51,8 @@ export default function SignupMentorPage() {
     if (!(Number(hours) > 0)) return 'Enter how many hours per week you can teach.';
     if (!availability.length) return 'Add at least one time you are available each week.';
     if (availability.some((w) => !w.start || !w.end || w.end <= w.start)) return 'Each available time must end after it starts.';
+    if (!cv) return `Attach your CV (PDF or Word, up to ${MAX_CV_MB} MB).`;
+    if (cvProblem(cv)) return cvProblem(cv);
     if (password.length < 8) return 'Choose a password with at least 8 characters.';
     if (password !== confirm) return 'The passwords do not match.';
     return null;
@@ -61,7 +65,9 @@ export default function SignupMentorPage() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.post<{ user: PublicUser }>('/api/auth/signup/mentor', {
+      // The CV goes with the application: the fields as JSON, the CV as a file.
+      const form = new FormData();
+      form.set('data', JSON.stringify({
         displayName,
         email,
         phone,
@@ -73,7 +79,9 @@ export default function SignupMentorPage() {
         username,
         password,
         website,
-      });
+      }));
+      form.set('cv', cv!);
+      const r = await api.post<{ user: PublicUser }>('/api/auth/signup/mentor', form);
       setUser(r.user);
       navigate('/mentor', { replace: true });
     } catch (err) {
@@ -138,6 +146,18 @@ export default function SignupMentorPage() {
         </div>
         <Field label="Weekly availability for each day of the week" hint="When could you teach? Add as many time ranges as you like.">
           {() => <AvailabilityEditor value={availability} onChange={setAvailability} />}
+        </Field>
+        <Field label="Your CV" hint={`A PDF or Word file, up to ${MAX_CV_MB} MB. Only the Abugida team sees it.`}>
+          {(id) => (
+            <input
+              id={id}
+              type="file"
+              accept={CV_ACCEPT}
+              onChange={(e) => setCv(e.target.files?.[0] || null)}
+              required
+              className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:font-semibold file:text-brand-800 hover:file:bg-brand-100"
+            />
+          )}
         </Field>
 
         <section className="flex flex-col gap-4 border-t border-sand-200 pt-6">
