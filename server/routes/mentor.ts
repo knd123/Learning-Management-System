@@ -30,7 +30,7 @@ import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { attemptIdFor, effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
 import { classFileProblem } from '../../shared/classes.ts';
-import { sendClassReport } from '../services/classReports.ts';
+import { sendClassReport, tellTeamAboutReport } from '../services/classReports.ts';
 import { reportNotHeld, restoreClass } from '../services/notHeld.ts';
 import { attachRecording, recordingLink } from '../services/recordings.ts';
 import { ensureSessions } from '../services/schedule.ts';
@@ -466,6 +466,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
 
       const report: SessionReport = {
         submittedAt: deps.now().toISOString(),
+        firstSubmittedAt: session.report?.firstSubmittedAt || session.report?.submittedAt || deps.now().toISOString(),
         submittedBy: req.user!.id,
         date,
         durationMinutes,
@@ -486,6 +487,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       // The first report goes to the student and the family; later edits don't send it again.
       if (!session.report) {
         await sendClassReport(deps, updated, course, homework);
+        await tellTeamAboutReport(deps, updated, course, req.user!.displayName);
         updated = (await deps.store.patch<ClassSession>(C.sessions, session.id, { report: { ...updated.report!, familySentAt: deps.now().toISOString() } }))!;
       }
       res.json(updated);

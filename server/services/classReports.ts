@@ -1,10 +1,12 @@
-import type { ClassSession, Course, Homework } from '../../shared/types.ts';
+import type { ClassReportDetail, ClassReportRow } from '../../shared/api.ts';
+import type { ClassFeedback, ClassSession, Course, Homework, Submission } from '../../shared/types.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
+import { notFound } from '../http.ts';
 import { firstName, usersById } from './access.ts';
 import { emailButton, emailLayout, emailList, emailTable, escapeHtml, sendEmail } from './email.ts';
-import { notify } from './notifications.ts';
+import { notify, notifyAdmins } from './notifications.ts';
 import { getSettings } from './settings.ts';
 
 const ATTENDED: Record<string, string> = { present: 'Attended', late: 'Attended (joined late)', absent: 'Absent' };
@@ -81,4 +83,105 @@ export async function sendClassReport(deps: Deps, session: ClassSession, course:
       await notify(deps, parent.id, `${firstName(student.displayName)}'s class report: ${course.title}`, `Covered: ${report.topicsCovered}.${due}`, `/parent/students/${student.id}`);
     }
   }
+}
+
+/** Tells the Abugida team a class report came in, linking to the whole report for quality control. */
+export async function tellTeamAboutReport(deps: Deps, session: ClassSession, course: Course, mentorName: string): Promise<void> {
+  const settings = await getSettings(deps.store);
+  await notifyAdmins(deps, `Class report: ${course.title}`, `${mentorName} reported the class on ${day(session.startAt, settings.timezone)}. See the slides, homework and recording.`, `/admin/class-reports/${session.id}`);
+}
+
+function reportRow(session: ClassSession, course: Course, people: Map<string, UserRecord>, homework?: Homework): ClassReportRow {
+  const report = session.report!;
+  return {
+    sessionId: session.id,
+    courseId: course.id,
+    courseTitle: course.title,
+    subject: course.subject,
+    mentorId: report.submittedBy,
+    mentorName: people.get(report.submittedBy)?.displayName || 'Mentor',
+    studentNames: course.studentIds.map((id) => people.get(id)?.displayName || 'Student'),
+    startAt: session.startAt,
+    endAt: session.endAt,
+    durationMinutes: report.durationMinutes,
+    firstSubmittedAt: report.firstSubmittedAt || report.submittedAt,
+    submittedAt: report.submittedAt,
+    absent: Object.values(report.attendance).filter((m) => m === 'absent').length,
+    slidesName: report.slides?.name,
+    homeworkTitle: homework?.title,
+    hasRecording: Boolean(session.recording),
+    reviewedAt: session.qcReview?.at,
+    reviewedByName: session.qcReview ? people.get(session.qcReview.by)?.displayName || 'Abugida team' : undefined,
+  };
+}
+
+/** Submitted class reports, newest first, for the team's quality control. Archived classes are included. */
+export async function classReportRows(deps: Deps, opts: { since?: Date; mentorId?: string; unreviewedOnly?: boolean } = {}): Promise<ClassReportRow[]> {
+  const since = opts.since?.toISOString() || '';
+  const courses = await deps.store.find<Course>(C.courses);
+  const found = (
+    await Promise.all(
+      courses.map(async (course) =>
+        (await deps.store.find<ClassSession>(C.sessions, { courseId: course.id }))
+          .filter((s) => s.report && (s.report.firstSubmittedAt || s.report.submittedAt) >= since)
+          .filter((s) => !opts.mentorId || s.report!.submittedBy === opts.mentorId)
+          .filter((s) => !opts.unreviewedOnly || !s.qcReview)
+          .map((session) => ({ session, course })),
+      ),
+    )
+  ).flat();
+  const [people, homework] = await Promise.all([
+    usersById(deps, found.flatMap(({ session, course }) => [session.report!.submittedBy, ...course.studentIds, ...(session.qcReview ? [session.qcReview.by] : [])])),
+    Promise.all([...new Set(found.map(({ session }) => session.report!.homeworkId).filter((id): id is string => Boolean(id)))].map((id) => deps.store.get<Homework>(C.homework, id))),
+  ]);
+  const homeworkById = new Map(homework.filter((hw): hw is Homework => Boolean(hw)).map((hw) => [hw.id, hw]));
+  return found
+    .map(({ session, course }) => reportRow(session, course, people, session.report!.homeworkId ? homeworkById.get(session.report!.homeworkId) : undefined))
+    .sort((a, b) => b.firstSubmittedAt.localeCompare(a.firstSubmittedAt));
+}
+
+/** One class report in full: what was covered, the team-only notes, slides, homework, attendance, recording and student feedback. */
+export async function classReportDetail(deps: Deps, sessionId: string): Promise<ClassReportDetail> {
+  const session = await deps.store.get<ClassSession>(C.sessions, sessionId);
+  const course = session?.report ? await deps.store.get<Course>(C.courses, session.courseId) : null;
+  if (!session?.report || !course) throw notFound('Class report');
+  const report = session.report;
+  const [homework, feedback] = await Promise.all([
+    report.homeworkId ? deps.store.get<Homework>(C.homework, report.homeworkId) : Promise.resolve(null),
+    deps.store.find<ClassFeedback>(C.feedback, { sessionId: session.id }),
+  ]);
+  const submissions = homework ? await deps.store.find<Submission>(C.submissions, { homeworkId: homework.id }) : [];
+  const people = await usersById(deps, [report.submittedBy, ...course.studentIds, ...(session.qcReview ? [session.qcReview.by] : []), ...(session.recording ? [session.recording.addedBy] : []), ...feedback.map((f) => f.studentId)]);
+  const name = (id: string) => people.get(id)?.displayName || 'Student';
+  return {
+    row: reportRow(session, course, people, homework || undefined),
+    gradeLevel: course.gradeLevel,
+    timezone: course.timezone,
+    originalStartAt: session.originalStartAt !== session.startAt ? session.originalStartAt : undefined,
+    topicsCovered: report.topicsCovered,
+    notes: report.notes,
+    date: report.date,
+    slides: report.slides,
+    attendance: course.studentIds.map((id) => ({ studentName: name(id), mark: report.attendance[id] || 'absent', joinedAt: session.joins?.[id] })),
+    homework: homework
+      ? {
+          ...homework,
+          submissions: course.studentIds.map((id) => {
+            const sub = submissions.find((s) => s.studentId === id);
+            return { studentName: name(id), submittedAt: sub?.submittedAt, score: sub?.score, reviewedAt: sub?.reviewedAt };
+          }),
+        }
+      : undefined,
+    recording: session.recording
+      ? { url: session.recording.url, addedAt: session.recording.addedAt, addedByName: people.get(session.recording.addedBy)?.displayName || 'Mentor', availableUntil: session.recording.availableUntil }
+      : undefined,
+    feedback: feedback.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((f) => ({ studentName: name(f.studentId), rating: f.rating, comment: f.comment, createdAt: f.createdAt })),
+  };
+}
+
+/** Marks a class report as checked by the team, or clears the mark. */
+export async function setReportReviewed(deps: Deps, admin: UserRecord, sessionId: string, reviewed: boolean): Promise<void> {
+  const session = await deps.store.get<ClassSession>(C.sessions, sessionId);
+  if (!session?.report) throw notFound('Class report');
+  await deps.store.patch<ClassSession>(C.sessions, sessionId, { qcReview: reviewed ? { at: deps.now().toISOString(), by: admin.id } : undefined });
 }

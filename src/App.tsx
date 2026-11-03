@@ -22,6 +22,8 @@ import MentorProfilePage from './pages/mentor/Profile.tsx';
 import StudentMentorsPage from './pages/student/Mentors.tsx';
 import StudentProfilePage from './pages/student/Profile.tsx';
 import AdminClasses from './pages/admin/Classes.tsx';
+import AdminClassReport from './pages/admin/ClassReportDetail.tsx';
+import AdminClassReports from './pages/admin/ClassReports.tsx';
 import AdminCurricula from './pages/admin/Curricula.tsx';
 import AdminEmails from './pages/admin/Emails.tsx';
 import AdminHome from './pages/admin/Home.tsx';
@@ -99,6 +101,8 @@ export default function App() {
       <Route path="/admin/mentors" element={<Protected roles={['admin']}><AdminMentors /></Protected>} />
       <Route path="/admin/users" element={<Protected roles={['admin']}><AdminUsers /></Protected>} />
       <Route path="/admin/classes" element={<Protected roles={['admin']}><AdminClasses /></Protected>} />
+      <Route path="/admin/class-reports" element={<Protected roles={['admin']}><AdminClassReports /></Protected>} />
+      <Route path="/admin/class-reports/:id" element={<Protected roles={['admin']}><AdminClassReport /></Protected>} />
       <Route path="/admin/curricula" element={<Protected roles={['admin']}><AdminCurricula /></Protected>} />
       <Route path="/admin/reports" element={<Protected roles={['admin']}><AdminReports /></Protected>} />
       <Route path="/admin/emails" element={<Protected roles={['admin']}><AdminEmails /></Protected>} />

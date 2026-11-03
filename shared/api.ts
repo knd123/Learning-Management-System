@@ -2,6 +2,7 @@
 import type {
   AppNotification,
   Attachment,
+  AttendanceMark,
   ClassSession,
   ClassType,
   Course,
@@ -436,6 +437,45 @@ export interface AdminCourseRow {
   course: Course;
   mentorName: string;
   studentNames: string[];
+}
+
+/** A submitted class report in the team's quality-control list. */
+export interface ClassReportRow {
+  sessionId: string;
+  courseId: string;
+  courseTitle: string;
+  subject: string;
+  mentorId: string;
+  mentorName: string;
+  studentNames: string[];
+  startAt: string;
+  endAt: string;
+  durationMinutes: number;
+  firstSubmittedAt: string;
+  submittedAt: string;
+  absent: number;
+  slidesName?: string;
+  homeworkTitle?: string;
+  hasRecording: boolean;
+  reviewedAt?: string;
+  reviewedByName?: string;
+}
+
+/** Everything in one class report, for the team. */
+export interface ClassReportDetail {
+  row: ClassReportRow;
+  gradeLevel: number;
+  timezone: string;
+  /** When the class was first scheduled, if it was moved. */
+  originalStartAt?: string;
+  topicsCovered: string;
+  notes?: string;
+  date: string;
+  slides?: Attachment;
+  attendance: Array<{ studentName: string; mark: AttendanceMark; joinedAt?: string }>;
+  homework?: Homework & { submissions: Array<{ studentName: string; submittedAt?: string; score?: number; reviewedAt?: string }> };
+  recording?: { url: string; addedAt: string; addedByName: string; availableUntil: string };
+  feedback: Array<{ studentName: string; rating: number; comment: string; createdAt: string }>;
 }
 
 /** Weekly class times the team is planning, checked against the mentor's and the student's other classes. */

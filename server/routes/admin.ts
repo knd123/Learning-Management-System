@@ -15,6 +15,7 @@ import { runScheduledJobs, type JobResult } from '../services/jobs.ts';
 import { approveParentRequest, declineParentRequest, decideMentor, isApprovedMentor } from '../services/accounts.ts';
 import { decideReward } from '../services/rewards.ts';
 import { committedHours } from '../services/matching.ts';
+import { classReportDetail, classReportRows, setReportReviewed } from '../services/classReports.ts';
 import { approveMatchItem, classMentorChanged, closeMatchRequest, createMatchRequest, declineMatchItem, editApprovedMatchItem, isPairableMentor, loadRequest, openTeamRequest, planSuggestions, requestDetail, type ApproveInput } from '../services/pairing.ts';
 import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../services/profiles.ts';
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
@@ -504,6 +505,36 @@ export function adminRoutes(deps: Deps): Router {
       const request = await loadRequest(deps, req.params.id);
       await approveMatchItem(deps, req.user!, request, req.params.itemId, pairingInput(req.body));
       res.json(await requestDetail(deps, await loadRequest(deps, request.id)));
+    }),
+  );
+
+  // Every class report mentors submit, for quality control: the list, then each report in full.
+  router.get(
+    '/class-reports',
+    h(async (req, res) => {
+      const days = Number(req.query.days ?? 30);
+      res.json(
+        await classReportRows(deps, {
+          since: days > 0 ? new Date(deps.now().getTime() - days * ONE_DAY) : undefined,
+          mentorId: typeof req.query.mentorId === 'string' && req.query.mentorId ? req.query.mentorId : undefined,
+          unreviewedOnly: req.query.reviewed === 'no',
+        }),
+      );
+    }),
+  );
+
+  router.get(
+    '/class-reports/:id',
+    h(async (req, res) => {
+      res.json(await classReportDetail(deps, req.params.id));
+    }),
+  );
+
+  router.put(
+    '/class-reports/:id/review',
+    h(async (req, res) => {
+      await setReportReviewed(deps, req.user!, req.params.id, req.body?.reviewed === true);
+      res.json(await classReportDetail(deps, req.params.id));
     }),
   );
 

@@ -168,7 +168,9 @@ export type Attachment =
 export type AttendanceMark = 'present' | 'late' | 'absent';
 
 export interface SessionReport {
+  /** The latest save; `firstSubmittedAt` keeps when the mentor first sent it. */
   submittedAt: string;
+  firstSubmittedAt?: string;
   submittedBy: string;
   date: string; // YYYY-MM-DD the class took place
   durationMinutes: number;
@@ -231,6 +233,8 @@ export interface ClassSession {
   reminders?: Record<string, string>;
   /** Set while students hold Drive access to the recording that must be revoked later. */
   driveAccessPending?: boolean;
+  /** The Abugida team checked the class report (quality control). */
+  qcReview?: { at: string; by: string };
   createdAt: string;
   updatedAt: string;
 }

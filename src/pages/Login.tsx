@@ -55,7 +55,7 @@ function Brand({ onDark }: { onDark?: boolean }) {
       </span>
       <div className="leading-tight">
         <p className={clsx('font-bold tracking-tight', onDark ? 'text-2xl' : 'text-xl text-ink')}>Abugida Education</p>
-        <p className={clsx('mt-0.5 font-medium', onDark ? 'text-sun' : 'text-sm text-brand-700')}>Education Reimagined</p>
+        <p className={clsx('mt-0.5 font-medium', onDark ? 'text-sun' : 'text-sm text-brand-700')}>Academics + Heritage</p>
       </div>
     </div>
   );
