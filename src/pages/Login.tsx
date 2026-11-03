@@ -36,12 +36,11 @@ const COPY: Record<Mode, { subtitle: string; signup?: { to: string; title: strin
 
 /**
  * What Abugida offers: a list beside the form on wide screens, pills above it on phones.
- * `pill` replaces the title on phones, where the "STEM lessons" headline isn't shown.
  */
-const OFFER: Array<{ icon: typeof Users; title: string; pill?: string; text: string }> = [
+const OFFER: Array<{ icon: typeof Users; title: string; text: string }> = [
   { icon: Users, title: '1-on-1', text: 'One mentor, one student, every class.' },
   { icon: Laptop, title: 'Online, on demand', text: 'Learn from home, at times that suit your family.' },
-  { icon: FlaskConical, title: 'Montessori-aligned Lessons', pill: 'Montessori-aligned STEM', text: 'Science, technology, engineering and math, the Montessori way.' },
+  { icon: FlaskConical, title: 'Montessori-aligned Lessons', text: 'Science, technology, engineering and math, the Montessori way.' },
 ];
 
 function Brand({ onDark }: { onDark?: boolean }) {
@@ -159,7 +158,7 @@ export default function LoginPage() {
               {OFFER.map((o) => (
                 <li key={o.title} className="inline-flex items-center gap-1.5 rounded-full border border-sand-200 bg-white px-2.5 py-1 text-xs font-semibold text-ink-soft">
                   <o.icon className="size-3.5 text-brand-600" aria-hidden />
-                  {o.pill ?? o.title}
+                  {o.title}
                 </li>
               ))}
               <li className="inline-flex items-center gap-1.5 rounded-full bg-sun px-2.5 py-1 text-xs font-bold text-ink">
