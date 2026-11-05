@@ -49,6 +49,7 @@ export const C = {
   passwordResets: 'passwordResets',
   invites: 'invites',
   homeworkDrafts: 'homeworkDrafts',
+  agreements: 'agreements',
 } as const;
 
 function matches(doc: Record<string, unknown>, where: Where = {}, options: FindOptions = {}): boolean {

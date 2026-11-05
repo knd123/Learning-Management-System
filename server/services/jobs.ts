@@ -5,6 +5,7 @@ import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { firstName } from './access.ts';
 import { isApprovedMentor } from './accounts.ts';
+import { sendAgreementReminders } from './agreements.ts';
 import { curriculumWindow } from './curriculum.ts';
 import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
 import { finalizeExpiredSessions, purgeOldSnapshots } from './proctoring.ts';
@@ -18,6 +19,7 @@ export interface JobResult {
   ranAt: string;
   sessionsChecked: number;
   remindersSent: number;
+  agreementReminders: number;
   driveAccessRevoked: number;
   curriculumWindowEmails: number;
   quizzesGenerated: number;
@@ -147,6 +149,7 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
     ranAt: now.toISOString(),
     sessionsChecked: 0,
     remindersSent: 0,
+    agreementReminders: 0,
     driveAccessRevoked: 0,
     curriculumWindowEmails: 0,
     quizzesGenerated: 0,
@@ -167,6 +170,9 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
     }],
     ['reminders', async () => {
       result.remindersSent = await sendRecordingReminders(deps, settings);
+    }],
+    ['agreement reminders', async () => {
+      result.agreementReminders = await sendAgreementReminders(deps);
     }],
     ['drive', async () => {
       result.driveAccessRevoked = await revokeExpiredDriveAccess(deps);

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import type { AdminCourseRow, AdminOverview, ApprovalCounts, CurriculumRow, HomeworkDataRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ParentRequestRow, ReportDetail, ReportRow, RewardRow } from '../../shared/api.ts';
+import type { AdminCourseRow, AdminOverview, AgreementDetail, ApprovalCounts, CurriculumRow, HomeworkDataRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ParentRequestRow, ReportDetail, ReportRow, RewardRow } from '../../shared/api.ts';
 import type { ClassFeedback, ClassSession, Course, EmailLog, Homework, MatchRequest, ParentLinkRequest, ParentReport, RewardRequest, ReportNarrative, Role, ScheduleSlot, Settings, Submission } from '../../shared/types.ts';
 import { isValidHm, isValidYmd, monthInZone, ONE_DAY, ymdInZone } from '../../shared/time.ts';
 import { generatePassword, hashPassword, requireRole, toAdminUser, type UserRecord } from '../auth.ts';
@@ -12,6 +12,7 @@ import { usersById } from '../services/access.ts';
 import { curriculumVersions } from '../services/curriculum.ts';
 import { sendEmail } from '../services/email.ts';
 import { runScheduledJobs, type JobResult } from '../services/jobs.ts';
+import { agreementFor, agreementHtml, agreementRows, sendAgreement } from '../services/agreements.ts';
 import { approveParentRequest, declineParentRequest, decideMentor, isApprovedMentor, requestMentorCv } from '../services/accounts.ts';
 import { decideReward } from '../services/rewards.ts';
 import { committedHours } from '../services/matching.ts';
@@ -535,6 +536,42 @@ export function adminRoutes(deps: Deps): Router {
     h(async (req, res) => {
       await setReportReviewed(deps, req.user!, req.params.id, req.body?.reviewed === true);
       res.json(await classReportDetail(deps, req.params.id));
+    }),
+  );
+
+  // Mentors' contractor agreements: who has signed, who is waiting, and sending one (again).
+  const agreementMentor = async (id: string) => {
+    const mentor = await deps.store.get<UserRecord>(C.users, id);
+    if (!mentor || mentor.role !== 'mentor') throw notFound('Mentor');
+    return mentor;
+  };
+  router.get(
+    '/agreements',
+    h(async (_req, res) => {
+      res.json(await agreementRows(deps));
+    }),
+  );
+  router.get(
+    '/agreements/:mentorId',
+    h(async (req, res) => {
+      const mentor = await agreementMentor(req.params.mentorId);
+      const detail: AgreementDetail = { mentor: toAdminUser(mentor), agreement: await agreementFor(deps, mentor.id) };
+      res.json(detail);
+    }),
+  );
+  router.get(
+    '/agreements/:mentorId/document',
+    h(async (req, res) => {
+      const agreement = await agreementFor(deps, (await agreementMentor(req.params.mentorId)).id);
+      if (!agreement) throw notFound('Agreement');
+      res.setHeader('Cache-Control', 'no-store');
+      res.type('html').send(agreementHtml(agreement));
+    }),
+  );
+  router.post(
+    '/agreements/:mentorId/send',
+    h(async (req, res) => {
+      res.json(await sendAgreement(deps, await agreementMentor(req.params.mentorId), { effectiveDate: req.body?.effectiveDate }));
     }),
   );
 

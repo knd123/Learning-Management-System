@@ -25,6 +25,7 @@ const KIND_LABEL: Record<EmailLog['kind'], string> = {
   class_not_held: 'Class not held',
   class_report: 'Class report',
   cv_request: 'CV request',
+  agreement: 'Contractor agreement',
   test: 'Test',
 };
 

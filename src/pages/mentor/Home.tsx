@@ -1,4 +1,4 @@
-import { BookOpen, CalendarCheck, CheckCircle2, ClipboardCheck, FileStack, Hourglass, MapPin, School, Users } from 'lucide-react';
+import { BookOpen, CalendarCheck, CheckCircle2, ClipboardCheck, FileSignature, FileStack, Hourglass, MapPin, School, Users } from 'lucide-react';
 import { Link } from 'react-router';
 import type { MentorOverview, MentorStudentCard, ReviewItem } from '../../../shared/api.ts';
 import { MentorSessionRow } from '../../components/MentorSessions.tsx';
@@ -17,7 +17,7 @@ export default function MentorHome() {
   const missingCurriculum = data.courses.filter((c) => !c.hasCurriculum);
   // A class can need both a report and a recording; list it once.
   const afterClass = [...new Map([...data.pendingReports, ...data.pendingRecordings].map((s) => [s.id, s])).values()].sort((a, b) => b.startAt.localeCompare(a.startAt));
-  const todo = data.pendingReports.length + data.pendingRecordings.length + data.toReview.length;
+  const todo = data.pendingReports.length + data.pendingRecordings.length + data.toReview.length + (data.agreementStatus === 'awaiting_signature' ? 1 : 0);
   // Work waiting for review first, then what was reviewed recently.
   const reviewed = data.recentWork.filter((r) => !data.toReview.some((t) => t.submission.id === r.submission.id));
   const work = [...data.toReview, ...reviewed.slice(0, Math.max(4, 10 - data.toReview.length))];
@@ -50,6 +50,18 @@ export default function MentorHome() {
                 page, so the team can finish reviewing your application.
               </p>
             )}
+          </Notice>
+        )}
+
+        {!isAdmin && data.agreementStatus === 'awaiting_signature' && (
+          <Notice icon={<FileSignature className="mt-0.5 size-4 shrink-0" />}>
+            <p className="font-semibold">Please sign your contractor agreement.</p>
+            <p className="mt-1">
+              Your Independent Contractor Agreement with Abugida Education is ready. Read it to the end, then sign it with your own signature.{' '}
+              <Link to="/mentor/agreement" className="font-semibold underline">
+                Review and sign
+              </Link>
+            </p>
           </Notice>
         )}
 

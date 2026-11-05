@@ -83,6 +83,8 @@ export interface PublicUser {
   onboardingWatchedAt?: string;
   /** Self-registered mentors wait for the team's approval before they can be paired. */
   mentorStatus?: 'pending' | 'approved' | 'declined';
+  /** When the team approved the mentor's application (the effective date of their contractor agreement). */
+  approvedAt?: string;
   // Mentor and parent contact
   phone?: string;
   /** Mentors: a second number to reach them in an emergency. */
@@ -557,7 +559,44 @@ export type EmailKind =
   | 'class_not_held'
   | 'class_report'
   | 'cv_request'
+  | 'agreement'
   | 'test';
+
+/**
+ * A mentor's Independent Contractor Agreement (one per mentor, id `ica_<mentorId>`). The text is
+ * saved filled in, so what the mentor signs never changes. Only the mentor and the team see it.
+ */
+export interface MentorAgreement {
+  id: string;
+  mentorId: string;
+  templateVersion: string;
+  title: string;
+  /** The mentor's full legal name, as written in the agreement and typed to sign it. */
+  contractorName: string;
+  /** YYYY-MM-DD: the day the team approved the mentor (or sent the agreement, for mentors approved earlier). */
+  effectiveDate: string;
+  body: import('./agreement.ts').AgreementBlock[];
+  /** Signed for Abugida Education on the effective date. */
+  company: { name: string; signatory: string; title: string; signedDate: string };
+  status: 'awaiting_signature' | 'signed';
+  /** When the mentor was last emailed to sign; reminders count from here. */
+  sentAt: string;
+  /** Reminder emails sent, by hours after `sentAt` ("24", "48"). */
+  reminders?: Record<string, string>;
+  signature?: {
+    /** The full legal name the mentor typed when signing (it must match `contractorName`). */
+    name: string;
+    /** The signature the mentor drew, as an SVG path (made by the server from the strokes). */
+    drawing?: { path: string; viewBox: string };
+    signedAt: string;
+    /** YYYY-MM-DD in the mentor's timezone. */
+    signedDate: string;
+    ip?: string;
+    userAgent?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface EmailLog {
   id: string;

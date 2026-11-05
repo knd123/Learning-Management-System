@@ -14,6 +14,8 @@ import SignupMentorPage from './pages/SignupMentor.tsx';
 import SignupParentPage from './pages/SignupParent.tsx';
 import ParentHome from './pages/parent/Home.tsx';
 import ParentStudent from './pages/parent/StudentPage.tsx';
+import AdminAgreementDetail from './pages/admin/AgreementDetail.tsx';
+import AdminAgreements from './pages/admin/Agreements.tsx';
 import AdminApprovals from './pages/admin/Approvals.tsx';
 import AdminMatch from './pages/admin/MatchDetail.tsx';
 import AdminMatches from './pages/admin/Matches.tsx';
@@ -30,6 +32,7 @@ import AdminHome from './pages/admin/Home.tsx';
 import AdminReports from './pages/admin/Reports.tsx';
 import AdminSettings from './pages/admin/Settings.tsx';
 import AdminUsers from './pages/admin/Users.tsx';
+import MentorAgreement from './pages/mentor/Agreement.tsx';
 import MentorClass from './pages/mentor/ClassPage.tsx';
 import MentorHome from './pages/mentor/Home.tsx';
 import MentorHomework from './pages/mentor/HomeworkReview.tsx';
@@ -93,12 +96,15 @@ export default function App() {
       <Route path="/mentor/quizzes/:id" element={<Protected roles={['mentor', 'admin']}><MentorQuiz /></Protected>} />
       <Route path="/mentor/students/:id" element={<Protected roles={['mentor', 'admin']}><MentorStudent /></Protected>} />
       <Route path="/mentor/profile" element={<Protected roles={['mentor']}><MentorProfilePage /></Protected>} />
+      <Route path="/mentor/agreement" element={<Protected roles={['mentor']}><MentorAgreement /></Protected>} />
 
       <Route path="/admin" element={<Protected roles={['admin']}><AdminHome /></Protected>} />
       <Route path="/admin/approvals" element={<Protected roles={['admin']}><AdminApprovals /></Protected>} />
       <Route path="/admin/matches" element={<Protected roles={['admin']}><AdminMatches /></Protected>} />
       <Route path="/admin/matches/:id" element={<Protected roles={['admin']}><AdminMatch /></Protected>} />
       <Route path="/admin/mentors" element={<Protected roles={['admin']}><AdminMentors /></Protected>} />
+      <Route path="/admin/agreements" element={<Protected roles={['admin']}><AdminAgreements /></Protected>} />
+      <Route path="/admin/agreements/:mentorId" element={<Protected roles={['admin']}><AdminAgreementDetail /></Protected>} />
       <Route path="/admin/users" element={<Protected roles={['admin']}><AdminUsers /></Protected>} />
       <Route path="/admin/classes" element={<Protected roles={['admin']}><AdminClasses /></Protected>} />
       <Route path="/admin/class-reports" element={<Protected roles={['admin']}><AdminClassReports /></Protected>} />

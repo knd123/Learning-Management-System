@@ -9,6 +9,7 @@ import type {
   Curriculum,
   CurriculumWindow,
   EmailLog,
+  MentorAgreement,
   Homework,
   MatchItem,
   MatchRequest,
@@ -362,6 +363,8 @@ export interface MentorOverview {
   toReview: ReviewItem[];
   curriculumWindow: CurriculumWindow;
   aiEnabled: boolean;
+  /** The mentor's contractor agreement, once the team has sent it. */
+  agreementStatus?: MentorAgreement['status'];
 }
 
 export interface HomeworkWithStats extends Homework {
@@ -611,4 +614,31 @@ export interface ParentChildDetail {
   progress: import('./types.ts').StudentProgress;
   quizzes: Array<{ id: string; title: string; month: string; courseTitle: string; score?: number; submittedAt?: string }>;
   reports: Array<{ id: string; month: string; sentAt?: string }>;
+}
+
+/** A mentor and where their contractor agreement stands, for the team. */
+export interface AgreementRow {
+  mentorId: string;
+  mentorName: string;
+  email?: string;
+  /** False when the mentor's account was deactivated after the agreement was sent. */
+  active: boolean;
+  approvedAt?: string;
+  status: MentorAgreement['status'] | 'not_sent';
+  effectiveDate?: string;
+  sentAt?: string;
+  /** Reminders sent so far, in hours after sending (24, 48). */
+  remindersSent: number[];
+  signedAt?: string;
+}
+
+export interface AgreementDetail {
+  mentor: PublicUser;
+  agreement: MentorAgreement | null;
+}
+
+export interface AgreementSendResult {
+  agreement: MentorAgreement;
+  emailStatus: EmailLog['status'];
+  emailError?: string;
 }

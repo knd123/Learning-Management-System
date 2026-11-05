@@ -214,7 +214,7 @@ function MentorApplications({ decided, onChange }: { decided: boolean; onChange(
               noteLabel={{ decline: 'Message to the applicant (included in our email)' }}
               onDecide={async (decision, note) => {
                 await api.post(`/api/admin/approvals/mentors/${m.id}`, { decision, note });
-                toast(decision === 'approve' ? `${m.displayName} can now be paired with students.` : 'Application declined.');
+                toast(decision === 'approve' ? `${m.displayName} can now be paired with students. We emailed them their contractor agreement to sign.` : 'Application declined.');
                 onChange();
                 await reload();
               }}

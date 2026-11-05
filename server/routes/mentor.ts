@@ -22,6 +22,7 @@ import type { Deps } from '../deps.ts';
 import { badRequest, forbidden, h, HttpError, httpUrl, isoDate, jsonField, notFound, num, str } from '../http.ts';
 import { courseForTeacher, coursesFor, homeworkForTeacher, quizForTeacher, sessionForTeacher, usersById } from '../services/access.ts';
 import { mentorRequestsFor } from '../services/pairing.ts';
+import { agreementFor, agreementHtml, signAgreement } from '../services/agreements.ts';
 import { AiUnavailableError } from '../services/ai.ts';
 import { currentCurriculum, curriculumEditPermission, curriculumVersions, curriculumWindow, saveCurriculum } from '../services/curriculum.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
@@ -115,6 +116,35 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     const [settings, courses] = await Promise.all([getSettings(deps.store), deps.store.find<Course>(C.courses, { mentorId: user.id })]);
     return { user: toPublicUser(user), subjectOptions: settings.subjectOptions, committedHours: committedHours(user.id, courses) };
   }
+
+  // The mentor's Independent Contractor Agreement: read it, print it, and sign it by typing their legal name.
+  const ownAgreement = async (user: UserRecord) => {
+    if (user.role !== 'mentor') throw forbidden('Only mentors have a contractor agreement.');
+    return agreementFor(deps, user.id);
+  };
+  router.get(
+    '/agreement',
+    h(async (req, res) => {
+      res.json({ agreement: await ownAgreement(req.user!) });
+    }),
+  );
+  router.get(
+    '/agreement/document',
+    h(async (req, res) => {
+      const agreement = await ownAgreement(req.user!);
+      if (!agreement) throw notFound('Agreement');
+      res.setHeader('Cache-Control', 'no-store');
+      res.type('html').send(agreementHtml(agreement));
+    }),
+  );
+  router.post(
+    '/agreement/sign',
+    h(async (req, res) => {
+      await ownAgreement(req.user!);
+      const agreement = await signAgreement(deps, req.user!, { name: req.body?.name, drawing: req.body?.drawing, agree: req.body?.agree, ip: req.ip, userAgent: String(req.headers['user-agent'] || '') });
+      res.json({ agreement });
+    }),
+  );
 
   // Mentors keep the details used for pairing up to date: subjects, grades, availability and capacity.
   router.get(
@@ -217,6 +247,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const studentIds = [...new Set(courses.flatMap((c) => c.studentIds))];
       const overview: MentorOverview = {
         approved: user.role === 'admin' || user.mentorStatus !== 'pending',
+        agreementStatus: user.role === 'mentor' ? (await agreementFor(deps, user.id))?.status : undefined,
         students: studentIds
           .map((id) => people.get(id))
           .filter((u): u is UserRecord => Boolean(u))

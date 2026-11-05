@@ -6,6 +6,7 @@ import type { Deps } from '../deps.ts';
 import { MAX_CV_MB } from '../../shared/profile.ts';
 import { badRequest, HttpError, notFound } from '../http.ts';
 import { firstName } from './access.ts';
+import { agreementFor, sendAgreement } from './agreements.ts';
 import { emailButton, emailLayout, emailList, emailTable, escapeHtml, sendEmail } from './email.ts';
 import { notify, notifyAdmins } from './notifications.ts';
 import { getSettings } from './settings.ts';
@@ -70,8 +71,13 @@ export async function decideMentor(deps: Deps, mentorId: string, approve: boolea
   const updated = (await deps.store.patch<UserRecord>(
     C.users,
     mentor.id,
-    approve ? { mentorStatus: 'approved', active: true } : { mentorStatus: 'declined', active: false, tokenVersion: mentor.tokenVersion + 1 },
+    approve ? { mentorStatus: 'approved', active: true, approvedAt: deps.now().toISOString() } : { mentorStatus: 'declined', active: false, tokenVersion: mentor.tokenVersion + 1 },
   ))!;
+  // The welcome email asks the new mentor to sign their contractor agreement (with 24- and 48-hour reminders).
+  if (approve && (await agreementFor(deps, mentor.id))?.status !== 'signed') {
+    await sendAgreement(deps, updated, { welcome: true });
+    return updated;
+  }
   if (mentor.email) {
     await sendEmail(deps, 'account', approve
       ? {
