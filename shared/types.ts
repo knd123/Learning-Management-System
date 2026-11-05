@@ -18,6 +18,12 @@ export interface AvailabilityWindow {
 }
 
 /** A user as returned by the API (never includes credentials). */
+/** Mentors' bank account numbers, at Commercial Bank of Ethiopia and/or Bank of Abyssinia. */
+export interface BankAccounts {
+  cbe?: string;
+  abyssinia?: string;
+}
+
 export interface PublicUser {
   id: string;
   username: string;
@@ -67,10 +73,20 @@ export interface PublicUser {
   cv?: Attachment;
   /** When the team last emailed the mentor asking for their CV. */
   cvRequestedAt?: string;
+  /** A professional headshot. Only the mentor and the Abugida team can open it. */
+  photo?: Attachment;
+  /** Where the mentor is paid. Only the mentor and the Abugida team see the numbers. */
+  bankAccounts?: BankAccounts;
+  /** When the mentor confirmed the evening teaching hours (Addis Ababa time) at sign-up. */
+  teachingHoursConfirmedAt?: string;
+  /** When the mentor confirmed watching the onboarding recording at sign-up. */
+  onboardingWatchedAt?: string;
   /** Self-registered mentors wait for the team's approval before they can be paired. */
   mentorStatus?: 'pending' | 'approved' | 'declined';
   // Mentor and parent contact
   phone?: string;
+  /** Mentors: a second number to reach them in an emergency. */
+  alternatePhone?: string;
   // Parent-only fields
   /** Students this parent may follow (approved by the team). */
   linkedStudentIds?: string[];

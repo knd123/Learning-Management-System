@@ -97,6 +97,7 @@ export default function AdminMentors() {
             {rows.map(({ mentor, committedHours, activeClasses, studentCount, averageRating, ratingCount }) => (
               <tr key={mentor.id} className={mentor.active ? '' : 'opacity-60'}>
                 <td>
+                  {mentor.photo?.kind === 'file' && <img src={fileUrl(mentor.photo.fileId)} alt="" className="mb-1 size-10 rounded-full border border-sand-200 object-cover" />}
                   <p className="font-medium">{mentor.displayName}</p>
                   <p className="text-xs text-ink-muted">{mentor.email}</p>
                   {mentor.academicLevel && <p className="text-xs text-ink-muted">{mentor.academicLevel}</p>}

@@ -31,7 +31,7 @@ import { applyProfile } from '../services/profiles.ts';
 import { studentProgress } from '../services/progress.ts';
 import { attemptIdFor, effectiveStatus, generateMonthlyQuiz } from '../services/quizzes.ts';
 import { classFileProblem } from '../../shared/classes.ts';
-import { cvProblem, MAX_CV_MB } from '../../shared/profile.ts';
+import { cvProblem, MAX_CV_MB, MAX_PHOTO_MB, photoProblem } from '../../shared/profile.ts';
 import { sendClassReport, tellTeamAboutReport } from '../services/classReports.ts';
 import { reportNotHeld, restoreClass } from '../services/notHeld.ts';
 import { attachRecording, recordingLink } from '../services/recordings.ts';
@@ -131,9 +131,10 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const user = req.user!;
       if (user.role !== 'mentor') throw forbidden('Only mentors have a teaching profile.');
       const body = (req.body || {}) as Record<string, unknown>;
-      const allowed = ['subjects', 'minGrade', 'maxGrade', 'availability', 'weeklyCapacityHours', 'timezone'];
+      const allowed = ['subjects', 'minGrade', 'maxGrade', 'availability', 'weeklyCapacityHours', 'timezone', 'phone', 'alternatePhone', 'bankAccounts'];
       const changes: Partial<UserRecord> = {};
-      applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'mentor', { timezone: user.timezone });
+      applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'mentor', { timezone: user.timezone, current: user });
+      if (body.phone !== undefined && !changes.phone) throw badRequest('Enter your phone number.');
       const minGrade = changes.minGrade ?? user.minGrade;
       const maxGrade = changes.maxGrade ?? user.maxGrade;
       if (minGrade !== undefined && maxGrade !== undefined && minGrade > maxGrade) throw badRequest('The lowest grade must not be above the highest grade.');
@@ -156,6 +157,21 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const applying = user.mentorStatus === 'pending';
       await notifyAdmins(deps, `${user.cv ? 'CV updated' : 'CV added'}: ${user.displayName}`, applying ? 'The application is ready to review.' : 'Open it from the Mentors page.', applying ? '/admin/approvals?tab=mentors' : '/admin/mentors');
       res.json(await mentorProfile(updated));
+    }),
+  );
+
+  // A mentor adds or replaces their headshot. Only they and the Abugida team can open it.
+  router.put(
+    '/photo',
+    upload.single('photo'),
+    h(async (req, res) => {
+      const user = req.user!;
+      if (user.role !== 'mentor') throw forbidden('Only mentors have a photo here.');
+      if (!req.file) throw badRequest(`Choose a photo of yourself (up to ${MAX_PHOTO_MB} MB).`);
+      const problem = photoProblem(req.file);
+      if (problem) throw badRequest(problem);
+      const photo = await saveUpload(deps, req.file, { uploadedBy: user.id, purpose: 'photo' });
+      res.json(await mentorProfile((await deps.store.patch<UserRecord>(C.users, user.id, { photo }))!));
     }),
   );
 

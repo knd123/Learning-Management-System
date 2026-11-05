@@ -1,5 +1,6 @@
 import { hoursBySubject, isQuarterHours, MAX_WEEKLY_HOURS, MIN_SUBJECT_HOURS } from '../../shared/hours.ts';
-import type { AvailabilityWindow, ParentContact, Role } from '../../shared/types.ts';
+import { accountDigits, bankAccountProblem, BANKS } from '../../shared/profile.ts';
+import type { AvailabilityWindow, BankAccounts, ParentContact, Role } from '../../shared/types.ts';
 import { isValidHm, isValidTimeZone } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
 import { badRequest, httpUrl, num, str } from '../http.ts';
@@ -45,6 +46,28 @@ export function parsePhone(value: unknown, field: string, required = false): str
   const digits = s.replace(/\D/g, '');
   if (!/^[+\d\s().-]+$/.test(s) || digits.length < 7 || digits.length > 15) throw badRequest(`${field} must be a valid phone number.`);
   return s;
+}
+
+/**
+ * A mentor's bank account numbers (digits only). Mentors keep at least one bank on file; the team may
+ * leave both empty, e.g. for mentors added before bank details were asked for.
+ */
+export function parseBankAccounts(value: unknown, requireOne: boolean): BankAccounts | undefined {
+  if (value !== undefined && value !== null && (typeof value !== 'object' || Array.isArray(value))) throw badRequest('Bank accounts must list an account number by bank.');
+  const given = (value || {}) as Record<string, unknown>;
+  const out: BankAccounts = {};
+  for (const bank of Object.keys(BANKS) as Array<keyof BankAccounts>) {
+    const number = str(given[bank], `${BANKS[bank]} account number`, { max: 40 });
+    if (!number) continue;
+    const problem = bankAccountProblem(bank, number);
+    if (problem) throw badRequest(problem);
+    out[bank] = accountDigits(number);
+  }
+  if (!out.cbe && !out.abyssinia) {
+    if (requireOne) throw badRequest('Enter at least one bank account number: CBE or Bank of Abyssinia.');
+    return undefined;
+  }
+  return out;
 }
 
 /** Recording folder links by mentor id, merged into `current`; an empty link removes that mentor's folder. */
@@ -136,7 +159,7 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
     if (has('subjects')) target.subjects = parseSubjects(body.subjects, 'Subject', req);
     if (has('availability')) target.availability = parseAvailability(body.availability, req);
   }
-  if ((role === 'mentor' || role === 'parent') && has('phone')) target.phone = parsePhone(body.phone, 'Phone number', req && role === 'parent');
+  if ((role === 'mentor' || role === 'parent') && has('phone')) target.phone = parsePhone(body.phone, 'Phone number', req);
 
   if (role === 'student') {
     if (has('grade')) target.grade = num(body.grade, 'Grade', { min: 3, max: 12, required: true });
@@ -183,6 +206,12 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
     if (body.maxGrade !== undefined) target.maxGrade = num(body.maxGrade, 'Highest grade', { min: 3, max: 12 });
     if (has('weeklyCapacityHours')) target.weeklyCapacityHours = num(body.weeklyCapacityHours, 'Hours per week you can teach', { min: req ? 0.5 : 0, max: 80, required: req });
     if (has('academicLevel')) target.academicLevel = str(body.academicLevel, 'Academic level', { required: req, max: 120 }) || undefined;
+    if (has('alternatePhone')) target.alternatePhone = parsePhone(body.alternatePhone, 'Alternate phone number', req);
+    const phone = target.phone ?? opts.current?.phone;
+    if (target.alternatePhone && phone && target.alternatePhone.replace(/\D/g, '') === phone.replace(/\D/g, '')) {
+      throw badRequest('Your alternate phone number must be different from your main phone number.');
+    }
+    if (has('bankAccounts')) target.bankAccounts = parseBankAccounts(body.bankAccounts, !opts.admin);
     const min = target.minGrade;
     const max = target.maxGrade;
     if (min !== undefined && max !== undefined && min > max) throw badRequest('The lowest grade must not be above the highest grade.');

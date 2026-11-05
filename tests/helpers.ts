@@ -217,11 +217,22 @@ export class Client {
   }
 }
 
-/** A mentor application as the sign-up form sends it: the fields as JSON, with a CV file unless `cv` is false. */
-export function mentorApplication(fields: Record<string, unknown>, cv: { name: string; type: string; bytes?: Uint8Array } | false = { name: 'CV.pdf', type: 'application/pdf' }): FormData {
+type TestFile = { name: string; type: string; bytes?: Uint8Array };
+
+/**
+ * A mentor application as the sign-up form sends it: the fields as JSON (with working phones, a bank
+ * account and both confirmations unless `fields` says otherwise), plus a CV and a headshot unless false.
+ */
+export function mentorApplication(
+  fields: Record<string, unknown>,
+  cv: TestFile | false = { name: 'CV.pdf', type: 'application/pdf' },
+  photo: TestFile | false = { name: 'Headshot.jpg', type: 'image/jpeg' },
+): FormData {
   const form = new FormData();
-  form.set('data', JSON.stringify(fields));
+  const defaults = { phone: '+251 911 234 567', alternatePhone: '+251 922 345 678', bankAccounts: { cbe: '1000123456789' }, teachingHoursConfirmed: true, onboardingWatched: true };
+  form.set('data', JSON.stringify({ ...defaults, ...fields }));
   if (cv) form.set('cv', new Blob([cv.bytes ?? Buffer.from('%PDF-1.4 cv')], { type: cv.type }), cv.name);
+  if (photo) form.set('photo', new Blob([photo.bytes ?? Buffer.from('jpeg-photo')], { type: photo.type }), photo.name);
   return form;
 }
 

@@ -141,10 +141,10 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return <select className={clsx(control, width(className), 'h-10 pr-8', className)} {...props} />;
 }
 
-export function Checkbox({ label, checked, onChange, hint }: { label: ReactNode; checked: boolean; onChange(v: boolean): void; hint?: ReactNode }) {
+export function Checkbox({ label, checked, onChange, hint, disabled }: { label: ReactNode; checked: boolean; onChange(v: boolean): void; hint?: ReactNode; disabled?: boolean }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 text-sm">
-      <input type="checkbox" className="mt-0.5 size-4 accent-brand-700" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <label className={clsx('flex items-start gap-3 text-sm', disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}>
+      <input type="checkbox" className="mt-0.5 size-4 accent-brand-700" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span>
         <span className="font-medium text-ink">{label}</span>
         {hint && <span className="block text-xs text-ink-muted">{hint}</span>}

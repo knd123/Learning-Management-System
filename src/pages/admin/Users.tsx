@@ -314,6 +314,9 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
   const [maxGrade, setMaxGrade] = useState(String(user?.maxGrade ?? 12));
   const [capacity, setCapacity] = useState(user?.weeklyCapacityHours === undefined ? '' : String(user.weeklyCapacityHours));
   const [phone, setPhone] = useState(user?.phone || '');
+  const [alternatePhone, setAlternatePhone] = useState(user?.alternatePhone || '');
+  const [cbe, setCbe] = useState(user?.bankAccounts?.cbe || '');
+  const [abyssinia, setAbyssinia] = useState(user?.bankAccounts?.abyssinia || '');
   const [academicLevel, setAcademicLevel] = useState(user?.academicLevel || '');
   const [linkedStudentIds, setLinkedStudentIds] = useState<string[]>(user?.linkedStudentIds || []);
   const [studentQuery, setStudentQuery] = useState('');
@@ -348,7 +351,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
       if (subjects.length) body.subjectHours = Object.fromEntries(subjects.map((s) => [s, subjectHours[s] ?? DEFAULT_SUBJECT_HOURS]));
       if (!user) body.createMatchRequest = queueForPairing;
     }
-    if (role === 'mentor') Object.assign(body, { subjects, availability, phone, academicLevel, minGrade: Number(minGrade), maxGrade: Number(maxGrade), weeklyCapacityHours: capacity === '' ? 0 : Number(capacity) });
+    if (role === 'mentor') Object.assign(body, { subjects, availability, phone, alternatePhone, bankAccounts: { cbe, abyssinia }, academicLevel, minGrade: Number(minGrade), maxGrade: Number(maxGrade), weeklyCapacityHours: capacity === '' ? 0 : Number(capacity) });
     if (role === 'parent') Object.assign(body, { phone, linkedStudentIds });
     try {
       if (user) {
@@ -548,6 +551,9 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Phone (optional)">{(id) => <Input id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}</Field>
+              <Field label="Alternate phone, for emergencies (optional)">{(id) => <Input id={id} type="tel" value={alternatePhone} onChange={(e) => setAlternatePhone(e.target.value)} />}</Field>
+              <Field label="CBE account number (optional)">{(id) => <Input id={id} inputMode="numeric" value={cbe} onChange={(e) => setCbe(e.target.value)} autoComplete="off" />}</Field>
+              <Field label="Bank of Abyssinia account number (optional)">{(id) => <Input id={id} inputMode="numeric" value={abyssinia} onChange={(e) => setAbyssinia(e.target.value)} autoComplete="off" />}</Field>
               <Field label="Academic level">
                 {(id) => (
                   <>

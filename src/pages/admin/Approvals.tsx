@@ -2,12 +2,13 @@ import { AlertTriangle, BadgeCheck, CheckCircle2, Coffee, GraduationCap, HeartHa
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type { ApprovalCounts, ParentRequestRow, RewardRow } from '../../../shared/api.ts';
-import type { Attachment, PublicUser } from '../../../shared/types.ts';
+import { BANKS } from '../../../shared/profile.ts';
+import type { Attachment, BankAccounts, PublicUser } from '../../../shared/types.ts';
 import { AttachmentLink } from '../../components/Attachments.tsx';
 import { AvailabilityDays } from '../../components/Availability.tsx';
 import { FilePreview } from '../../components/FilePreview.tsx';
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorBox, Field, Loading, Modal, PageHeader, Select, Tabs, Textarea, useToast } from '../../components/ui.tsx';
-import { api, errorMessage } from '../../lib/api.ts';
+import { api, errorMessage, fileUrl } from '../../lib/api.ts';
 import { fmtDate, fmtDateTime, monthLabel, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
@@ -122,14 +123,21 @@ function MentorApplications({ decided, onChange }: { decided: boolean; onChange(
       {data.map((m) => (
         <Card key={m.id} className="flex flex-col gap-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-lg font-semibold">{m.displayName}</p>
-                {statusBadge(m.mentorStatus)}
+            <div className="flex items-start gap-4">
+              {m.photo?.kind === 'file' && (
+                <a href={fileUrl(m.photo.fileId)} target="_blank" rel="noopener noreferrer" title="Open the photo" className="shrink-0">
+                  <img src={fileUrl(m.photo.fileId)} alt={`${m.displayName}'s photo`} className="size-20 rounded-xl border border-sand-200 object-cover" />
+                </a>
+              )}
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-lg font-semibold">{m.displayName}</p>
+                  {statusBadge(m.mentorStatus)}
+                </div>
+                <p className="text-sm text-ink-soft">
+                  {m.academicLevel || 'Academic level not given'} · applied {fmtDate(m.createdAt)}
+                </p>
               </div>
-              <p className="text-sm text-ink-soft">
-                {m.academicLevel || 'Academic level not given'} · applied {fmtDate(m.createdAt)}
-              </p>
             </div>
             <div className="flex flex-col items-end gap-1 text-sm text-ink-soft">
               {m.email && (
@@ -140,6 +148,11 @@ function MentorApplications({ decided, onChange }: { decided: boolean; onChange(
               {m.phone && (
                 <a href={`tel:${m.phone}`} className="flex items-center gap-1.5 hover:text-brand-700">
                   <Phone className="size-4" /> {m.phone}
+                </a>
+              )}
+              {m.alternatePhone && (
+                <a href={`tel:${m.alternatePhone}`} className="flex items-center gap-1.5 hover:text-brand-700">
+                  <Phone className="size-4" /> {m.alternatePhone} <span className="text-xs text-ink-muted">(emergency)</span>
                 </a>
               )}
             </div>
@@ -163,6 +176,31 @@ function MentorApplications({ decided, onChange }: { decided: boolean; onChange(
               <dt className="font-medium text-ink-muted">Weekly availability ({tzAbbrev(m.timezone)})</dt>
               <dd className="mt-1">
                 <AvailabilityDays windows={m.availability} />
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="font-medium text-ink-muted">Bank accounts</dt>
+              <dd className="mt-1">
+                {m.bankAccounts ? (
+                  <ul className="flex flex-col gap-0.5">
+                    {(Object.keys(BANKS) as Array<keyof BankAccounts>)
+                      .filter((b) => m.bankAccounts![b])
+                      .map((b) => (
+                        <li key={b}>
+                          {BANKS[b]}: <span className="font-mono">{m.bankAccounts![b]}</span>
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <span className="text-ink-muted">Not given</span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium text-ink-muted">Confirmed at sign-up</dt>
+              <dd className="mt-1 flex flex-col gap-0.5">
+                <span>{m.teachingHoursConfirmedAt ? '✓ Evening teaching hours' : '— Evening teaching hours'}</span>
+                <span>{m.onboardingWatchedAt ? '✓ Watched the onboarding recording' : '— Onboarding recording'}</span>
               </dd>
             </div>
             <div className="sm:col-span-3">

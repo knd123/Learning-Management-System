@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { PublicConfig, ResetLinkInfo } from '../../shared/api.ts';
 import { C, type Store } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
-import { cvProblem, MAX_CV_MB } from '../../shared/profile.ts';
+import { cvProblem, legalNameProblem, MAX_CV_MB, photoProblem } from '../../shared/profile.ts';
 import type { Role } from '../../shared/types.ts';
 import { badRequest, HttpError, h, jsonField, num, str } from '../http.ts';
 import { createToken, hashPassword, LoginLimiter, SESSION_COOKIE, toPublicUser, verifyPassword, type UserRecord } from '../auth.ts';
@@ -229,20 +229,34 @@ export function authRoutes(deps: Deps, upload: Upload): Router {
   }
 
   // Mentor self-registration: they can sign in right away but are only paired once the team approves them.
-  // The application comes with the mentor's CV: the form's fields as JSON in "data", the CV as a file.
+  // The application comes with the mentor's CV and headshot: the form's fields as JSON in "data", the files beside them.
   router.post(
     '/signup/mentor',
-    upload.single('cv'),
+    upload.fields([
+      { name: 'cv', maxCount: 1 },
+      { name: 'photo', maxCount: 1 },
+    ]),
     h(async (req, res) => {
       const settings = await getSettings(deps.store);
       if (!settings.allowMentorSignup) throw new HttpError(403, `Mentor sign-up is closed. Please email ${settings.adminNotificationEmail}.`);
       if (typeof req.body?.data === 'string') req.body = jsonField<Record<string, unknown>>(req.body.data, {});
+      const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
       const { user, body } = await newAccount(req, 'mentor', settings.timezone);
       applyProfile(user, body, 'mentor', { timezone: settings.timezone, intake: true });
-      if (!req.file) throw badRequest(`Attach your CV (PDF or Word, up to ${MAX_CV_MB} MB).`);
-      const problem = cvProblem(req.file);
+      const nameProblem = legalNameProblem(user.displayName);
+      if (nameProblem) throw badRequest(nameProblem);
+      if (body.teachingHoursConfirmed !== true) throw badRequest('Tick the box to confirm you can teach in the evening hours (Addis Ababa time).');
+      if (body.onboardingWatched !== true) throw badRequest('Watch the onboarding recording, then tick the box to confirm you watched it.');
+      const cv = files.cv?.[0];
+      if (!cv) throw badRequest(`Attach your CV (PDF or Word, up to ${MAX_CV_MB} MB).`);
+      const photo = files.photo?.[0];
+      if (!photo) throw badRequest('Add a professional photo of yourself (a headshot).');
+      const problem = cvProblem(cv) || photoProblem(photo);
       if (problem) throw badRequest(problem);
-      user.cv = await saveUpload(deps, req.file, { uploadedBy: user.id, purpose: 'cv' });
+      user.cv = await saveUpload(deps, cv, { uploadedBy: user.id, purpose: 'cv' });
+      user.photo = await saveUpload(deps, photo, { uploadedBy: user.id, purpose: 'photo' });
+      user.teachingHoursConfirmedAt = user.createdAt;
+      user.onboardingWatchedAt = user.createdAt;
       user.mentorStatus = 'pending';
       countSignup(req);
       await deps.store.put(C.users, user);

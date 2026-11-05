@@ -87,7 +87,7 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
   it('lets mentors apply; they are only paired after approval', async () => {
     const applicant = new Client(h);
     const form = {
-      displayName: 'Hana Girma',
+      displayName: 'Hana Girma Tesfaye',
       email: 'hana@example.org',
       academicLevel: "Master's degree",
       subjects: ['Chemistry'],
@@ -100,7 +100,7 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     await applicant.form('/api/auth/signup/mentor', mentorApplication({ ...form, academicLevel: '' }), 400);
     const { user } = await applicant.form('/api/auth/signup/mentor', mentorApplication(form), 201);
     assert.equal(user.mentorStatus, 'pending');
-    assert.ok(h.mailer.sent.some((e) => e.subject === 'New mentor application: Hana Girma' && e.to[0] === 'info@abugidaeducation.com'));
+    assert.ok(h.mailer.sent.some((e) => e.subject === 'New mentor application: Hana Girma Tesfaye' && e.to[0] === 'info@abugidaeducation.com'));
     assert.equal((await applicant.get<MentorOverview>('/api/mentor/overview')).approved, false);
     assert.equal((await admin.get('/api/admin/approvals/counts')).mentors, 1);
     // Classes can't be given to an applicant before the team approves them.
@@ -125,7 +125,7 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     await admin.post(`/api/admin/approvals/mentors/${user.id}`, { decision: 'approve' });
     assert.ok(h.mailer.sent.some((e) => e.to[0] === 'hana@example.org' && /Welcome/.test(e.subject)));
     detail = await admin.get(`/api/admin/matches/${row.request.id}`);
-    assert.equal(detail.items[0].candidates[0].name, 'Hana Girma');
+    assert.equal(detail.items[0].candidates[0].name, 'Hana Girma Tesfaye');
   });
 
   it('lets parents request access to their child, with a sibling discount', async () => {

@@ -6,7 +6,7 @@ import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest } from '../http.ts';
 
-export type FilePurpose = 'homework' | 'submission' | 'slides' | 'curriculum' | 'proctoring' | 'cv';
+export type FilePurpose = 'homework' | 'submission' | 'slides' | 'curriculum' | 'proctoring' | 'cv' | 'photo';
 
 export interface StoredFile {
   id: string;
@@ -93,7 +93,7 @@ export function linkAttachments(raw: unknown): Attachment[] {
 
 export async function canDownload(deps: Deps, user: UserRecord, file: StoredFile): Promise<boolean> {
   if (user.role === 'admin' || file.uploadedBy === user.id) return true;
-  // Files outside a class (a mentor's CV) are for the uploader and the team only.
+  // Files outside a class (a mentor's CV or photo) are for the uploader and the team only.
   if (!file.courseId) return false;
   const course = await deps.store.get<Course>(C.courses, file.courseId);
   if (!course) return false;

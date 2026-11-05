@@ -14,7 +14,7 @@ describe('mentor CVs: sent with the application, for the Abugida team only', () 
   let hana: Client;
   let hanaUser: PublicUser;
   const fields = (username: string) => ({
-    displayName: 'Hana Girma', email: `${username}@example.org`, academicLevel: "Master's degree", subjects: ['Chemistry'],
+    displayName: 'Hana Girma Tesfaye', email: `${username}@example.org`, academicLevel: "Master's degree", subjects: ['Chemistry'],
     availability: [{ weekday: 2, start: '16:00', end: '20:00' }], weeklyCapacityHours: 6, timezone: NY, username, password: 'hana-pass-1',
   });
   const cvId = (user: PublicUser) => (user.cv?.kind === 'file' ? user.cv.fileId : '');
@@ -43,7 +43,7 @@ describe('mentor CVs: sent with the application, for the Abugida team only', () 
     hanaUser = (await hana.form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication(fields('hana'), { name: 'Hana Girma CV.docx', type: DOCX, bytes: Buffer.from('docx-cv') }), 201)).user;
     assert.deepEqual([hanaUser.cv?.kind, hanaUser.cv?.name, hanaUser.mentorStatus], ['file', 'Hana Girma CV.docx', 'pending']);
 
-    const email = h.mailer.sent.find((e) => e.subject === 'New mentor application: Hana Girma')!;
+    const email = h.mailer.sent.find((e) => e.subject === 'New mentor application: Hana Girma Tesfaye')!;
     assert.match(email.text, /CV: Hana Girma CV\.docx \(open it with the application in the portal\)/);
     assert.doesNotMatch(email.text, /\/api\/files\//, 'the email has no file link');
 
@@ -100,7 +100,7 @@ describe('asking a mentor without a CV for one', () => {
     await admin.put('/api/admin/settings', { timezone: NY });
     samrawit = new Client(h);
     applicant = (await samrawit.form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication({
-      displayName: 'Samrawit Endale', email: 'samrawit@example.org', academicLevel: "Bachelor's degree", subjects: ['Math'],
+      displayName: 'Samrawit Endale Haile', email: 'samrawit@example.org', academicLevel: "Bachelor's degree", subjects: ['Math'],
       availability: [{ weekday: 2, start: '16:00', end: '20:00' }], weeklyCapacityHours: 6, timezone: NY, username: 'samrawit.endale', password: 'samrawit-pass-1',
     }), 201)).user;
     // She applied before CVs were asked for.
@@ -135,7 +135,7 @@ describe('asking a mentor without a CV for one', () => {
     const form = new FormData();
     form.set('cv', new Blob([Buffer.from('%PDF-1.4 cv')], { type: 'application/pdf' }), 'Samrawit CV.pdf');
     await samrawit.request('PUT', '/api/mentor/cv', undefined, { form });
-    const told = (await admin.get<{ notifications: AppNotification[] }>('/api/notifications')).notifications.find((n) => n.title === 'CV added: Samrawit Endale')!;
+    const told = (await admin.get<{ notifications: AppNotification[] }>('/api/notifications')).notifications.find((n) => n.title === 'CV added: Samrawit Endale Haile')!;
     assert.deepEqual([told.body, told.link], ['The application is ready to review.', '/admin/approvals?tab=mentors']);
     assert.match((await ask(applicant.id, 400)).error!, /already added a CV/);
   });
@@ -148,7 +148,7 @@ describe('asking a mentor without a CV for one', () => {
     assert.match(cvRequests().at(-1)!.text, /collecting CVs from all our mentors/);
 
     const zed = (await new Client(h).form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication({
-      displayName: 'Zed Bekele', email: 'zed@example.org', academicLevel: "Bachelor's degree", subjects: ['Math'],
+      displayName: 'Zed Bekele Ayele', email: 'zed@example.org', academicLevel: "Bachelor's degree", subjects: ['Math'],
       availability: [{ weekday: 2, start: '16:00', end: '20:00' }], weeklyCapacityHours: 6, timezone: NY, username: 'zed', password: 'zed-pass-12',
     }), 201)).user;
     await h.store.patch(C.users, zed.id, { cv: undefined });

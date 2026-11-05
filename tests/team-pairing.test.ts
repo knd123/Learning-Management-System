@@ -26,7 +26,7 @@ describe('the team pairing a student with a mentor by hand', () => {
     }, 201)).user;
     // Mekdes signed up as a mentor but the team has not approved her application yet.
     mekdes = (await new Client(h).form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication({
-      displayName: 'Mekdes Alemu', email: 'mekdes@example.org', username: 'mekdes', password: 'mentor-pass-2', academicLevel: 'Graduate student',
+      displayName: 'Mekdes Alemu Tadesse', email: 'mekdes@example.org', username: 'mekdes', password: 'mentor-pass-2', academicLevel: 'Graduate student',
       subjects: ['Chemistry'], availability: week, weeklyCapacityHours: 5, timezone: NY,
     }), 201)).user;
     nahom = (await new Client(h).post<{ user: PublicUser }>('/api/auth/signup', {
@@ -54,7 +54,7 @@ describe('the team pairing a student with a mentor by hand', () => {
     assert.equal(h.mailer.sent.length, before, 'nobody is emailed until the team approves');
     const detail = await admin.get<MatchRequestDetail>(`/api/admin/matches/${id}`);
     assert.deepEqual([detail.request.kind, detail.request.items.map((i) => [i.subject, i.status])], ['team', [['Chemistry', 'pending']]]);
-    assert.deepEqual(detail.mentors.map((m) => [m.displayName, Boolean(m.applicationPending)]), [['Mekdes Alemu', true], ['Sara Bekele', false]]);
+    assert.deepEqual(detail.mentors.map((m) => [m.displayName, Boolean(m.applicationPending)]), [['Mekdes Alemu Tadesse', true], ['Sara Bekele', false]]);
 
     await admin.post(`/api/admin/students/${nahom.id}/match`, {}, 400);
     await admin.post('/api/admin/students/nobody/match', { subject: 'Math' }, 404);
@@ -73,7 +73,7 @@ describe('the team pairing a student with a mentor by hand', () => {
     const mentor = (await admin.get<PublicUser[]>('/api/admin/users?role=mentor')).find((m) => m.id === mekdes.id)!;
     assert.equal(mentor.mentorStatus, 'approved');
     const classes = await admin.get<AdminCourseRow[]>('/api/admin/courses');
-    assert.deepEqual(classes.map((c) => [c.course.subject, c.mentorName, c.studentNames, c.course.weeklyHours]), [['Chemistry', 'Mekdes Alemu', ['Nahom Tadesse'], 1.5]]);
+    assert.deepEqual(classes.map((c) => [c.course.subject, c.mentorName, c.studentNames, c.course.weeklyHours]), [['Chemistry', 'Mekdes Alemu Tadesse', ['Nahom Tadesse'], 1.5]]);
     assert.ok(h.mailer.sent.some((e) => e.to.includes('mekdes@example.org') && /Welcome to/.test(e.subject)), 'the welcome email for an approved mentor');
     assert.ok(h.mailer.sent.some((e) => e.to.includes('nahom@example.com') && e.subject === "You've been paired with your Chemistry mentor!"));
     assert.deepEqual(await admin.get('/api/admin/matches'), []);
@@ -95,12 +95,12 @@ describe('the team pairing a student with a mentor by hand', () => {
 
     await admin.post(`/api/admin/matches/${id}/items/${detail.request.items[0].id}/approve`, { mentorId: mekdes.id, hoursPerWeek: 1, schedule: [], meetingUrl: '', startDate: '2026-10-19' });
     const classes = await admin.get<AdminCourseRow[]>('/api/admin/courses');
-    assert.ok(classes.some((c) => c.course.subject === 'Physics' && c.mentorName === 'Mekdes Alemu' && c.studentNames[0] === 'Nahom Tadesse'));
+    assert.ok(classes.some((c) => c.course.subject === 'Physics' && c.mentorName === 'Mekdes Alemu Tadesse' && c.studentNames[0] === 'Nahom Tadesse'));
   });
 
   it('only accepts a signed-up, active mentor up front', async () => {
     const zoe = (await new Client(h).form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication({
-      displayName: 'Zoe Haile', email: 'zoe@example.org', username: 'zoe', password: 'mentor-pass-4', academicLevel: 'Graduate student',
+      displayName: 'Zoe Haile Desta', email: 'zoe@example.org', username: 'zoe', password: 'mentor-pass-4', academicLevel: 'Graduate student',
       subjects: ['Math'], availability: week, weeklyCapacityHours: 5, timezone: NY,
     }), 201)).user;
     const { id } = await admin.post<{ id: string }>(`/api/admin/students/${nahom.id}/match`, { subject: 'Biology', mentorId: zoe.id }, 201);
@@ -121,7 +121,7 @@ describe('the team pairing a student with a mentor by hand', () => {
 
   it('still refuses a mentor whose application was declined', async () => {
     const zed = (await new Client(h).form<{ user: PublicUser }>('/api/auth/signup/mentor', mentorApplication({
-      displayName: 'Zed Bekele', email: 'zed@example.org', username: 'zed', password: 'mentor-pass-3', academicLevel: 'Graduate student',
+      displayName: 'Zed Bekele Ayele', email: 'zed@example.org', username: 'zed', password: 'mentor-pass-3', academicLevel: 'Graduate student',
       subjects: ['Math'], availability: week, weeklyCapacityHours: 5, timezone: NY,
     }), 201)).user;
     await admin.post(`/api/admin/approvals/mentors/${zed.id}`, { decision: 'decline' });
