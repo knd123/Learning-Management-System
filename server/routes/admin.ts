@@ -12,7 +12,7 @@ import { usersById } from '../services/access.ts';
 import { curriculumVersions } from '../services/curriculum.ts';
 import { sendEmail } from '../services/email.ts';
 import { runScheduledJobs, type JobResult } from '../services/jobs.ts';
-import { agreementFor, agreementHtml, agreementRows, sendAgreement } from '../services/agreements.ts';
+import { agreementFor, agreementHtml, agreementRows, currentDraft, draftAgreement, draftAllAgreements, sendAgreement } from '../services/agreements.ts';
 import { approveParentRequest, declineParentRequest, decideMentor, isApprovedMentor, requestMentorCv } from '../services/accounts.ts';
 import { decideReward } from '../services/rewards.ts';
 import { committedHours } from '../services/matching.ts';
@@ -562,7 +562,7 @@ export function adminRoutes(deps: Deps): Router {
     }),
   );
 
-  // Mentors' contractor agreements: who has signed, who is waiting, and sending one (again).
+  // Mentors' contractor agreements: drafts for the team to review, who has signed, who is waiting, and sending one (again).
   const agreementMentor = async (id: string) => {
     const mentor = await deps.store.get<UserRecord>(C.users, id);
     if (!mentor || mentor.role !== 'mentor') throw notFound('Mentor');
@@ -574,21 +574,36 @@ export function adminRoutes(deps: Deps): Router {
       res.json(await agreementRows(deps));
     }),
   );
+  // Drafts an agreement for every approved mentor who has none; nobody is emailed until the team sends each one.
+  router.post(
+    '/agreements/draft-all',
+    h(async (req, res) => {
+      const drafted = await draftAllAgreements(deps, { effectiveDate: req.body?.effectiveDate });
+      res.json({ drafted: drafted.length, rows: await agreementRows(deps) });
+    }),
+  );
   router.get(
     '/agreements/:mentorId',
     h(async (req, res) => {
       const mentor = await agreementMentor(req.params.mentorId);
-      const detail: AgreementDetail = { mentor: toAdminUser(mentor), agreement: await agreementFor(deps, mentor.id) };
+      const detail: AgreementDetail = { mentor: toAdminUser(mentor), agreement: await currentDraft(deps, mentor, await agreementFor(deps, mentor.id)) };
       res.json(detail);
     }),
   );
   router.get(
     '/agreements/:mentorId/document',
     h(async (req, res) => {
-      const agreement = await agreementFor(deps, (await agreementMentor(req.params.mentorId)).id);
+      const mentor = await agreementMentor(req.params.mentorId);
+      const agreement = await currentDraft(deps, mentor, await agreementFor(deps, mentor.id));
       if (!agreement) throw notFound('Agreement');
       res.setHeader('Cache-Control', 'no-store');
       res.type('html').send(agreementHtml(agreement));
+    }),
+  );
+  router.post(
+    '/agreements/:mentorId/draft',
+    h(async (req, res) => {
+      res.json(await draftAgreement(deps, await agreementMentor(req.params.mentorId), { effectiveDate: req.body?.effectiveDate }));
     }),
   );
   router.post(

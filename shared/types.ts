@@ -593,9 +593,12 @@ export interface MentorAgreement {
   body: import('./agreement.ts').AgreementBlock[];
   /** Signed for Abugida Education on the effective date. */
   company: { name: string; signatory: string; title: string; signedDate: string };
-  status: 'awaiting_signature' | 'signed';
-  /** When the mentor was last emailed to sign; reminders count from here. */
-  sentAt: string;
+  /** A draft is for the team to review: the mentor can't see it and isn't emailed until the team sends it. */
+  status: 'draft' | 'awaiting_signature' | 'signed';
+  /** When the team drafted it, if it started as a draft. */
+  draftedAt?: string;
+  /** When the mentor was last emailed to sign; reminders count from here. Not set on drafts. */
+  sentAt?: string;
   /** Reminder emails sent, by hours after `sentAt` ("24", "48"). */
   reminders?: Record<string, string>;
   signature?: {

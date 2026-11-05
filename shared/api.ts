@@ -650,6 +650,7 @@ export interface AgreementRow {
   approvedAt?: string;
   status: MentorAgreement['status'] | 'not_sent';
   effectiveDate?: string;
+  draftedAt?: string;
   sentAt?: string;
   /** Reminders sent so far, in hours after sending (24, 48). */
   remindersSent: number[];

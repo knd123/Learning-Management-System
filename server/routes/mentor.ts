@@ -22,7 +22,7 @@ import type { Deps } from '../deps.ts';
 import { badRequest, forbidden, h, HttpError, httpUrl, isoDate, jsonField, notFound, num, str } from '../http.ts';
 import { courseForTeacher, coursesFor, homeworkForTeacher, quizForTeacher, sessionForTeacher, usersById } from '../services/access.ts';
 import { mentorRequestsFor } from '../services/pairing.ts';
-import { agreementFor, agreementHtml, signAgreement } from '../services/agreements.ts';
+import { agreementHtml, mentorsAgreement, signAgreement } from '../services/agreements.ts';
 import { AiUnavailableError } from '../services/ai.ts';
 import { currentCurriculum, curriculumEditPermission, curriculumVersions, curriculumWindow, saveCurriculum } from '../services/curriculum.ts';
 import { linkAttachments, saveUpload } from '../services/files.ts';
@@ -121,7 +121,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
   // The mentor's Independent Contractor Agreement: read it, print it, and sign it by typing their legal name.
   const ownAgreement = async (user: UserRecord) => {
     if (user.role !== 'mentor') throw forbidden('Only mentors have a contractor agreement.');
-    return agreementFor(deps, user.id);
+    return mentorsAgreement(deps, user.id);
   };
   router.get(
     '/agreement',
@@ -248,7 +248,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const studentIds = [...new Set(courses.flatMap((c) => c.studentIds))];
       const overview: MentorOverview = {
         approved: user.role === 'admin' || user.mentorStatus !== 'pending',
-        agreementStatus: user.role === 'mentor' ? (await agreementFor(deps, user.id))?.status : undefined,
+        agreementStatus: user.role === 'mentor' ? (await mentorsAgreement(deps, user.id))?.status : undefined,
         students: studentIds
           .map((id) => people.get(id))
           .filter((u): u is UserRecord => Boolean(u))

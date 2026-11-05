@@ -190,3 +190,89 @@ describe('a mentor approved before agreements existed', () => {
     }
   });
 });
+
+describe('drafting agreements for mentors approved earlier, for the team to review and send', () => {
+  let h: Harness;
+  let admin: Client;
+  let abel: PublicUser;
+  let bisrat: PublicUser;
+  let bisratClient: Client;
+  const rows = () => admin.get<AgreementRow[]>('/api/admin/agreements');
+  const emailsTo = (who: string) => h.mailer.sent.filter((e) => e.to.includes(who));
+  const tick = () => fetch(`${h.baseUrl}/api/cron/tick`, { method: 'POST', headers: { 'x-cron-secret': 'cron-secret' } }).then((r) => r.json() as Promise<{ agreementReminders: number }>);
+
+  before(async () => {
+    h = await startHarness('2026-11-05T12:00:00Z');
+    admin = new Client(h);
+    const creds = await seedAdmin(h);
+    await admin.login(creds.username, creds.password);
+    await admin.put('/api/admin/settings', { timezone: NY });
+    const mentor = async (username: string, displayName: string) =>
+      (await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'mentor', username, password: 'mentor-pass-1', displayName, email: `${username}@example.org`, subjects: ['Math'], timezone: ADDIS }, 201)).user;
+    abel = await mentor('abel', 'Abel Haile Mariam');
+    bisrat = await mentor('bisrat', 'Bisrat Belayneh');
+    bisratClient = new Client(h);
+    await bisratClient.login('bisrat', 'mentor-pass-1');
+    // One applicant still waiting for approval: no agreement for them.
+    await new Client(h).form('/api/auth/signup/mentor', mentorApplication({
+      displayName: 'Hana Girma Tesfaye', email: 'hana@example.org', academicLevel: "Bachelor's degree", subjects: ['Math'],
+      availability: [{ weekday: 2, start: '20:30', end: '23:30' }], weeklyCapacityHours: 6, timezone: ADDIS, username: 'hana', password: 'hana-pass-12',
+    }), 201);
+  });
+  after(() => h.close());
+
+  it('drafts one for every approved mentor without one, whatever their names, and emails nobody', async () => {
+    const sentBefore = h.mailer.sent.length;
+    const res = await admin.post<{ drafted: number; rows: AgreementRow[] }>('/api/admin/agreements/draft-all');
+    assert.equal(res.drafted, 2);
+    assert.deepEqual(res.rows.map((r) => [r.mentorName, r.status, r.effectiveDate, r.draftedAt, r.sentAt]), [
+      ['Abel Haile Mariam', 'draft', '2026-11-05', '2026-11-05T12:00:00.000Z', undefined],
+      ['Bisrat Belayneh', 'draft', '2026-11-05', '2026-11-05T12:00:00.000Z', undefined],
+    ]);
+    assert.equal(h.mailer.sent.length, sentBefore, 'no emails');
+    assert.equal((await admin.post<{ drafted: number }>('/api/admin/agreements/draft-all')).drafted, 0, 'drafting again adds nothing');
+    assert.match((await admin.post<{ error: string }>(`/api/admin/agreements/${abel.id}/draft`, {}, 400)).error, /already has an agreement/);
+  });
+
+  it('keeps drafts from the mentor: nothing to see, sign or be reminded of', async () => {
+    assert.equal((await bisratClient.get<{ agreement: MentorAgreement | null }>('/api/mentor/agreement')).agreement, null);
+    await bisratClient.get('/api/mentor/agreement/document', 404);
+    await bisratClient.post('/api/mentor/agreement/sign', { name: 'Bisrat Belayneh', agree: true }, 404);
+    assert.equal((await bisratClient.get<MentorOverview>('/api/mentor/overview')).agreementStatus, undefined);
+    assert.equal((await bisratClient.get<{ notifications: AppNotification[] }>('/api/notifications')).notifications.length, 0);
+    h.clock.now = new Date('2026-11-08T12:00:00Z');
+    assert.equal((await tick()).agreementReminders, 0);
+  });
+
+  it('shows the team the draft, following a corrected name', async () => {
+    const page = await admin.get<string>(`/api/admin/agreements/${bisrat.id}/document`);
+    assert.ok(page.includes('Bisrat Belayneh (the “Contractor”)'));
+    await admin.patch(`/api/admin/users/${bisrat.id}`, { displayName: 'Bisrat Belayneh Kebede' });
+    const { agreement } = await admin.get<AgreementDetail>(`/api/admin/agreements/${bisrat.id}`);
+    assert.deepEqual([agreement?.status, agreement?.contractorName], ['draft', 'Bisrat Belayneh Kebede']);
+    assert.ok((await admin.get<string>(`/api/admin/agreements/${bisrat.id}/document`)).includes('Bisrat Belayneh Kebede (the “Contractor”)'));
+  });
+
+  it('sends a draft when the team clicks Send: the mentor is emailed, can sign, and is reminded', async () => {
+    h.clock.now = new Date('2026-11-09T15:00:00Z');
+    const { agreement, emailStatus } = await admin.post<AgreementSendResult>(`/api/admin/agreements/${abel.id}/send`);
+    assert.deepEqual([agreement.status, agreement.effectiveDate, agreement.draftedAt, agreement.sentAt, emailStatus], ['awaiting_signature', '2026-11-05', '2026-11-05T12:00:00.000Z', '2026-11-09T15:00:00.000Z', 'logged']);
+    assert.deepEqual(emailsTo('abel@example.org').map((e) => e.subject), ['Please sign your Abugida Education contractor agreement']);
+
+    const sent = await admin.post<AgreementSendResult>(`/api/admin/agreements/${bisrat.id}/send`, { effectiveDate: '2026-10-27' });
+    assert.deepEqual([sent.agreement.contractorName, sent.agreement.effectiveDate], ['Bisrat Belayneh Kebede', '2026-10-27']);
+    const seen = (await bisratClient.get<{ agreement: MentorAgreement | null }>('/api/mentor/agreement')).agreement;
+    assert.deepEqual([seen?.status, seen?.contractorName], ['awaiting_signature', 'Bisrat Belayneh Kebede']);
+
+    h.clock.now = new Date('2026-11-10T15:00:00Z');
+    assert.equal((await tick()).agreementReminders, 2, 'both reminded 24 hours after sending');
+    assert.deepEqual((await rows()).map((r) => [r.mentorName, r.status]), [['Abel Haile Mariam', 'awaiting_signature'], ['Bisrat Belayneh Kebede', 'awaiting_signature']]);
+  });
+
+  it('can draft one mentor at a time too', async () => {
+    const { user } = await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'mentor', username: 'ruth', password: 'mentor-pass-1', displayName: 'Ruth Berhanu', email: 'ruth@example.org', subjects: ['Math'], timezone: ADDIS }, 201);
+    const draft = await admin.post<MentorAgreement>(`/api/admin/agreements/${user.id}/draft`, { effectiveDate: '2026-10-29' });
+    assert.deepEqual([draft.status, draft.effectiveDate, draft.sentAt], ['draft', '2026-10-29', undefined]);
+    assert.equal((await rows())[0].mentorName, 'Ruth Berhanu', 'drafts to review come first');
+  });
+});

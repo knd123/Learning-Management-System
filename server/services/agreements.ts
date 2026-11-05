@@ -19,6 +19,69 @@ export async function agreementFor(deps: Deps, mentorId: string): Promise<Mentor
   return deps.store.get<MentorAgreement>(C.agreements, agreementIdFor(mentorId));
 }
 
+/** The agreement as the mentor may see it: drafts stay with the team until they are sent. */
+export async function mentorsAgreement(deps: Deps, mentorId: string): Promise<MentorAgreement | null> {
+  const agreement = await agreementFor(deps, mentorId);
+  return agreement && agreement.status !== 'draft' ? agreement : null;
+}
+
+/** The agreement text for this mentor, with their name and the effective date filled in. */
+function written(mentor: UserRecord, effectiveDate: string): Pick<MentorAgreement, 'templateVersion' | 'title' | 'contractorName' | 'effectiveDate' | 'body' | 'company'> {
+  const contractorName = mentor.displayName.trim().replace(/\s+/g, ' ');
+  return {
+    templateVersion: ICA_VERSION,
+    title: ICA_TITLE,
+    contractorName,
+    effectiveDate,
+    body: icaBody({ contractorName, effectiveDate }),
+    company: { name: ICA_COMPANY, signatory: ICA_COMPANY_SIGNATORY.name, title: ICA_COMPANY_SIGNATORY.title, signedDate: effectiveDate },
+  };
+}
+
+/** An effective date the team chose (YYYY-MM-DD, not in the future), or undefined to use the default. */
+function chosenDate(value: unknown, today: string): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const chosen = String(value);
+  if (!isValidYmd(chosen)) throw badRequest('Effective date must be a date like 2026-11-05.');
+  if (chosen > today) throw badRequest('The effective date can’t be in the future.');
+  return chosen;
+}
+
+/**
+ * Writes a draft of the mentor's agreement for the team to review, without telling the mentor.
+ * The effective date is the day they were approved if the portal knows it, otherwise the date the
+ * team chose (default: today). The team sends it when ready.
+ */
+export async function draftAgreement(deps: Deps, mentor: UserRecord, opts: { effectiveDate?: unknown } = {}): Promise<MentorAgreement> {
+  if (!isWorkingMentor(mentor)) throw badRequest(`${mentor.displayName} is not an approved, active mentor.`);
+  if (await agreementFor(deps, mentor.id)) throw badRequest(`${mentor.displayName} already has an agreement.`);
+  const settings = await getSettings(deps.store);
+  const now = deps.now().toISOString();
+  const effectiveDate = chosenDate(opts.effectiveDate, ymdInZone(new Date(now), settings.timezone)) || ymdInZone(new Date(mentor.approvedAt || now), settings.timezone);
+  const draft: MentorAgreement = { id: agreementIdFor(mentor.id), mentorId: mentor.id, ...written(mentor, effectiveDate), status: 'draft', draftedAt: now, createdAt: now, updatedAt: now };
+  await deps.store.put(C.agreements, draft);
+  return draft;
+}
+
+/** Drafts an agreement for every approved, active mentor who has none yet. */
+export async function draftAllAgreements(deps: Deps, opts: { effectiveDate?: unknown } = {}): Promise<MentorAgreement[]> {
+  const mentors = (await deps.store.find<UserRecord>(C.users, { role: 'mentor' })).filter(isWorkingMentor);
+  const drafted: MentorAgreement[] = [];
+  for (const mentor of mentors.sort((a, b) => a.displayName.localeCompare(b.displayName))) {
+    if (await agreementFor(deps, mentor.id)) continue;
+    drafted.push(await draftAgreement(deps, mentor, opts));
+  }
+  return drafted;
+}
+
+/** A draft follows the mentor's current name (corrected on the People page), so the team reviews what will be sent. */
+export async function currentDraft(deps: Deps, mentor: UserRecord, agreement: MentorAgreement | null): Promise<MentorAgreement | null> {
+  if (agreement?.status !== 'draft') return agreement;
+  const fresh = written(mentor, agreement.effectiveDate);
+  if (fresh.contractorName === agreement.contractorName && fresh.templateVersion === agreement.templateVersion) return agreement;
+  return (await deps.store.patch<MentorAgreement>(C.agreements, agreement.id, { ...fresh, updatedAt: deps.now().toISOString() }))!;
+}
+
 /** Approved (or team-added) mentors whose account is active. */
 function isWorkingMentor(m: UserRecord): boolean {
   return m.role === 'mentor' && m.active && m.mentorStatus !== 'pending' && m.mentorStatus !== 'declined';
@@ -34,7 +97,7 @@ async function askToSign(deps: Deps, mentor: UserRecord, agreement: MentorAgreem
   const org = settings.organizationName;
   const link = `${deps.appUrl}/mentor/agreement`;
   const name = firstName(mentor.displayName);
-  const sent = dayIn(agreement.sentAt, mentor.timezone || ADDIS);
+  const sent = dayIn(agreement.sentAt || agreement.updatedAt, mentor.timezone || ADDIS);
   const last = ICA_REMINDER_HOURS[ICA_REMINDER_HOURS.length - 1];
   const copy =
     ask === 'welcome'
@@ -86,9 +149,10 @@ async function askToSign(deps: Deps, mentor: UserRecord, agreement: MentorAgreem
 
 /**
  * Writes the mentor's agreement (their legal name, effective date = the day they were approved)
- * and emails them to sign it. Sending again before it is signed rewrites it with their current
- * name, keeps the effective date, and starts the 24- and 48-hour reminders over. For mentors
- * approved before agreements existed, the team picks the effective date (default: today).
+ * and emails them to sign it. Sending a draft, or sending again before it is signed, rewrites it
+ * with their current name, keeps the effective date (unless the team picks another), and starts the
+ * 24- and 48-hour reminders over. For mentors approved before agreements existed, the team picks the
+ * effective date (default: today).
  */
 export async function sendAgreement(deps: Deps, mentor: UserRecord, opts: { welcome?: boolean; effectiveDate?: unknown } = {}): Promise<AgreementSendResult> {
   if (!isWorkingMentor(mentor)) throw badRequest(`${mentor.displayName} is not an approved, active mentor.`);
@@ -96,25 +160,13 @@ export async function sendAgreement(deps: Deps, mentor: UserRecord, opts: { welc
   if (existing?.status === 'signed') throw badRequest(`${mentor.displayName} already signed their agreement on ${longDate(existing.signature!.signedDate)}.`);
   const settings = await getSettings(deps.store);
   const now = deps.now().toISOString();
-  const today = ymdInZone(new Date(now), settings.timezone);
-  let chosen: string | undefined;
-  if (opts.effectiveDate !== undefined && opts.effectiveDate !== null && opts.effectiveDate !== '') {
-    chosen = String(opts.effectiveDate);
-    if (!isValidYmd(chosen)) throw badRequest('Effective date must be a date like 2026-11-05.');
-    if (chosen > today) throw badRequest('The effective date can’t be in the future.');
-  }
-  const effectiveDate = chosen || existing?.effectiveDate || ymdInZone(new Date(mentor.approvedAt || now), settings.timezone);
-  const contractorName = mentor.displayName.trim().replace(/\s+/g, ' ');
+  const effectiveDate = chosenDate(opts.effectiveDate, ymdInZone(new Date(now), settings.timezone)) || existing?.effectiveDate || ymdInZone(new Date(mentor.approvedAt || now), settings.timezone);
   const agreement: MentorAgreement = {
     id: agreementIdFor(mentor.id),
     mentorId: mentor.id,
-    templateVersion: ICA_VERSION,
-    title: ICA_TITLE,
-    contractorName,
-    effectiveDate,
-    body: icaBody({ contractorName, effectiveDate }),
-    company: { name: ICA_COMPANY, signatory: ICA_COMPANY_SIGNATORY.name, title: ICA_COMPANY_SIGNATORY.title, signedDate: effectiveDate },
+    ...written(mentor, effectiveDate),
     status: 'awaiting_signature',
+    draftedAt: existing?.draftedAt,
     sentAt: now,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
@@ -131,7 +183,7 @@ export async function signAgreement(
   mentor: UserRecord,
   input: { name: unknown; drawing: unknown; agree: unknown; ip?: string; userAgent?: string },
 ): Promise<MentorAgreement> {
-  const agreement = await agreementFor(deps, mentor.id);
+  const agreement = await mentorsAgreement(deps, mentor.id);
   if (!agreement) throw notFound('Agreement');
   if (agreement.status === 'signed') throw badRequest('You already signed this agreement.');
   const typed = typeof input.name === 'string' ? input.name.trim().replace(/\s+/g, ' ') : '';
@@ -193,6 +245,7 @@ export async function sendAgreementReminders(deps: Deps): Promise<number> {
   const waiting = await deps.store.find<MentorAgreement>(C.agreements, { status: 'awaiting_signature' });
   let sent = 0;
   for (const agreement of waiting) {
+    if (!agreement.sentAt) continue;
     const age = now.getTime() - new Date(agreement.sentAt).getTime();
     const due = ICA_REMINDER_HOURS.filter((h) => age >= h * ONE_HOUR).pop();
     if (!due || agreement.reminders?.[String(due)]) continue;
@@ -205,7 +258,7 @@ export async function sendAgreementReminders(deps: Deps): Promise<number> {
       await notifyAdmins(
         deps,
         `Agreement not signed yet: ${mentor.displayName}`,
-        `It was sent ${dayIn(agreement.sentAt, mentor.timezone || ADDIS)}, and ${firstName(mentor.displayName)} has been reminded at ${ICA_REMINDER_HOURS.map((h) => `${h}`).join(' and ')} hours.`,
+        `It was sent ${dayIn(agreement.sentAt!, mentor.timezone || ADDIS)}, and ${firstName(mentor.displayName)} has been reminded at ${ICA_REMINDER_HOURS.map((h) => `${h}`).join(' and ')} hours.`,
         `/admin/agreements/${mentor.id}`,
       );
     }
@@ -218,7 +271,8 @@ export async function sendAgreementReminders(deps: Deps): Promise<number> {
 export async function agreementRows(deps: Deps): Promise<AgreementRow[]> {
   const [mentors, agreements] = await Promise.all([deps.store.find<UserRecord>(C.users, { role: 'mentor' }), deps.store.find<MentorAgreement>(C.agreements)]);
   const byMentor = new Map(agreements.map((a) => [a.mentorId, a]));
-  const order = { awaiting_signature: 0, not_sent: 1, signed: 2 } as const;
+  // Drafts waiting for the team's review first.
+  const order = { draft: 0, awaiting_signature: 1, not_sent: 2, signed: 3 } as const;
   return mentors
     .filter((m) => isWorkingMentor(m) || byMentor.has(m.id))
     .map((m): AgreementRow => {
@@ -231,6 +285,7 @@ export async function agreementRows(deps: Deps): Promise<AgreementRow[]> {
         approvedAt: m.approvedAt,
         status: a?.status || 'not_sent',
         effectiveDate: a?.effectiveDate,
+        draftedAt: a?.draftedAt,
         sentAt: a?.sentAt,
         remindersSent: Object.keys(a?.reminders || {}).map(Number).sort((x, y) => x - y),
         signedAt: a?.signature?.signedAt,
