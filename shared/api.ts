@@ -96,6 +96,8 @@ export interface PendingFeedback {
 export interface MentorSessionView extends SessionView {
   feedback?: Array<{ rating: number; comment: string; studentName: string; createdAt: string }>;
   notHeld?: import('./types.ts').ClassNotHeld;
+  /** The report was sent without a video because of technical issues. */
+  noVideo?: import('./types.ts').ClassNoVideo;
   studentNames: string[];
   report?: SessionReport;
   recordingUrl?: string;
@@ -478,6 +480,8 @@ export interface ClassReportRow {
   slidesName?: string;
   homeworkTitle?: string;
   hasRecording: boolean;
+  /** No video: the mentor reported technical issues (and hasn't added one since). */
+  noVideo: boolean;
   reviewedAt?: string;
   reviewedByName?: string;
 }
@@ -496,6 +500,8 @@ export interface ClassReportDetail {
   attendance: Array<{ studentName: string; mark: AttendanceMark; joinedAt?: string }>;
   homework?: Homework & { submissions: Array<{ studentName: string; submittedAt?: string; score?: number; reviewedAt?: string }> };
   recording?: { url: string; addedAt: string; addedByName: string; availableUntil: string };
+  /** The mentor reported no video because of technical issues. */
+  noVideo?: { note?: string; reportedAt: string; reportedByName: string };
   feedback: Array<{ studentName: string; rating: number; comment: string; createdAt: string }>;
 }
 

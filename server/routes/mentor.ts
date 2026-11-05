@@ -35,6 +35,7 @@ import { classFileProblem } from '../../shared/classes.ts';
 import { cvProblem, MAX_CV_MB, MAX_PHOTO_MB, photoProblem } from '../../shared/profile.ts';
 import { sendClassReport, tellTeamAboutReport } from '../services/classReports.ts';
 import { reportNotHeld, restoreClass } from '../services/notHeld.ts';
+import { reportNoVideo } from '../services/noVideo.ts';
 import { attachRecording, recordingLink } from '../services/recordings.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
@@ -500,8 +501,11 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const tooBig = (files.slides?.[0] && classFileProblem(files.slides[0], 'slides')) || (files.homeworkFiles || []).map((f) => classFileProblem(f, 'worksheet')).find(Boolean);
       if (tooBig) throw badRequest(tooBig);
       const recordingUrl = await recordingLink(deps, req.body?.recordingUrl, false);
-      if (!recordingUrl && !session.recording && course.requiresRecording) {
-        throw badRequest("Paste the link to this class's recording. Upload it to the student's folder in your Google Drive first.");
+      // "No video due to technical issues" stands in for the recording; the team is told to review it.
+      const noVideo = !recordingUrl && !session.recording && ['true', '1', 'on'].includes(String(req.body?.noVideo || ''));
+      const noVideoNote = noVideo ? str(req.body?.noVideoNote, 'What happened', { max: 1000 }) : '';
+      if (!recordingUrl && !session.recording && !noVideo && course.requiresRecording) {
+        throw badRequest("Paste the link to this class's recording, or choose “No video due to technical issues”. Upload it to the student's folder in your Google Drive first.");
       }
 
       // Every class that took place has homework: new (with its worksheet) or already assigned.
@@ -551,6 +555,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       if (recordingUrl && recordingUrl !== session.recording?.url) {
         updated = (await attachRecording(deps, updated, course, recordingUrl, req.user!, await getSettings(deps.store))).session;
       }
+      if (noVideo) updated = await reportNoVideo(deps, req.user!, updated, course, noVideoNote);
       // The first report goes to the student and the family; later edits don't send it again.
       if (!session.report) {
         await sendClassReport(deps, updated, course, homework);

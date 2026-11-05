@@ -1,6 +1,6 @@
-import { Check, Minus } from 'lucide-react';
+import { Check, Minus, VideoOff } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import type { ClassReportRow } from '../../../shared/api.ts';
 import type { PublicUser } from '../../../shared/types.ts';
 import { Badge, Checkbox, ErrorBox, Loading, PageHeader, Select, Table } from '../../components/ui.tsx';
@@ -28,8 +28,10 @@ function Included({ yes, label }: { yes: boolean; label: string }) {
 /** Every class report mentors submit, for the team's quality control. */
 export default function AdminClassReports() {
   const navigate = useNavigate();
-  const [days, setDays] = useState('30');
-  const [mentorId, setMentorId] = useState('');
+  // Links from team notices can open the list filtered, e.g. ?mentor=<id>&days=30.
+  const [params] = useSearchParams();
+  const [days, setDays] = useState(() => (['7', '30', '90', '0'].includes(params.get('days') || '') ? params.get('days')! : '30'));
+  const [mentorId, setMentorId] = useState(() => params.get('mentor') || '');
   const [toReview, setToReview] = useState(false);
   const { data, error, loading, reload } = useApi<ClassReportRow[]>(`/api/admin/class-reports?days=${days}&mentorId=${encodeURIComponent(mentorId)}&reviewed=${toReview ? 'no' : 'all'}`);
   const mentors = useApi<PublicUser[]>('/api/admin/users?role=mentor');
@@ -112,7 +114,13 @@ export default function AdminClassReports() {
                     <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
                       <Included yes={Boolean(r.slidesName)} label="Slides" />
                       <Included yes={Boolean(r.homeworkTitle)} label="Homework" />
-                      <Included yes={r.hasRecording} label="Recording" />
+                      {r.noVideo ? (
+                        <span className="inline-flex items-center gap-1 font-medium text-amber-800">
+                          <VideoOff className="size-3.5" aria-hidden /> No video (technical issues)
+                        </span>
+                      ) : (
+                        <Included yes={r.hasRecording} label="Recording" />
+                      )}
                     </span>
                   </td>
                   <td>{r.reviewedAt ? <Badge tone="green">Reviewed</Badge> : <Badge tone="amber">To review</Badge>}</td>

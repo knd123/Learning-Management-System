@@ -88,7 +88,8 @@ export async function sendClassReport(deps: Deps, session: ClassSession, course:
 /** Tells the Abugida team a class report came in, linking to the whole report for quality control. */
 export async function tellTeamAboutReport(deps: Deps, session: ClassSession, course: Course, mentorName: string): Promise<void> {
   const settings = await getSettings(deps.store);
-  await notifyAdmins(deps, `Class report: ${course.title}`, `${mentorName} reported the class on ${day(session.startAt, settings.timezone)}. See the slides, homework and recording.`, `/admin/class-reports/${session.id}`);
+  const what = !session.recording && session.noVideo ? 'See the slides and homework (no video: the mentor reported technical issues).' : 'See the slides, homework and recording.';
+  await notifyAdmins(deps, `Class report: ${course.title}`, `${mentorName} reported the class on ${day(session.startAt, settings.timezone)}. ${what}`, `/admin/class-reports/${session.id}`);
 }
 
 function reportRow(session: ClassSession, course: Course, people: Map<string, UserRecord>, homework?: Homework): ClassReportRow {
@@ -110,6 +111,7 @@ function reportRow(session: ClassSession, course: Course, people: Map<string, Us
     slidesName: report.slides?.name,
     homeworkTitle: homework?.title,
     hasRecording: Boolean(session.recording),
+    noVideo: Boolean(session.noVideo && !session.recording),
     reviewedAt: session.qcReview?.at,
     reviewedByName: session.qcReview ? people.get(session.qcReview.by)?.displayName || 'Abugida team' : undefined,
   };
@@ -151,7 +153,7 @@ export async function classReportDetail(deps: Deps, sessionId: string): Promise<
     deps.store.find<ClassFeedback>(C.feedback, { sessionId: session.id }),
   ]);
   const submissions = homework ? await deps.store.find<Submission>(C.submissions, { homeworkId: homework.id }) : [];
-  const people = await usersById(deps, [report.submittedBy, ...course.studentIds, ...(session.qcReview ? [session.qcReview.by] : []), ...(session.recording ? [session.recording.addedBy] : []), ...feedback.map((f) => f.studentId)]);
+  const people = await usersById(deps, [report.submittedBy, ...course.studentIds, ...(session.qcReview ? [session.qcReview.by] : []), ...(session.recording ? [session.recording.addedBy] : []), ...(session.noVideo ? [session.noVideo.reportedBy] : []), ...feedback.map((f) => f.studentId)]);
   const name = (id: string) => people.get(id)?.displayName || 'Student';
   return {
     row: reportRow(session, course, people, homework || undefined),
@@ -174,6 +176,9 @@ export async function classReportDetail(deps: Deps, sessionId: string): Promise<
       : undefined,
     recording: session.recording
       ? { url: session.recording.url, addedAt: session.recording.addedAt, addedByName: people.get(session.recording.addedBy)?.displayName || 'Mentor', availableUntil: session.recording.availableUntil }
+      : undefined,
+    noVideo: session.noVideo
+      ? { note: session.noVideo.note, reportedAt: session.noVideo.reportedAt, reportedByName: people.get(session.noVideo.reportedBy)?.displayName || 'Mentor' }
       : undefined,
     feedback: feedback.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((f) => ({ studentName: name(f.studentId), rating: f.rating, comment: f.comment, createdAt: f.createdAt })),
   };

@@ -57,7 +57,8 @@ export function mentorSessionView(session: ClassSession, course: Course, now: Da
     recordingUrl: session.recording?.url,
     remindersSent: Object.keys(session.reminders || {}).sort((a, b) => Number(a) - Number(b)),
     needsReport: ended && session.status !== 'cancelled' && !session.report,
-    needsRecording: ended && session.status !== 'cancelled' && course.requiresRecording && !session.recording && withinWindow,
+    noVideo: session.noVideo,
+    needsRecording: ended && session.status !== 'cancelled' && course.requiresRecording && !session.recording && !session.noVideo && withinWindow,
   };
 }
 

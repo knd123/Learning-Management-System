@@ -98,7 +98,7 @@ export function adminRoutes(deps: Deps): Router {
         if (start >= now.getTime() && start < weekAhead) sessionsThisWeek++;
         if (end <= now.getTime() && end > weekAgo) {
           if (!s.report) pendingReports++;
-          if (courseById.get(s.courseId)?.requiresRecording && recordingState(s, now) === 'none' && end > now.getTime() - settings.recordingAccessDays * ONE_DAY) pendingRecordings++;
+          if (courseById.get(s.courseId)?.requiresRecording && recordingState(s, now) === 'none' && !s.noVideo && end > now.getTime() - settings.recordingAccessDays * ONE_DAY) pendingRecordings++;
         }
       }
       // Classes going on now or starting within a day, for the team to join from the dashboard.

@@ -1,4 +1,4 @@
-import { CheckCircle2, ExternalLink, Star } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Star, VideoOff } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useParams } from 'react-router';
 import type { ClassReportDetail } from '../../../shared/api.ts';
@@ -198,9 +198,20 @@ export default function AdminClassReport() {
                   ]}
                 />
               </div>
+            ) : data.noVideo ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">
+                <p className="flex items-center gap-2 font-semibold text-amber-900">
+                  <VideoOff className="size-4" aria-hidden /> No video: the mentor reported technical issues
+                </p>
+                {data.noVideo.note && <p className="text-ink">“{data.noVideo.note}”</p>}
+                <p className="text-xs text-ink-muted">
+                  Reported {fmtDateTime(data.noVideo.reportedAt)} by {data.noVideo.reportedByName}.
+                </p>
+              </div>
             ) : (
               <p className="text-sm text-ink-muted">No recording link yet.</p>
             )}
+            {recording && data.noVideo && <p className="mt-3 text-xs text-ink-muted">The mentor first reported no video (technical issues) on {fmtDateTime(data.noVideo.reportedAt)}, then added it.</p>}
           </Card>
 
           <Card>

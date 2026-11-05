@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { CheckCircle2, ChevronRight, FileWarning, Star, Video } from 'lucide-react';
+import { CheckCircle2, ChevronRight, FileWarning, Star, Video, VideoOff } from 'lucide-react';
 import { Link } from 'react-router';
 import type { MentorSessionView } from '../../shared/api.ts';
 import { fmtShortDay, fmtTimeRange } from '../lib/format.ts';
@@ -28,6 +28,10 @@ export function MentorSessionBadges({ session }: { session: MentorSessionView })
       ) : session.recordingUrl ? (
         <Badge tone="green">
           <CheckCircle2 className="size-3" /> Recording
+        </Badge>
+      ) : session.noVideo ? (
+        <Badge tone="gray">
+          <VideoOff className="size-3" /> No video (technical issues)
         </Badge>
       ) : null}
       {session.feedback?.map((f, i) => (

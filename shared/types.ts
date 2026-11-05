@@ -237,6 +237,17 @@ export interface ClassNotHeld {
   afterStart: boolean;
 }
 
+/**
+ * The mentor sent the class report without a video, citing technical issues. Kept even if a video
+ * is added later, because the team counts how often each mentor does this.
+ */
+export interface ClassNoVideo {
+  reason: 'technical_issues';
+  note?: string;
+  reportedAt: string;
+  reportedBy: string;
+}
+
 export interface ClassSession {
   id: string;
   courseId: string;
@@ -248,6 +259,8 @@ export interface ClassSession {
   /** Set (with status "cancelled") when the mentor reports the class didn't or won't take place. */
   notHeld?: ClassNotHeld;
   meetingUrlOverride?: string;
+  /** Set when the report was sent without a video because of technical issues. */
+  noVideo?: ClassNoVideo;
   joins?: Record<string, string>; // studentId -> first join time
   report?: SessionReport;
   recording?: SessionRecording;
@@ -560,6 +573,8 @@ export type EmailKind =
   | 'class_report'
   | 'cv_request'
   | 'agreement'
+  | 'no_video'
+  | 'mentor_standards'
   | 'test';
 
 /**

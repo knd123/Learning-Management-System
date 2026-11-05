@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { CalendarX2, CheckCircle2, FolderOpen, PlayCircle, Video } from 'lucide-react';
+import { CalendarX2, CheckCircle2, FolderOpen, PlayCircle, Video, VideoOff } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { MentorCourseDetail, MentorSessionDetail } from '../../../shared/api.ts';
@@ -106,6 +106,8 @@ function ReportCard({ data, onSaved, initialHeld }: { data: MentorSessionDetail;
   const [attendance, setAttendance] = useState<Record<string, AttendanceMark>>(() => Object.fromEntries(students.map((s) => [s.id, report?.attendance[s.id] || 'present'])));
   const [slidesFile, setSlidesFile] = useState<File | null>(null);
   const [recordingUrl, setRecordingUrl] = useState(session.recordingUrl || '');
+  const [noVideo, setNoVideo] = useState(Boolean(session.noVideo && !session.recordingUrl));
+  const [noVideoNote, setNoVideoNote] = useState(session.noVideo?.note || '');
   const [hwMode, setHwMode] = useState<HomeworkMode>(report?.homeworkId ? 'existing' : 'new');
   const [existingHw, setExistingHw] = useState(report?.homeworkId || '');
   const [hw, setHw] = useState<HomeworkDraft>(emptyHomework);
@@ -136,7 +138,11 @@ function ReportCard({ data, onSaved, initialHeld }: { data: MentorSessionDetail;
       form.set('topicsCovered', topics);
       form.set('notes', notes);
       form.set('attendance', JSON.stringify(attendance));
-      form.set('recordingUrl', recordingUrl);
+      form.set('recordingUrl', noVideo ? '' : recordingUrl);
+      if (noVideo) {
+        form.set('noVideo', 'true');
+        form.set('noVideoNote', noVideoNote);
+      }
       if (slidesFile) form.set('slides', slidesFile);
       if (hwMode === 'new') {
         form.set('homework', JSON.stringify({ mode: 'new', ...homeworkPayload(hw) }));
@@ -197,6 +203,14 @@ function ReportCard({ data, onSaved, initialHeld }: { data: MentorSessionDetail;
                   </span>
                 )}
               </>
+            ) : session.noVideo ? (
+              <>
+                <span className="inline-flex items-center gap-1 font-medium text-ink">
+                  <VideoOff className="size-4" aria-hidden /> No video: technical issues
+                </span>
+                {session.noVideo.note && <span className="text-xs text-ink-soft">“{session.noVideo.note}”</span>}
+                <span className="text-xs text-ink-muted">Reported {fmtDateTime(session.noVideo.reportedAt)}; the Abugida team was told.</span>
+              </>
             ) : (
               <span className="text-amber-800">Not added yet</span>
             )}
@@ -252,7 +266,7 @@ function ReportCard({ data, onSaved, initialHeld }: { data: MentorSessionDetail;
         <Field label="What did you cover?" hint="Used for progress tracking and monthly quizzes.">
           {(fid) => <Textarea id={fid} rows={3} required value={topics} onChange={(e) => setTopics(e.target.value)} placeholder="e.g. Adding fractions with unlike denominators; word problems" />}
         </Field>
-        <RecordingField data={data} value={recordingUrl} onChange={setRecordingUrl} />
+        <RecordingField data={data} value={recordingUrl} onChange={setRecordingUrl} noVideo={noVideo} onNoVideo={setNoVideo} note={noVideoNote} onNote={setNoVideoNote} />
         <div className="flex flex-col gap-2 rounded-2xl border border-sand-200 p-4">
           <p className="text-sm font-medium">PowerPoint slides for this class</p>
           <p className="text-xs text-ink-muted">Upload the file (PowerPoint or PDF), up to {MAX_CLASS_FILE_MB} MB: the student and family can download it from the class. Using Google Slides? Choose File → Download first. Too big? Save it as a PDF.</p>
@@ -341,9 +355,48 @@ function ReportCard({ data, onSaved, initialHeld }: { data: MentorSessionDetail;
   );
 }
 
-/** The link to this class's recording file, pasted from the student's folder in the mentor's Google Drive. */
-function RecordingField({ data, value, onChange }: { data: MentorSessionDetail; value: string; onChange(v: string): void }) {
+/**
+ * The link to this class's recording file, pasted from the student's folder in the mentor's Google Drive,
+ * or, when the class wasn't recorded because of technical issues, "No video" with what happened.
+ */
+function RecordingField({
+  data,
+  value,
+  onChange,
+  noVideo,
+  onNoVideo,
+  note,
+  onNote,
+}: {
+  data: MentorSessionDetail;
+  value: string;
+  onChange(v: string): void;
+  noVideo: boolean;
+  onNoVideo(v: boolean): void;
+  note: string;
+  onNote(v: string): void;
+}) {
   const { session, course, students, recordingAccessDays } = data;
+  // Once a video is added, the class has one: no "No video" choice.
+  const canSkip = !session.recordingUrl;
+  if (noVideo && canSkip) {
+    return (
+      <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+        <p className="flex items-center gap-2 text-sm font-medium">
+          <VideoOff className="size-4" aria-hidden /> No video due to technical issues
+        </p>
+        <p className="text-sm text-ink-soft">You can send this report without the class video. The Abugida team is notified right away to review it, so only use this when the recording really failed.</p>
+        <Field label="What happened? (optional)">
+          {(fid) => <Textarea id={fid} rows={2} maxLength={1000} value={note} onChange={(e) => onNote(e.target.value)} placeholder="e.g. Zoom stopped recording halfway through; the file was empty." />}
+        </Field>
+        <div>
+          <Button type="button" variant="secondary" size="sm" onClick={() => onNoVideo(false)}>
+            <Video className="size-4" aria-hidden /> I have the video after all
+          </Button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-sand-200 p-4">
       <p className="flex items-center gap-2 text-sm font-medium">
@@ -371,6 +424,13 @@ function RecordingField({ data, value, onChange }: { data: MentorSessionDetail; 
         {(fid) => <Input id={fid} type="url" required={course.requiresRecording} value={value} onChange={(e) => onChange(e.target.value)} placeholder="https://drive.google.com/file/d/…/view" />}
       </Field>
       {session.remindersSent.length > 0 && !session.recordingUrl && <p className="text-xs text-ink-muted">Reminder emails sent at the {session.remindersSent.map((h) => `${h}h`).join(' and ')} mark.</p>}
+      {canSkip && (
+        <div className="mt-1 border-t border-sand-200 pt-3">
+          <Button type="button" variant="secondary" size="sm" onClick={() => onNoVideo(true)}>
+            <VideoOff className="size-4" aria-hidden /> No video due to technical issues
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

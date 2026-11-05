@@ -142,7 +142,8 @@ export async function sendRecordingReminders(deps: Deps, settings: Settings): Pr
   for (const course of courses) {
     const sessions = await deps.store.find<ClassSession>(C.sessions, { courseId: course.id });
     for (const session of sessions) {
-      if (session.status === 'cancelled' || session.recording) continue;
+      // No reminder when the mentor reported no video because of technical issues: the team reviews it instead.
+      if (session.status === 'cancelled' || session.recording || session.noVideo) continue;
       const ended = new Date(session.endAt).getTime();
       const age = now.getTime() - ended;
       if (age < hours[0] * ONE_HOUR || age > maxAge) continue;
