@@ -113,9 +113,9 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(start: string, opts: { ai?: AiService; maxUploadMb?: number } = {}): Promise<Harness> {
+export async function startHarness(start: string, opts: { ai?: AiService; maxUploadMb?: number; store?: Store } = {}): Promise<Harness> {
   // TEST_STORE=firestore (with FIRESTORE_EMULATOR_HOST set) runs the API tests on Firestore.
-  const store: Store = process.env.TEST_STORE === 'firestore' ? firestoreTestStore(`demo-${crypto.randomUUID().slice(0, 8)}`) : new MemoryStore();
+  const store: Store = opts.store || (process.env.TEST_STORE === 'firestore' ? firestoreTestStore(`demo-${crypto.randomUUID().slice(0, 8)}`) : new MemoryStore());
   const mailer = new LogMailer();
   const ai = new FakeAi();
   const drive = new FakeDrive();

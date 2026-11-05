@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { ClassSession, Course, Homework, Quiz, QuizAttempt, QuizSession, Settings, StudentQuizView, TopicScore } from '../../shared/types.ts';
-import { addDaysYmd, addMonths, monthInZone, zonedTimeToUtc } from '../../shared/time.ts';
+import { addDaysYmd, addMonths, monthInZone, monthStartUtc, zonedTimeToUtc } from '../../shared/time.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest } from '../http.ts';
@@ -17,7 +17,7 @@ export async function homeworkInMonth(deps: Deps, courseId: string, month: strin
 }
 
 export async function topicsInMonth(deps: Deps, courseId: string, month: string, timeZone: string): Promise<string[]> {
-  const sessions = await deps.store.find<ClassSession>(C.sessions, { courseId });
+  const sessions = await deps.store.findRange<ClassSession>(C.sessions, { courseId }, { field: 'startAt', from: monthStartUtc(month, timeZone).toISOString(), to: monthStartUtc(addMonths(month, 1), timeZone).toISOString() });
   return sessions
     .filter((s) => s.report && monthInZone(new Date(s.startAt), timeZone) === month)
     .sort((a, b) => a.startAt.localeCompare(b.startAt))

@@ -6,6 +6,7 @@ import type { PendingFeedback } from '../../shared/api.ts';
 import { api, errorMessage } from '../lib/api.ts';
 import { fmtDay, fmtTimeRange } from '../lib/format.ts';
 import { Button, ErrorBox, Field, Modal, Textarea, useToast } from './ui.tsx';
+import { useVisibleInterval } from '../lib/useVisibleInterval.ts';
 
 const SNOOZE_KEY = 'abugida:feedback-later';
 
@@ -45,16 +46,11 @@ export function FeedbackPrompt() {
     }
   }, []);
 
+  // On load (and page change), then every 10 minutes while the portal is on screen; a hidden tab doesn't ask.
   useEffect(() => {
     void load();
-    const onFocus = () => void load();
-    window.addEventListener('focus', onFocus);
-    const timer = setInterval(() => void load(), 5 * 60_000);
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      clearInterval(timer);
-    };
   }, [load]);
+  useVisibleInterval(() => void load(), 10 * 60_000);
 
   // Never interrupt a monthly quiz.
   const open = Boolean(current) && !pathname.startsWith('/student/quizzes/');

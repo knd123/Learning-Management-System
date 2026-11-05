@@ -26,7 +26,7 @@ export async function pendingFeedback(deps: Deps, student: UserRecord): Promise<
   const rated = new Set(given.map((f) => f.sessionId));
   let best: { session: ClassSession; course: Course } | null = null;
   for (const course of courses) {
-    const sessions = await deps.store.find<ClassSession>(C.sessions, { courseId: course.id });
+    const sessions = await deps.store.findRange<ClassSession>(C.sessions, { courseId: course.id }, { field: 'startAt', from: new Date(since - ONE_DAY).toISOString(), to: now.toISOString() });
     for (const session of sessions) {
       const end = new Date(session.endAt).getTime();
       if (session.status === 'cancelled' || end > now.getTime() || end < since || rated.has(session.id)) continue;

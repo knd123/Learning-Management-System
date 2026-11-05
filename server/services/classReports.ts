@@ -121,10 +121,12 @@ function reportRow(session: ClassSession, course: Course, people: Map<string, Us
 export async function classReportRows(deps: Deps, opts: { since?: Date; mentorId?: string; unreviewedOnly?: boolean } = {}): Promise<ClassReportRow[]> {
   const since = opts.since?.toISOString() || '';
   const courses = await deps.store.find<Course>(C.courses);
+  // A report is sent after its class, usually within days: classes from a month before the period cover late ones.
+  const windowed = opts.since ? await deps.store.findRange<ClassSession>(C.sessions, {}, { field: 'startAt', from: new Date(opts.since.getTime() - 31 * 86_400_000).toISOString() }) : null;
   const found = (
     await Promise.all(
       courses.map(async (course) =>
-        (await deps.store.find<ClassSession>(C.sessions, { courseId: course.id }))
+        (windowed ? windowed.filter((s) => s.courseId === course.id) : await deps.store.find<ClassSession>(C.sessions, { courseId: course.id }))
           .filter((s) => s.report && (s.report.firstSubmittedAt || s.report.submittedAt) >= since)
           .filter((s) => !opts.mentorId || s.report!.submittedBy === opts.mentorId)
           .filter((s) => !opts.unreviewedOnly || !s.qcReview)

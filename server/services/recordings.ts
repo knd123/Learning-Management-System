@@ -138,9 +138,11 @@ export async function sendRecordingReminders(deps: Deps, settings: Settings): Pr
   const maxAge = (hours[hours.length - 1] + 24) * ONE_HOUR;
   const courses = (await deps.store.find<Course>(C.courses, { active: true })).filter((c) => c.requiresRecording);
   let sent = 0;
+  // Only classes that could be due a reminder: started in the reminder window (plus a day for long classes).
+  const recent = await deps.store.findRange<ClassSession>(C.sessions, {}, { field: 'startAt', from: new Date(now.getTime() - maxAge - ONE_DAY).toISOString(), to: now.toISOString() });
 
   for (const course of courses) {
-    const sessions = await deps.store.find<ClassSession>(C.sessions, { courseId: course.id });
+    const sessions = recent.filter((s) => s.courseId === course.id);
     for (const session of sessions) {
       // No reminder when the mentor reported no video because of technical issues: the team reviews it instead.
       if (session.status === 'cancelled' || session.recording || session.noVideo) continue;

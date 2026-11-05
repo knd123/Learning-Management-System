@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import type { AdminCourseRow, AdminOverview, AgreementDetail, ApprovalCounts, CurriculumRow, HomeworkDataRow, MatchRequestRow, MentorCandidate, MentorDirectoryRow, ParentRequestRow, ReportDetail, ReportRow, RewardRow } from '../../shared/api.ts';
-import type { ClassFeedback, ClassSession, Course, EmailLog, Homework, MatchRequest, ParentLinkRequest, ParentReport, RewardRequest, ReportNarrative, Role, ScheduleSlot, Settings, Submission } from '../../shared/types.ts';
+import type { ClassFeedback, Course, EmailLog, Homework, MatchRequest, ParentLinkRequest, ParentReport, RewardRequest, ReportNarrative, Role, ScheduleSlot, Settings, Submission } from '../../shared/types.ts';
 import { isValidHm, isValidYmd, monthInZone, ONE_DAY, ymdInZone } from '../../shared/time.ts';
 import { generatePassword, hashPassword, requireRole, toAdminUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -22,7 +22,7 @@ import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../servi
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
 import { sendAccountSetupLink } from '../services/passwordReset.ts';
 import { recordingState } from '../services/recordings.ts';
-import { findClashes, joinUrl, resyncFutureSessions } from '../services/schedule.ts';
+import { findClashes, joinUrl, resyncFutureSessions, sessionsBetween } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 import { connectParents, pendingStudentSetups, resendStudentInviteForTeam } from '../services/invites.ts';
@@ -84,8 +84,11 @@ export function adminRoutes(deps: Deps): Router {
         approvalCounts(),
         pendingStudentSetups(deps),
       ]);
-      const sessionLists = await Promise.all(courses.map((c) => deps.store.find<ClassSession>(C.sessions, { courseId: c.id })));
       const courseById = new Map(courses.map((c) => [c.id, c]));
+      // Only the classes the overview counts: the past week (or the recording window, if longer) and the coming week.
+      const lookBack = Math.max(7, settings.recordingAccessDays) + 1;
+      const windowed = await sessionsBetween(deps, new Date(now.getTime() - lookBack * ONE_DAY), new Date(now.getTime() + 7 * ONE_DAY + ONE_DAY));
+      const sessionLists = [windowed.filter((s) => courseById.has(s.courseId))];
       const weekAgo = now.getTime() - 7 * ONE_DAY;
       const weekAhead = now.getTime() + 7 * ONE_DAY;
       let sessionsThisWeek = 0;

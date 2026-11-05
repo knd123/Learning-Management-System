@@ -132,6 +132,13 @@ if [ -z "$DRY_RUN" ] && [ -n "$(gcloud firestore backups schedules list --databa
 else
   run gcloud firestore backups schedules create --database='(default)' --recurrence=daily --retention=14d --quiet
 fi
+# Lets pages and jobs read one class's sessions in a date range instead of its whole history (keeps reads in the free tier).
+if [ -z "$DRY_RUN" ] && gcloud firestore indexes composite list --format='value(fields)' 2>/dev/null | grep -q "courseId.*startAt"; then
+  note "Session date index already exists."
+else
+  run gcloud firestore indexes composite create --collection-group=sessions --query-scope=COLLECTION \
+    --field-config=field-path=courseId,order=ascending --field-config=field-path=startAt,order=ascending --async --quiet
+fi
 
 BUCKET="${PROJECT}-lms-files"
 step "File storage (gs://$BUCKET)"
@@ -250,7 +257,8 @@ fi
 # --- 7. Reminders, quizzes and reports every 10 minutes -----------------------
 step "Scheduled jobs"
 CRON_SECRET="$([ -n "$DRY_RUN" ] && echo hidden || gcloud secrets versions access latest --secret=lms-cron-secret)"
-SCHEDULE_ARGS=(--location="$REGION" --schedule="*/10 * * * *" --time-zone="Etc/UTC" --uri="$RUN_URL/api/cron/tick" --http-method=POST --attempt-deadline=900s --quiet)
+# Every 30 minutes is enough for reminders and monthly jobs, and keeps the scheduled reads low.
+SCHEDULE_ARGS=(--location="$REGION" --schedule="*/30 * * * *" --time-zone="Etc/UTC" --uri="$RUN_URL/api/cron/tick" --http-method=POST --attempt-deadline=900s --quiet)
 if exists gcloud scheduler jobs describe lms-tick --location="$REGION"; then
   echo "+ gcloud scheduler jobs update http lms-tick … (secret hidden)"
   # The job description includes the secret header, so its output is not shown.

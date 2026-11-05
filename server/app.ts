@@ -38,7 +38,7 @@ export function createApp(deps: Deps) {
     res.json({ ok: true });
   });
 
-  // Scheduled jobs: call every 5–15 minutes (Cloud Scheduler, cron, uptime pinger…).
+  // Scheduled jobs: call every 10–30 minutes (Cloud Scheduler, cron, uptime pinger…). Production runs every 30.
   app.all(
     '/api/cron/tick',
     h(async (req, res) => {

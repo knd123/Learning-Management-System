@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { CalendarClock, CheckCircle2, CircleAlert, Play, Video } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { AdminOverview, AdminUpcomingClass } from '../../../shared/api.ts';
 import { Link } from 'react-router';
 import { isLive, useNow } from '../../components/Sessions.tsx';
@@ -8,6 +8,7 @@ import { Badge, Button, ButtonLink, Card, EmptyState, ErrorBox, Loading, PageHea
 import { api, errorMessage } from '../../lib/api.ts';
 import { browserTimeZone, fmtDateTime, fmtShortDay, fmtTimeRange, sameLocalDay, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
+import { useVisibleInterval } from '../../lib/useVisibleInterval.ts';
 
 function startsIn(startAt: string, now: number): string {
   const minutes = Math.round((new Date(startAt).getTime() - now) / 60_000);
@@ -106,11 +107,8 @@ export default function AdminHome() {
   const toast = useToast();
   const { data, error, loading, reload } = useApi<AdminOverview>('/api/admin/overview');
   const [running, setRunning] = useState(false);
-  // New classes come into the 24-hour window while the page is open.
-  useEffect(() => {
-    const timer = setInterval(() => void reload(), 5 * 60_000);
-    return () => clearInterval(timer);
-  }, [reload]);
+  // New classes come into the 24-hour window while the page is open (and on screen).
+  useVisibleInterval(() => void reload(), 10 * 60_000);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox message={error || 'Could not load overview.'} onRetry={reload} />;
   const { counts, status, approvals } = data;

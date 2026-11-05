@@ -5,6 +5,7 @@ import type { PendingClassReport } from '../../shared/api.ts';
 import { api } from '../lib/api.ts';
 import { fmtDay, fmtTimeRange } from '../lib/format.ts';
 import { Button, Modal } from './ui.tsx';
+import { useVisibleInterval } from '../lib/useVisibleInterval.ts';
 
 const SNOOZE_KEY = 'abugida:class-report-later';
 
@@ -43,16 +44,11 @@ export function ClassReportPrompt() {
     }
   }, []);
 
+  // On load (and page change), then every 10 minutes while the portal is on screen; a hidden tab doesn't ask.
   useEffect(() => {
     void load();
-    const onFocus = () => void load();
-    window.addEventListener('focus', onFocus);
-    const timer = setInterval(() => void load(), 5 * 60_000);
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      clearInterval(timer);
-    };
   }, [load, pathname]);
+  useVisibleInterval(() => void load(), 10 * 60_000);
 
   // Not while the mentor is already on that class's page.
   const open = Boolean(current) && !pathname.startsWith(`/mentor/sessions/${encodeURIComponent(current?.sessionId || '')}`);

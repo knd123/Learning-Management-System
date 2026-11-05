@@ -141,7 +141,7 @@ async function generateDueReports(deps: Deps, result: JobResult) {
 
 /**
  * Everything time-based in the platform. Safe to call as often as you like
- * (every 5–15 minutes is ideal): each step is idempotent.
+ * (every 10–30 minutes; production runs every 30): each step is idempotent.
  */
 export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
   const now = deps.now();

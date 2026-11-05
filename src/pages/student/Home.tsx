@@ -1,5 +1,4 @@
 import { BookOpen, CalendarDays, ClipboardList, PlayCircle, Sparkles } from 'lucide-react';
-import { useEffect } from 'react';
 import { Link } from 'react-router';
 import type { StudentOverview } from '../../../shared/api.ts';
 import { missingStudentDetails } from '../../../shared/profile.ts';
@@ -11,16 +10,14 @@ import { api } from '../../lib/api.ts';
 import { useAuth } from '../../lib/auth.tsx';
 import { fmtDateTime, fmtDay, fmtRelative, fmtShortDay, fmtSlot, fmtTime, fmtTimeRange, firstName, greeting, monthLabel, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
+import { useVisibleInterval } from '../../lib/useVisibleInterval.ts';
 
 export default function StudentHome() {
   const { user } = useAuth();
   const { data, error, loading, reload, setData } = useApi<StudentOverview>('/api/student/overview');
   const now = useNow();
   // A page left open moves on to the next class after one ends (quietly: a failed refresh keeps what is shown).
-  useEffect(() => {
-    const timer = setInterval(() => void api.get<StudentOverview>('/api/student/overview').then(setData, () => undefined), 5 * 60_000);
-    return () => clearInterval(timer);
-  }, [setData]);
+  useVisibleInterval(() => void api.get<StudentOverview>('/api/student/overview').then(setData, () => undefined), 10 * 60_000);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox message={error || 'Could not load your dashboard.'} onRetry={reload} />;
 

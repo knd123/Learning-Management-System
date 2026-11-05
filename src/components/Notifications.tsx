@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router';
 import type { NotificationList } from '../../shared/api.ts';
 import { api } from '../lib/api.ts';
 import { fmtRelative } from '../lib/format.ts';
+import { useVisibleInterval } from '../lib/useVisibleInterval.ts';
 
 /** Bell icon with unread count and a drop-down list of recent notifications. */
 export function NotificationBell({ align = 'right' }: { align?: 'left' | 'right' }) {
@@ -14,14 +15,16 @@ export function NotificationBell({ align = 'right' }: { align?: 'left' | 'right'
   const location = useLocation();
 
   const load = useCallback(() => {
+    // The menu draws a bell for wide screens and one for phones; only the one on screen checks.
+    if (box.current && !box.current.offsetParent) return;
     api.get<NotificationList>('/api/notifications').then(setData).catch(() => undefined);
   }, []);
 
+  // Checked on each page change, and every 3 minutes while the portal is on screen (not in a hidden tab).
   useEffect(() => {
     load();
-    const timer = setInterval(load, 60_000);
-    return () => clearInterval(timer);
   }, [load, location.pathname]);
+  useVisibleInterval(load, 3 * 60_000);
 
   useEffect(() => {
     if (!open) return;

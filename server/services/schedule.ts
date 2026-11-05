@@ -43,7 +43,8 @@ export function occurrences(course: Pick<Course, 'schedule' | 'timezone' | 'star
  */
 export async function ensureSessions(deps: Deps, course: Course, from: Date, to: Date): Promise<ClassSession[]> {
   const now = deps.now();
-  const existing = await deps.store.find<ClassSession>(C.sessions, { courseId: course.id });
+  // Only this window's classes are read (a class moved out of it is fetched alone if its slot comes up).
+  const existing = await deps.store.findRange<ClassSession>(C.sessions, { courseId: course.id }, { field: 'startAt', from: from.toISOString(), to: to.toISOString() });
   const byId = new Map(existing.map((s) => [s.id, s]));
 
   if (course.active) {
@@ -86,13 +87,18 @@ function hasActivity(s: ClassSession): boolean {
 /** After a schedule change, removes untouched future sessions that no longer match the schedule. */
 export async function resyncFutureSessions(deps: Deps, course: Course): Promise<void> {
   const now = deps.now();
-  const sessions = await deps.store.find<ClassSession>(C.sessions, { courseId: course.id });
+  const sessions = await deps.store.findRange<ClassSession>(C.sessions, { courseId: course.id }, { field: 'startAt', from: now.toISOString() });
   const horizon = new Date(now.getTime() + FUTURE_HORIZON_DAYS * ONE_DAY);
   const wanted = new Set(course.active ? occurrences(course, now, horizon).map((o) => sessionIdFor(course.id, o.startAt)) : []);
   for (const s of sessions) {
     if (new Date(s.startAt) > now && !hasActivity(s) && !wanted.has(s.id)) await deps.store.remove(C.sessions, s.id);
   }
   if (course.active) await ensureSessions(deps, course, now, horizon);
+}
+
+/** Every class (of any course) starting in [from, to): one read per class in the window, however long the history. */
+export async function sessionsBetween(deps: Deps, from: Date, to: Date): Promise<ClassSession[]> {
+  return deps.store.findRange<ClassSession>(C.sessions, {}, { field: 'startAt', from: from.toISOString(), to: to.toISOString() });
 }
 
 /** URL students use to join this session. */

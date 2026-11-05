@@ -9,6 +9,13 @@ export interface FindOptions {
   arrayContains?: { field: string; value: Scalar };
 }
 
+/** Documents whose `field` (an ISO date string) is in [from, to); either end may be left open. */
+export interface Range {
+  field: string;
+  from?: string;
+  to?: string;
+}
+
 /**
  * Minimal document store used by every service. Keeping the surface this small
  * lets the same business logic run on Firestore in production and on a local
@@ -17,6 +24,11 @@ export interface FindOptions {
 export interface Store {
   get<T>(collection: string, id: string): Promise<T | null>;
   find<T>(collection: string, where?: Where, options?: FindOptions): Promise<T[]>;
+  /**
+   * Like find, but only documents whose range field falls in the range. Reads (and pays for) only
+   * those documents, so jobs and dashboards don't re-read years of history.
+   */
+  findRange<T>(collection: string, where: Where, range: Range): Promise<T[]>;
   put<T extends { id: string }>(collection: string, doc: T): Promise<T>;
   patch<T>(collection: string, id: string, changes: Partial<T>): Promise<T | null>;
   remove(collection: string, id: string): Promise<void>;
@@ -63,6 +75,11 @@ function matches(doc: Record<string, unknown>, where: Where = {}, options: FindO
   return true;
 }
 
+export function inRange(value: unknown, range: Range): boolean {
+  if (typeof value !== 'string') return false;
+  return (range.from === undefined || value >= range.from) && (range.to === undefined || value < range.to);
+}
+
 function stripUndefined<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
@@ -106,6 +123,12 @@ export class MemoryStore implements Store {
   async find<T>(collection: string, where?: Where, options?: FindOptions): Promise<T[]> {
     return Object.values(this.col(collection))
       .filter((doc) => matches(doc, where, options))
+      .map((doc) => structuredClone(doc) as T);
+  }
+
+  async findRange<T>(collection: string, where: Where, range: Range): Promise<T[]> {
+    return Object.values(this.col(collection))
+      .filter((doc) => matches(doc, where) && inRange(doc[range.field], range))
       .map((doc) => structuredClone(doc) as T);
   }
 

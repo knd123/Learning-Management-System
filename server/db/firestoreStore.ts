@@ -1,6 +1,8 @@
 import type { App } from 'firebase-admin/app';
 import { FieldValue, getFirestore, type Firestore, type Query } from 'firebase-admin/firestore';
-import type { FindOptions, Store, Where } from './store.ts';
+import { inRange, type FindOptions, type Range, type Store, type Where } from './store.ts';
+
+let warnedMissingIndex = false;
 
 /** Firestore-backed store used in production (Cloud Run uses application default credentials). */
 export class FirestoreStore implements Store {
@@ -24,6 +26,26 @@ export class FirestoreStore implements Store {
     }
     const snap = await query.get();
     return snap.docs.map((d) => d.data() as T);
+  }
+
+  async findRange<T>(collection: string, where: Where, range: Range): Promise<T[]> {
+    let query: Query = this.db.collection(collection);
+    for (const [key, value] of Object.entries(where)) query = query.where(key, '==', value);
+    if (range.from !== undefined) query = query.where(range.field, '>=', range.from);
+    if (range.to !== undefined) query = query.where(range.field, '<', range.to);
+    try {
+      const snap = await query.get();
+      return snap.docs.map((d) => d.data() as T);
+    } catch (err) {
+      // An equality filter plus a range needs a composite index (deploy/gcp/deploy.sh creates it).
+      // Until it exists, read the matching documents and filter here, so nothing breaks.
+      if ((err as { code?: number }).code !== 9) throw err; // FAILED_PRECONDITION
+      if (!warnedMissingIndex) {
+        warnedMissingIndex = true;
+        console.warn(`[firestore] missing index for ${collection} (${Object.keys(where).join(', ')} + ${range.field}); reading without it`);
+      }
+      return (await this.find<Record<string, unknown>>(collection, where)).filter((d) => inRange(d[range.field], range)) as T[];
+    }
   }
 
   async put<T extends { id: string }>(collection: string, doc: T): Promise<T> {
