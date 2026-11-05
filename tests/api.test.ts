@@ -76,6 +76,8 @@ describe('a month in the life of a 1-on-1 class', () => {
     assert.equal(overview.courses[0].mentorName, 'Sara Bekele');
     assert.equal(overview.upcoming[0].startAt, '2026-10-05T20:00:00.000Z');
     assert.equal(overview.upcoming[0].joinUrl, 'https://meet.google.com/abc-defg-hij');
+    // Each class in "My classes" carries its next class, with the link for its join button.
+    assert.deepEqual([overview.courses[0].nextSession?.startAt, overview.courses[0].nextSession?.joinUrl], ['2026-10-05T20:00:00.000Z', 'https://meet.google.com/abc-defg-hij']);
     const week = await student.get(`/api/student/schedule?from=2026-10-05T00:00:00Z&to=2026-10-12T00:00:00Z`);
     assert.deepEqual(week.map((s: { startAt: string }) => s.startAt), ['2026-10-05T20:00:00.000Z', '2026-10-07T20:00:00.000Z']);
   });

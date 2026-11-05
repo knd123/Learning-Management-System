@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { CalendarClock, ChevronLeft, ChevronRight, PlayCircle, Video } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { SessionView } from '../../shared/api.ts';
 import { api } from '../lib/api.ts';
@@ -11,18 +11,30 @@ export function isLive(s: Pick<SessionView, 'startAt' | 'endAt' | 'status'>, now
   return s.status !== 'cancelled' && now >= new Date(s.startAt).getTime() - 15 * 60_000 && now <= new Date(s.endAt).getTime();
 }
 
+/** The time, kept current every 30 seconds, so a page left open lights up its join buttons when class starts. */
+export function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
+
 export function SessionStatusBadge({ session }: { session: SessionView }) {
+  const now = useNow();
   if (session.status === 'cancelled') return <Badge tone="red">Cancelled</Badge>;
-  if (isLive(session)) return <Badge tone="green">● Live now</Badge>;
+  if (isLive(session, now)) return <Badge tone="green">● Live now</Badge>;
   if (session.rescheduled) return <Badge tone="amber">Rescheduled</Badge>;
   return null;
 }
 
 /** Join button for students: opens the class link and records attendance. */
 export function JoinButton({ session, size = 'md' }: { session: SessionView; size?: 'sm' | 'md' | 'lg' }) {
+  const now = useNow();
   if (session.status === 'cancelled' || !session.joinUrl) return null;
-  const live = isLive(session);
-  const ended = Date.now() > new Date(session.endAt).getTime();
+  const live = isLive(session, now);
+  const ended = now > new Date(session.endAt).getTime();
   if (ended) return null;
   return (
     <a
@@ -55,9 +67,10 @@ export function DateBlock({ iso, muted }: { iso: string; muted?: boolean }) {
 }
 
 export function StudentSessionRow({ session, showCourse = true }: { session: SessionView; showCourse?: boolean }) {
-  const past = Date.now() > new Date(session.endAt).getTime();
+  const now = useNow();
+  const past = now > new Date(session.endAt).getTime();
   return (
-    <div className={clsx('flex flex-wrap items-center gap-4 rounded-2xl border bg-white p-4', isLive(session) ? 'border-sun ring-2 ring-sun/40' : 'border-sand-200')}>
+    <div className={clsx('flex flex-wrap items-center gap-4 rounded-2xl border bg-white p-4', isLive(session, now) ? 'border-sun ring-2 ring-sun/40' : 'border-sand-200')}>
       <DateBlock iso={session.startAt} muted={past || session.status === 'cancelled'} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
