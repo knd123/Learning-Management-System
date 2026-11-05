@@ -434,6 +434,24 @@ export interface AdminOverview {
   approvals: ApprovalCounts;
   status: SystemStatus;
   lastJobRun?: { ranAt: string; notes: string[] };
+  /** Every class happening now or starting in the next 24 hours, soonest first, so the team can join. */
+  nextDayClasses: AdminUpcomingClass[];
+}
+
+/** A class on the team's dashboard, with the link to join it. */
+export interface AdminUpcomingClass {
+  sessionId: string;
+  courseId: string;
+  courseTitle: string;
+  subject: string;
+  mentorName: string;
+  studentNames: string[];
+  startAt: string;
+  endAt: string;
+  status: ClassSession['status'];
+  rescheduled: boolean;
+  /** The class's meeting link (this class's own link if the mentor set one). */
+  joinUrl: string;
 }
 
 export interface AdminCourseRow {

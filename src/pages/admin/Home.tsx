@@ -1,11 +1,94 @@
-import { CheckCircle2, CircleAlert, Play } from 'lucide-react';
-import { useState } from 'react';
-import type { AdminOverview } from '../../../shared/api.ts';
+import clsx from 'clsx';
+import { CalendarClock, CheckCircle2, CircleAlert, Play, Video } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { AdminOverview, AdminUpcomingClass } from '../../../shared/api.ts';
 import { Link } from 'react-router';
-import { Button, ButtonLink, Card, ErrorBox, Loading, PageHeader, SectionTitle, StatTile, useToast } from '../../components/ui.tsx';
+import { isLive, useNow } from '../../components/Sessions.tsx';
+import { Badge, Button, ButtonLink, Card, EmptyState, ErrorBox, Loading, PageHeader, SectionTitle, StatTile, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { fmtDateTime } from '../../lib/format.ts';
+import { browserTimeZone, fmtDateTime, fmtShortDay, fmtTimeRange, sameLocalDay, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
+
+function startsIn(startAt: string, now: number): string {
+  const minutes = Math.round((new Date(startAt).getTime() - now) / 60_000);
+  if (minutes <= 0) return 'Starting now';
+  if (minutes < 60) return `Starts in ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return `Starts in ${hours} h${minutes % 60 ? ` ${minutes % 60} min` : ''}`;
+}
+
+function dayLabel(iso: string, now: number): string {
+  if (sameLocalDay(iso, new Date(now))) return 'Today';
+  if (sameLocalDay(iso, new Date(now + 86_400_000))) return 'Tomorrow';
+  return fmtShortDay(iso);
+}
+
+/** One class on the dashboard, with a button under it to join the class's meeting. */
+function ClassCard({ c, now }: { c: AdminUpcomingClass; now: number }) {
+  const cancelled = c.status === 'cancelled';
+  const live = isLive(c, now);
+  return (
+    <div className={clsx('flex flex-col rounded-2xl border bg-white p-4', live ? 'border-sun ring-2 ring-sun/40' : 'border-sand-200', cancelled && 'opacity-70')}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-800">
+          <CalendarClock className="size-4" aria-hidden />
+          {dayLabel(c.startAt, now)} · {fmtTimeRange(c.startAt, c.endAt)}
+        </p>
+        {cancelled ? <Badge tone="red">Cancelled</Badge> : live ? <Badge tone="green">● Live now</Badge> : c.rescheduled ? <Badge tone="amber">Rescheduled</Badge> : null}
+      </div>
+      <Link to={`/mentor/sessions/${encodeURIComponent(c.sessionId)}`} className={clsx('mt-2 font-semibold hover:underline', cancelled && 'text-ink-muted line-through')}>
+        {c.courseTitle}
+      </Link>
+      <p className="mt-0.5 text-sm text-ink-soft">Mentor: {c.mentorName}</p>
+      <p className="text-sm text-ink-soft">{c.studentNames.length ? `${c.studentNames.length > 1 ? 'Students' : 'Student'}: ${c.studentNames.join(', ')}` : 'No students yet'}</p>
+      {!cancelled && <p className="mt-1 text-xs text-ink-muted">{live ? 'In class now' : startsIn(c.startAt, now)}</p>}
+      <div className="mt-auto pt-3">
+        {cancelled ? (
+          <p className="text-sm text-ink-muted">This class is not taking place.</p>
+        ) : c.joinUrl ? (
+          <a
+            href={c.joinUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={clsx(
+              'flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition',
+              live ? 'bg-sun text-ink shadow-sm hover:brightness-95' : 'border border-sand-300 bg-white text-ink hover:bg-sand-50',
+            )}
+          >
+            <Video className="size-4" aria-hidden /> Join now
+          </a>
+        ) : (
+          <p className="text-sm text-amber-800">No class link yet. Add one on the Classes page.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Every class happening now or in the next 24 hours, so the team can join and watch live classes. */
+function NextDayClasses({ classes }: { classes: AdminUpcomingClass[] }) {
+  const now = useNow();
+  const showing = classes.filter((c) => new Date(c.endAt).getTime() > now);
+  const liveCount = showing.filter((c) => isLive(c, now)).length;
+  return (
+    <section className="mb-8">
+      <SectionTitle action={<ButtonLink to="/admin/classes" variant="ghost" size="sm">All classes</ButtonLink>}>Classes in the next 24 hours</SectionTitle>
+      <p className="-mt-2 mb-3 text-sm text-ink-soft">
+        {showing.length ? `${showing.length} class${showing.length > 1 ? 'es' : ''}${liveCount ? `, ${liveCount} live now` : ''}. ` : ''}
+        Times are in your time zone ({tzAbbrev(browserTimeZone())}). Join buttons light up 15 minutes before class.
+      </p>
+      {showing.length ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {showing.map((c) => (
+            <ClassCard key={c.sessionId} c={c} now={now} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState icon={<CalendarClock className="size-6" />} title="No classes in the next 24 hours" />
+      )}
+    </section>
+  );
+}
 
 function StatusRow({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
   return (
@@ -23,6 +106,11 @@ export default function AdminHome() {
   const toast = useToast();
   const { data, error, loading, reload } = useApi<AdminOverview>('/api/admin/overview');
   const [running, setRunning] = useState(false);
+  // New classes come into the 24-hour window while the page is open.
+  useEffect(() => {
+    const timer = setInterval(() => void reload(), 5 * 60_000);
+    return () => clearInterval(timer);
+  }, [reload]);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox message={error || 'Could not load overview.'} onRetry={reload} />;
   const { counts, status, approvals } = data;
@@ -79,6 +167,7 @@ export default function AdminHome() {
           <span className="font-semibold text-sky-900">Review →</span>
         </Link>
       )}
+      <NextDayClasses classes={data.nextDayClasses} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <StatTile label="Active students" value={counts.students} />
         <StatTile label="Active mentors" value={counts.mentors} />

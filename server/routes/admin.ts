@@ -22,7 +22,7 @@ import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../servi
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
 import { sendAccountSetupLink } from '../services/passwordReset.ts';
 import { recordingState } from '../services/recordings.ts';
-import { findClashes, resyncFutureSessions } from '../services/schedule.ts';
+import { findClashes, joinUrl, resyncFutureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 import { connectParents, pendingStudentSetups, resendStudentInviteForTeam } from '../services/invites.ts';
@@ -101,7 +101,30 @@ export function adminRoutes(deps: Deps): Router {
           if (courseById.get(s.courseId)?.requiresRecording && recordingState(s, now) === 'none' && end > now.getTime() - settings.recordingAccessDays * ONE_DAY) pendingRecordings++;
         }
       }
+      // Classes going on now or starting within a day, for the team to join from the dashboard.
+      const dayAhead = now.getTime() + ONE_DAY;
+      const nextDay = sessionLists
+        .flat()
+        .filter((s) => new Date(s.endAt).getTime() > now.getTime() && new Date(s.startAt).getTime() < dayAhead && courseById.has(s.courseId))
+        .sort((a, b) => a.startAt.localeCompare(b.startAt));
+      const people = await usersById(deps, [...new Set(nextDay.flatMap((s) => [courseById.get(s.courseId)!.mentorId, ...courseById.get(s.courseId)!.studentIds]))]);
       const overview: AdminOverview = {
+        nextDayClasses: nextDay.map((s) => {
+          const course = courseById.get(s.courseId)!;
+          return {
+            sessionId: s.id,
+            courseId: course.id,
+            courseTitle: course.title,
+            subject: course.subject,
+            mentorName: people.get(course.mentorId)?.displayName || 'No mentor',
+            studentNames: course.studentIds.map((id) => people.get(id)?.displayName).filter((n): n is string => Boolean(n)),
+            startAt: s.startAt,
+            endAt: s.endAt,
+            status: s.status,
+            rescheduled: s.startAt !== s.originalStartAt,
+            joinUrl: joinUrl(s, course),
+          };
+        }),
         counts: {
           students: users.filter((u) => u.role === 'student').length,
           mentors: users.filter((u) => u.role === 'mentor').length,
