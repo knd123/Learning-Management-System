@@ -4,7 +4,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { SessionView } from '../../shared/api.ts';
 import { api } from '../lib/api.ts';
-import { addDays, fmtDay, fmtShortDay, fmtTimeRange, localYmd, sameLocalDay, startOfWeek } from '../lib/format.ts';
+import { addDays, fmtDay, fmtShortDay, fmtTimeRange, localYmd, sameLocalDay, startOfWeek, dayOfMonth, fmtMonthDay, fmtWeekdayShort } from '../lib/format.ts';
+import { ProposeNewTime, RescheduleNote } from './Reschedule.tsx';
 import { Badge, Button } from './ui.tsx';
 
 export function isLive(s: Pick<SessionView, 'startAt' | 'endAt' | 'status'>, now = Date.now()): boolean {
@@ -57,16 +58,15 @@ export function JoinButton({ session, size = 'md' }: { session: SessionView; siz
 }
 
 export function DateBlock({ iso, muted }: { iso: string; muted?: boolean }) {
-  const d = new Date(iso);
   return (
     <div className={clsx('flex w-14 shrink-0 flex-col items-center rounded-xl py-1.5', muted ? 'bg-sand-100 text-ink-soft' : 'bg-brand-50 text-brand-800')}>
-      <span className="text-[11px] font-semibold uppercase">{d.toLocaleDateString(undefined, { weekday: 'short' })}</span>
-      <span className="text-xl font-bold leading-6">{d.getDate()}</span>
+      <span className="text-[11px] font-semibold uppercase">{fmtWeekdayShort(iso)}</span>
+      <span className="text-xl font-bold leading-6">{dayOfMonth(iso)}</span>
     </div>
   );
 }
 
-export function StudentSessionRow({ session, showCourse = true }: { session: SessionView; showCourse?: boolean }) {
+export function StudentSessionRow({ session, showCourse = true, onChanged }: { session: SessionView; showCourse?: boolean; onChanged?(): void }) {
   const now = useNow();
   const past = now > new Date(session.endAt).getTime();
   return (
@@ -85,8 +85,10 @@ export function StudentSessionRow({ session, showCourse = true }: { session: Ses
           {fmtTimeRange(session.startAt, session.endAt)}
         </p>
         {session.topicsCovered && <p className="mt-1 text-sm text-ink-soft">Covered: {session.topicsCovered}</p>}
+        <RescheduleNote session={session} answerEndpoint={(id) => `/api/student/reschedule-requests/${encodeURIComponent(id)}`} onChanged={onChanged} />
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <ProposeNewTime session={session} endpoint={`/api/student/sessions/${encodeURIComponent(session.id)}/reschedule`} onSent={onChanged} to="mentor" />
         {session.recording?.state === 'available' && (
           <Link to={`/student/recordings?play=${encodeURIComponent(session.id)}`} className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-50 px-4 text-sm font-semibold text-brand-800 hover:bg-brand-100">
             <PlayCircle className="size-4" /> Rewatch
@@ -121,7 +123,8 @@ export function WeekView<T extends { startAt: string; id: string }>({
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-lg font-semibold">
-          {weekStart.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })} – {end.toLocaleDateString(undefined, { month: weekStart.getMonth() === end.getMonth() ? undefined : 'long', day: 'numeric', year: 'numeric' })}
+          {/* "November 2 – 8, 2026" (some browsers print a day and year without a month as "2026 (day: 8)") */}
+          {fmtMonthDay(weekStart)} – {localYmd(weekStart).slice(0, 7) === localYmd(end).slice(0, 7) ? dayOfMonth(end) : fmtMonthDay(end)}, {localYmd(end).slice(0, 4)}
         </p>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={() => onWeekChange(addDays(weekStart, -7))} aria-label="Previous week">

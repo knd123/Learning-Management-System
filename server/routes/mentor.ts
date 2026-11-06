@@ -36,6 +36,7 @@ import { cvProblem, MAX_CV_MB, MAX_PHOTO_MB, photoProblem } from '../../shared/p
 import { sendClassReport, tellTeamAboutReport } from '../services/classReports.ts';
 import { reportNotHeld, restoreClass } from '../services/notHeld.ts';
 import { reportNoVideo } from '../services/noVideo.ts';
+import { answerProposal, pendingForMentor, pendingForSession, proposeNewTime, rescheduleSummaryFor } from '../services/reschedule.ts';
 import { attachRecording, recordingLink } from '../services/recordings.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
@@ -249,6 +250,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const overview: MentorOverview = {
         approved: user.role === 'admin' || user.mentorStatus !== 'pending',
         agreementStatus: user.role === 'mentor' ? (await mentorsAgreement(deps, user.id))?.status : undefined,
+        rescheduleRequests: await pendingForMentor(deps, user),
         students: studentIds
           .map((id) => people.get(id))
           .filter((u): u is UserRecord => Boolean(u))
@@ -352,8 +354,11 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const settings = await getSettings(deps.store);
       const people = await usersById(deps, course.studentIds);
       const homeworkId = session.report?.homeworkId;
+      const [rescheduleRequest, reschedule] = await Promise.all([pendingForSession(deps, session, course), rescheduleSummaryFor(deps, session.id)]);
+      const view = withFeedback([mentorSessionView(session, course, deps.now(), people, settings.recordingAccessDays)], await feedbackFor(course.id), people)[0];
       const detail: MentorSessionDetail = {
-        session: withFeedback([mentorSessionView(session, course, deps.now(), people, settings.recordingAccessDays)], await feedbackFor(course.id), people)[0],
+        rescheduleRequest,
+        session: reschedule ? { ...view, reschedule } : view,
         course,
         students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u, course.mentorId)),
         homework: homeworkId ? (await deps.store.get<Homework>(C.homework, homeworkId)) || undefined : undefined,
@@ -361,6 +366,27 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         aiEnabled: deps.ai.enabled,
       };
       res.json(detail);
+    }),
+  );
+
+  // Answers a student's or parent's proposed time: accept (only that class moves; the family is told)
+  // or decline, maybe proposing another time instead.
+  router.post(
+    '/reschedule-requests/:id',
+    h(async (req, res) => {
+      const decision = req.body?.decision;
+      if (decision !== 'accept' && decision !== 'decline') throw badRequest('Choose accept or decline.');
+      res.json(await answerProposal(deps, req.user!, req.params.id, { accept: decision === 'accept', note: req.body?.note, counterLocal: req.body?.counterLocal, counterProposal: req.body?.counterProposal }));
+    }),
+  );
+
+  // The mentor proposes a new time for one class (at least 48 hours ahead); the student or a parent answers.
+  router.post(
+    '/sessions/:id/reschedule',
+    h(async (req, res) => {
+      await sessionForTeacher(deps, req.user!, req.params.id);
+      if (req.user!.role !== 'mentor') throw forbidden('The team can move a class directly.');
+      res.status(201).json(await proposeNewTime(deps, req.user!, req.params.id, { proposedLocal: req.body?.proposedLocal, proposedStartAt: req.body?.proposedStartAt, note: req.body?.note }));
     }),
   );
 
@@ -373,7 +399,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     }),
   );
 
-  // Reschedule, restore, or set a one-off link for a single class. Cancelling goes through /not-held, with a reason.
+  // Restore, or set a one-off link for a single class (the team can also move it). Cancelling goes through /not-held, with a reason.
   router.patch(
     '/sessions/:id',
     h(async (req, res) => {
@@ -385,6 +411,8 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         await restoreClass(deps, req.user!, session, course);
       }
       if (req.body?.startAt !== undefined) {
+        // Mentors propose a new time for the family to accept; only the team moves a class directly.
+        if (req.user!.role !== 'admin') throw forbidden('Propose a new time instead: the student or a parent accepts it, and they are told.');
         const startAt = isoDate(req.body.startAt, 'Start time', true)!;
         const duration = new Date(session.endAt).getTime() - new Date(session.startAt).getTime();
         changes.startAt = startAt;

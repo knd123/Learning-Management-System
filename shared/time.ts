@@ -141,3 +141,32 @@ export function isValidYmd(ymd: string): boolean {
 export const ONE_MINUTE = MINUTE;
 export const ONE_HOUR = 60 * MINUTE;
 export const ONE_DAY = DAY;
+
+// --- Times entered and shown in a person's own timezone ---------------------------------
+
+/** "2026-11-11T17:00" (a date-and-time field's value) read as wall-clock time in `timeZone`, or null if it isn't one. */
+export function localInputToUtc(value: unknown, timeZone: string): Date | null {
+  const m = typeof value === 'string' ? /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2})?$/.exec(value) : null;
+  if (!m || !isValidYmd(m[1]) || !isValidHm(m[2])) return null;
+  return zonedTimeToUtc(m[1], m[2], timeZone);
+}
+
+/** The value for a date-and-time field showing `date` as wall-clock time in `timeZone`. */
+export function utcToLocalInput(date: Date, timeZone: string): string {
+  const p = zonedParts(date, timeZone);
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour === 24 ? 0 : p.hour)}:${pad(p.minute)}`;
+}
+
+/** "Wed, Nov 11, 5:00 PM EST": a moment as seen in `timeZone`, with the zone. */
+export function whenIn(iso: string | Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(iso));
+}
+
+/** "Eastern Standard Time", "East Africa Time": a timezone's everyday name. */
+export function zoneName(timeZone: string, at: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'long' }).formatToParts(at).find((p) => p.type === 'timeZoneName')?.value || timeZone;
+  } catch {
+    return timeZone;
+  }
+}

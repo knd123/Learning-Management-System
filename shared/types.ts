@@ -238,6 +238,35 @@ export interface ClassNotHeld {
 }
 
 /**
+ * A proposal to move one class to a new time (at least 48 hours ahead), from the mentor or from the
+ * student or a parent. The other side accepts (only this class moves) or declines, optionally
+ * proposing another time instead: a class gets at most two proposals.
+ */
+export interface RescheduleRequest {
+  id: string;
+  sessionId: string;
+  courseId: string;
+  mentorId: string;
+  /** The student whose class it is. */
+  studentId: string;
+  requestedBy: string;
+  requesterRole: 'student' | 'parent' | 'mentor';
+  requesterName: string;
+  /** 1 for the first proposal on this class, 2 for the one more round after it. */
+  round: number;
+  /** The class time when the request was made. */
+  originalStartAt: string;
+  proposedStartAt: string;
+  note?: string;
+  status: 'pending' | 'accepted' | 'declined';
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  deciderName?: string;
+  responseNote?: string;
+}
+
+/**
  * The mentor sent the class report without a video, citing technical issues. Kept even if a video
  * is added later, because the team counts how often each mentor does this.
  */
@@ -575,6 +604,7 @@ export type EmailKind =
   | 'agreement'
   | 'no_video'
   | 'mentor_standards'
+  | 'reschedule'
   | 'test';
 
 /**

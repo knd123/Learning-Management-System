@@ -5,6 +5,7 @@ import type { HomeworkDifficulty } from '../../shared/types.ts';
 import { api, errorMessage } from '../lib/api.ts';
 import { AttachmentPicker, type PickedLinks } from './Attachments.tsx';
 import { Button, ErrorBox, Field, Input, Select, Textarea } from './ui.tsx';
+import { fromLocalInput } from '../lib/format.ts';
 
 export interface HomeworkDraft {
   /** What the homework practises: it steers the AI draft and is kept to judge homework quality. */
@@ -48,7 +49,7 @@ export function homeworkPayload(draft: HomeworkDraft) {
     estimatedMinutes: Number(draft.estimatedMinutes) || '',
     title: draft.title || draft.topic,
     instructions: draft.instructions,
-    dueAt: draft.dueAt ? new Date(draft.dueAt).toISOString() : '',
+    dueAt: draft.dueAt ? fromLocalInput(draft.dueAt) : '',
     links: draft.links,
     aiGenerated: draft.aiGenerated,
     aiDraftId: draft.aiDraftId,

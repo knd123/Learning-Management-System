@@ -97,7 +97,7 @@ export default function StudentHome() {
           {later.length ? (
             <div className="flex flex-col gap-2">
               {later.map((s) => (
-                <StudentSessionRow key={s.id} session={s} />
+                <StudentSessionRow key={s.id} session={s} onChanged={reload} />
               ))}
             </div>
           ) : (

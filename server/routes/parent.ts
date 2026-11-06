@@ -5,12 +5,13 @@ import { ONE_DAY } from '../../shared/time.ts';
 import { requireRole, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
-import { h, HttpError, notFound, str } from '../http.ts';
+import { badRequest, h, HttpError, notFound, str } from '../http.ts';
 import { coursesFor, usersById } from '../services/access.ts';
 import { invitedStudents, inviteStudent, resendStudentInvite } from '../services/invites.ts';
 import { parseEmail } from '../services/profiles.ts';
 import { attendanceFor, studentProgress } from '../services/progress.ts';
 import { renderReportEmail } from '../services/reports.ts';
+import { answerProposal, proposeNewTime, withReschedules } from '../services/reschedule.ts';
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { homeworkView, sessionView } from '../services/views.ts';
@@ -27,9 +28,8 @@ export function parentRoutes(deps: Deps): Router {
     return student;
   }
 
-  // Parents see the schedule but don't join classes, so class links are left out.
-  // Parents follow classes but don't join them or watch recordings.
-  const forParent = (v: SessionView): SessionView => ({ ...v, joinUrl: '', recording: undefined });
+  // Parents can drop in on a class with its link; recordings stay with the student.
+  const forParent = (v: SessionView): SessionView => ({ ...v, recording: undefined });
 
   async function load(student: UserRecord) {
     const now = deps.now();
@@ -122,7 +122,7 @@ export function parentRoutes(deps: Deps): Router {
       const view = ({ s, c }: { s: ClassSession; c: Course }) => forParent(sessionView(s, c, now, student.id));
       const detail: ParentChildDetail = {
         summary,
-        upcoming: sessions.filter(({ s }) => new Date(s.endAt) > now).map(view),
+        upcoming: await withReschedules(deps, student.id, sessions.filter(({ s }) => new Date(s.endAt) > now).map(view)),
         recent: sessions.filter(({ s }) => new Date(s.endAt) <= now && s.status !== 'cancelled').map(view).reverse(),
         homework,
         progress: await studentProgress(deps, student),
@@ -137,6 +137,43 @@ export function parentRoutes(deps: Deps): Router {
           .map((r) => ({ id: r.id, month: r.month, sentAt: r.sentAt })),
       };
       res.json(detail);
+    }),
+  );
+
+  // The child's classes for any week (like the student's schedule), with class links.
+  router.get(
+    '/students/:id/schedule',
+    h(async (req, res) => {
+      const student = await linkedStudent(req.user!, req.params.id);
+      const from = new Date(String(req.query.from || ''));
+      const to = new Date(String(req.query.to || ''));
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from || to.getTime() - from.getTime() > 45 * ONE_DAY) {
+        throw badRequest('Choose a valid date range (up to 45 days).');
+      }
+      const now = deps.now();
+      const courses = await coursesFor(deps, student);
+      const lists = await Promise.all(courses.map(async (c) => (await ensureSessions(deps, c, from, to)).map((s) => forParent(sessionView(s, c, now, student.id)))));
+      res.json(await withReschedules(deps, student.id, lists.flat().sort((a, b) => a.startAt.localeCompare(b.startAt))));
+    }),
+  );
+
+  // Asks the mentor to move one of the child's classes (at least 48 hours ahead).
+  router.post(
+    '/students/:id/sessions/:sessionId/reschedule',
+    h(async (req, res) => {
+      await linkedStudent(req.user!, req.params.id);
+      res.status(201).json(await proposeNewTime(deps, req.user!, req.params.sessionId, { proposedLocal: req.body?.proposedLocal, proposedStartAt: req.body?.proposedStartAt, note: req.body?.note }));
+    }),
+  );
+
+  // Answers the mentor's proposed time for one of the child's classes.
+  router.post(
+    '/students/:id/reschedule-requests/:requestId',
+    h(async (req, res) => {
+      await linkedStudent(req.user!, req.params.id);
+      const decision = req.body?.decision;
+      if (decision !== 'accept' && decision !== 'decline') throw badRequest('Choose accept or decline.');
+      res.json(await answerProposal(deps, req.user!, req.params.requestId, { accept: decision === 'accept', note: req.body?.note, counterLocal: req.body?.counterLocal, counterProposal: req.body?.counterProposal }));
     }),
   );
 

@@ -1,4 +1,28 @@
+import { addDaysYmd, localInputToUtc, monthInZone, utcToLocalInput, weekdayOfYmd, ymdInZone, zonedParts, zonedTimeToUtc } from '../../shared/time.ts';
 import type { MatchRequest, ScheduleSlot } from '../../shared/types.ts';
+
+/*
+ * Every date and time in the portal is shown in the signed-in person's profile timezone (not their
+ * device's), so a student, a parent and a mentor each see times that apply to them. Before anyone
+ * signs in, the device's timezone is used.
+ */
+let displayZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+let formatters: Record<string, Intl.DateTimeFormat> = {};
+
+/** Called when the signed-in person (and so their profile timezone) changes. */
+export function setDisplayTimeZone(timeZone?: string) {
+  const next = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (next === displayZone) return;
+  displayZone = next;
+  formatters = {};
+}
+
+/** The timezone the portal is showing times in: the signed-in person's profile timezone. */
+export const displayTimeZone = () => displayZone;
+
+function formatter(key: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  return (formatters[key] ||= new Intl.DateTimeFormat(undefined, { ...options, timeZone: displayZone }));
+}
 
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -10,17 +34,17 @@ export const REQUEST_KIND_LABEL: Record<MatchRequest['kind'], string> = {
   team: 'Added by the team',
 };
 
-const dayTime = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-const dayOnly = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-const shortDay = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-const timeOnly = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-const dateOnly = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-
-export const fmtDateTime = (iso: string) => dayTime.format(new Date(iso));
-export const fmtDay = (iso: string | Date) => dayOnly.format(new Date(iso));
-export const fmtShortDay = (iso: string | Date) => shortDay.format(new Date(iso));
-export const fmtTime = (iso: string) => timeOnly.format(new Date(iso));
-export const fmtDate = (iso: string) => dateOnly.format(new Date(iso));
+export const fmtDateTime = (iso: string) => formatter('dateTime', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+export const fmtDay = (iso: string | Date) => formatter('day', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(iso));
+export const fmtShortDay = (iso: string | Date) => formatter('shortDay', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(iso));
+export const fmtTime = (iso: string) => formatter('time', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+export const fmtDate = (iso: string) => formatter('date', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso));
+/** "November 9": a month and day, in the display timezone. */
+export const fmtMonthDay = (iso: string | Date) => formatter('monthDay', { month: 'long', day: 'numeric' }).format(new Date(iso));
+/** "Tue": the weekday, in the display timezone. */
+export const fmtWeekdayShort = (iso: string | Date) => formatter('weekdayShort', { weekday: 'short' }).format(new Date(iso));
+/** The day of the month (1–31), in the display timezone. */
+export const dayOfMonth = (iso: string | Date) => zonedParts(new Date(iso), displayZone).day;
 export const fmtTimeRange = (startIso: string, endIso: string) => `${fmtTime(startIso)} – ${fmtTime(endIso)}`;
 
 const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -45,8 +69,7 @@ export function shortMonth(month: string): string {
 }
 
 export function currentMonth(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return monthInZone(new Date(), displayZone);
 }
 
 export function shiftMonth(month: string, delta: number): string {
@@ -78,29 +101,32 @@ export function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Local "YYYY-MM-DDTHH:MM" for <input type="datetime-local">. */
+/** "YYYY-MM-DDTHH:MM" for <input type="datetime-local">, in the display timezone. */
 export function toLocalInput(iso: string | Date): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return utcToLocalInput(new Date(iso), displayZone);
 }
 
+/** The exact time a <input type="datetime-local"> value means, read in the display timezone. */
+export function fromLocalInput(value: string): string {
+  return localInputToUtc(value, displayZone)?.toISOString() || '';
+}
+
+/** "YYYY-MM-DD" of a moment, in the display timezone. */
 export function localYmd(iso: string | Date): string {
-  return toLocalInput(iso).slice(0, 10);
+  return ymdInZone(new Date(iso), displayZone);
 }
 
-/** Monday 00:00 local time of the week containing `d`. */
+/** Monday 00:00 (display timezone) of the week containing `d`. */
 export function startOfWeek(d: Date): Date {
-  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const offset = (out.getDay() + 6) % 7;
-  out.setDate(out.getDate() - offset);
-  return out;
+  const ymd = ymdInZone(d, displayZone);
+  return zonedTimeToUtc(addDaysYmd(ymd, -((weekdayOfYmd(ymd) + 6) % 7)), '00:00', displayZone);
 }
 
+/** The same wall-clock time `days` later, in the display timezone (right across clock changes). */
 export function addDays(d: Date, days: number): Date {
-  const out = new Date(d);
-  out.setDate(out.getDate() + days);
-  return out;
+  const p = zonedParts(d, displayZone);
+  const hm = `${String(p.hour === 24 ? 0 : p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
+  return zonedTimeToUtc(addDaysYmd(ymdInZone(d, displayZone), days), hm, displayZone);
 }
 
 export function sameLocalDay(a: Date | string, b: Date | string): boolean {
@@ -108,7 +134,7 @@ export function sameLocalDay(a: Date | string, b: Date | string): boolean {
 }
 
 export function greeting(): string {
-  const h = new Date().getHours();
+  const h = zonedParts(new Date(), displayZone).hour;
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 }
 

@@ -44,6 +44,32 @@ export interface SessionView {
   /** `streamUrl` plays the class video through the portal; `url` is only set for older links that aren't Google Drive videos. */
   recording?: { state: 'available' | 'expired'; streamUrl?: string; url?: string; availableUntil: string };
   attended?: boolean;
+  /** The latest request to move this class, while it waits for the mentor or for a few days after the answer. */
+  reschedule?: RescheduleSummary;
+}
+
+export interface RescheduleSummary {
+  id: string;
+  status: import('./types.ts').RescheduleRequest['status'];
+  proposedStartAt: string;
+  originalStartAt: string;
+  requesterName: string;
+  requesterRole: import('./types.ts').RescheduleRequest['requesterRole'];
+  round: number;
+  /** How many proposals this class has had (at most RESCHEDULE_MAX_PROPOSALS). */
+  proposals: number;
+  decidedAt?: string;
+  deciderName?: string;
+  responseNote?: string;
+}
+
+/** A request to move a class, for the mentor. */
+export interface MentorRescheduleView {
+  request: import('./types.ts').RescheduleRequest;
+  courseTitle: string;
+  studentName: string;
+  /** The mentor's or the student's other classes at the proposed time. */
+  clashes: Array<{ title: string; startAt: string }>;
 }
 
 /**
@@ -367,6 +393,8 @@ export interface MentorOverview {
   aiEnabled: boolean;
   /** The mentor's contractor agreement, once the team has sent it. */
   agreementStatus?: MentorAgreement['status'];
+  /** Students' and parents' requests to move a class, waiting for an answer. */
+  rescheduleRequests: MentorRescheduleView[];
 }
 
 export interface HomeworkWithStats extends Homework {
@@ -401,6 +429,8 @@ export interface MentorCourseDetail {
 
 export interface MentorSessionDetail {
   session: MentorSessionView;
+  /** A request from the student or a parent to move this class, waiting for an answer. */
+  rescheduleRequest?: MentorRescheduleView;
   course: Course;
   students: RosterStudent[];
   homework?: Homework;

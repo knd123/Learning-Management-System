@@ -23,6 +23,7 @@ import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { homeworkView, quizSummary, sessionView } from '../services/views.ts';
 import type { Upload } from './upload.ts';
+import { answerProposal, proposeNewTime, withReschedules } from '../services/reschedule.ts';
 
 /** Each response carries at most this much video, so requests stay short and the player fetches the rest as it plays. */
 export const VIDEO_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -90,7 +91,7 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const attemptByQuiz = new Map(attempts.map((a) => [a.quizId, a]));
       const overview: StudentOverview = {
         courses: courseViews,
-        upcoming: week.filter(({ session }) => new Date(session.endAt) > now).map(({ session, course }) => sessionView(session, course, now, user.id)),
+        upcoming: await withReschedules(deps, user.id, week.filter(({ session }) => new Date(session.endAt) > now).map(({ session, course }) => sessionView(session, course, now, user.id))),
         homeworkDue: homework.filter((hw) => hw.status === 'todo' || hw.status === 'late').sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')),
         recordings: recent
           .map(({ session, course }) => sessionView(session, course, now, user.id))
@@ -106,6 +107,24 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
     }),
   );
 
+  // Proposes a new time for one class (at least 48 hours ahead); the mentor accepts or declines.
+  router.post(
+    '/sessions/:id/reschedule',
+    h(async (req, res) => {
+      res.status(201).json(await proposeNewTime(deps, req.user!, req.params.id, { proposedLocal: req.body?.proposedLocal, proposedStartAt: req.body?.proposedStartAt, note: req.body?.note }));
+    }),
+  );
+
+  // Answers the mentor's proposed time: accept (only that class moves) or decline, maybe proposing another.
+  router.post(
+    '/reschedule-requests/:id',
+    h(async (req, res) => {
+      const decision = req.body?.decision;
+      if (decision !== 'accept' && decision !== 'decline') throw badRequest('Choose accept or decline.');
+      res.json(await answerProposal(deps, req.user!, req.params.id, { accept: decision === 'accept', note: req.body?.note, counterLocal: req.body?.counterLocal, counterProposal: req.body?.counterProposal }));
+    }),
+  );
+
   router.get(
     '/schedule',
     h(async (req, res) => {
@@ -117,7 +136,7 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const courses = await coursesFor(deps, req.user!);
       const now = deps.now();
       const items = await sessionsInRange(courses, from, to);
-      res.json(items.map(({ session, course }) => sessionView(session, course, now, req.user!.id)));
+      res.json(await withReschedules(deps, req.user!.id, items.map(({ session, course }) => sessionView(session, course, now, req.user!.id))));
     }),
   );
 
@@ -155,7 +174,7 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const byId = new Map([...all.filter((s) => s.report && s.status !== 'cancelled'), ...recent].map((s) => [s.id, s]));
       const detail: StudentCourseDetail = {
         course: view,
-        sessions: [...byId.values()].sort((a, b) => a.startAt.localeCompare(b.startAt)).map((s) => sessionView(s, course, now, req.user!.id)),
+        sessions: await withReschedules(deps, req.user!.id, [...byId.values()].sort((a, b) => a.startAt.localeCompare(b.startAt)).map((s) => sessionView(s, course, now, req.user!.id))),
         homework,
       };
       res.json(detail);

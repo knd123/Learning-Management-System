@@ -3,7 +3,8 @@ import type { MentorSessionView } from '../../../shared/api.ts';
 import { MentorSessionRow } from '../../components/MentorSessions.tsx';
 import { WeekView } from '../../components/Sessions.tsx';
 import { ErrorBox, PageHeader } from '../../components/ui.tsx';
-import { addDays, browserTimeZone, startOfWeek } from '../../lib/format.ts';
+import { zoneName } from '../../../shared/time.ts';
+import { addDays, displayTimeZone, startOfWeek } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 export default function MentorSchedule() {
@@ -12,7 +13,7 @@ export default function MentorSchedule() {
   const { data, error, loading, reload } = useApi<MentorSessionView[]>(path);
   return (
     <>
-      <PageHeader title="Weekly schedule" subtitle={`Times in your timezone (${browserTimeZone()}). Open a class to reschedule, cancel, report or add its recording.`} />
+      <PageHeader title="Weekly schedule" subtitle={`Times in your timezone, ${zoneName(displayTimeZone())} (set in your profile). Open a class to reschedule, cancel, report or add its recording.`} />
       {error && <ErrorBox message={error} onRetry={reload} />}
       <WeekView weekStart={weekStart} onWeekChange={setWeekStart} items={data || []} loading={loading} renderItem={(s) => <MentorSessionRow session={s} />} />
     </>

@@ -25,7 +25,7 @@ export default function StudentClass() {
           <section>
             <SectionTitle>Coming up</SectionTitle>
             <div className="flex flex-col gap-2">
-              {upcoming.length ? upcoming.map((s) => <StudentSessionRow key={s.id} session={s} showCourse={false} />) : <p className="text-sm text-ink-muted">No upcoming classes.</p>}
+              {upcoming.length ? upcoming.map((s) => <StudentSessionRow key={s.id} session={s} showCourse={false} onChanged={reload} />) : <p className="text-sm text-ink-muted">No upcoming classes.</p>}
             </div>
           </section>
           <section>
@@ -37,7 +37,7 @@ export default function StudentClass() {
                   const homework = s.homeworkId ? data.homework.find((h) => h.id === s.homeworkId) : undefined;
                   return (
                     <div key={s.id} className="flex flex-col gap-2">
-                      <StudentSessionRow session={s} showCourse={false} />
+                      <StudentSessionRow session={s} showCourse={false} onChanged={reload} />
                       {(s.slides || homework || s.recording?.state === 'expired') && (
                         <div className="ml-[4.5rem] flex flex-col gap-1 text-sm text-ink-soft">
                           {s.slides && (

@@ -28,6 +28,7 @@ const KIND_LABEL: Record<EmailLog['kind'], string> = {
   agreement: 'Contractor agreement',
   no_video: 'No class video',
   mentor_standards: 'Mentor not meeting standards',
+  reschedule: 'Reschedule request',
   test: 'Test',
 };
 

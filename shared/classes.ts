@@ -23,3 +23,19 @@ export function classFileProblem(file: { name?: string; originalname?: string; s
     ? `The slides file “${name}” is ${megabytes(file.size)}. Slides can be up to ${MAX_CLASS_FILE_MB} MB: save them as a PDF or make the pictures smaller.`
     : `The worksheet “${name}” is ${megabytes(file.size)}. Worksheets can be up to ${MAX_CLASS_FILE_MB} MB each: save it as a PDF or take a smaller photo.`;
 }
+
+// --- Asking to move a class -----------------------------------------------------------
+
+/** Students and parents can ask to move a class up to this many hours before it starts. */
+export const RESCHEDULE_NOTICE_HOURS = 48;
+/** The new time must give the mentor at least this many hours. */
+export const RESCHEDULE_MIN_LEAD_HOURS = 24;
+/** And be within this many days of the class it replaces. */
+export const RESCHEDULE_MAX_DAYS = 30;
+/** A first proposal, and one more round if it doesn't work: then the class keeps its time. */
+export const RESCHEDULE_MAX_PROPOSALS = 2;
+
+/** Whether the family can still ask to move this class: a one-on-one class, not cancelled, at least 48 hours away. */
+export function canAskToMove(session: { startAt: string; status: string; classType: string }, now: number): boolean {
+  return session.status !== 'cancelled' && session.classType === 'one_on_one' && new Date(session.startAt).getTime() - now >= RESCHEDULE_NOTICE_HOURS * 3_600_000;
+}

@@ -2,6 +2,7 @@ import { BookOpen, CalendarCheck, CheckCircle2, ClipboardCheck, FileSignature, F
 import { Link } from 'react-router';
 import type { MentorOverview, MentorStudentCard, ReviewItem } from '../../../shared/api.ts';
 import { MentorSessionRow } from '../../components/MentorSessions.tsx';
+import { RescheduleRequestCard } from '../../components/Reschedule.tsx';
 import { Badge, ButtonLink, Card, EmptyState, ErrorBox, Loading, Notice, PageHeader, SectionTitle } from '../../components/ui.tsx';
 import { useAuth } from '../../lib/auth.tsx';
 import { ContactEmail } from '../../lib/contact.tsx';
@@ -17,7 +18,7 @@ export default function MentorHome() {
   const missingCurriculum = data.courses.filter((c) => !c.hasCurriculum);
   // A class can need both a report and a recording; list it once.
   const afterClass = [...new Map([...data.pendingReports, ...data.pendingRecordings].map((s) => [s.id, s])).values()].sort((a, b) => b.startAt.localeCompare(a.startAt));
-  const todo = data.pendingReports.length + data.pendingRecordings.length + data.toReview.length + (data.agreementStatus === 'awaiting_signature' ? 1 : 0);
+  const todo = data.pendingReports.length + data.pendingRecordings.length + data.toReview.length + data.rescheduleRequests.length + (data.agreementStatus === 'awaiting_signature' ? 1 : 0);
   // Work waiting for review first, then what was reviewed recently.
   const reviewed = data.recentWork.filter((r) => !data.toReview.some((t) => t.submission.id === r.submission.id));
   const work = [...data.toReview, ...reviewed.slice(0, Math.max(4, 10 - data.toReview.length))];
@@ -83,6 +84,23 @@ export default function MentorHome() {
             <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
               {afterClass.map((s) => (
                 <MentorSessionRow key={s.id} session={s} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {data.rescheduleRequests.length > 0 && (
+          <section>
+            <SectionTitle>Requests to move a class</SectionTitle>
+            <p className="-mt-2 mb-3 text-sm text-ink-soft">Students and parents proposed a new time. Accept and the class moves (the family is told), or decline with a short reason.</p>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {data.rescheduleRequests.map((r) => (
+                <div key={r.request.id} className="flex flex-col gap-2">
+                  <Link to={`/mentor/sessions/${encodeURIComponent(r.request.sessionId)}`} className="text-sm font-semibold text-brand-800 hover:underline">
+                    {r.courseTitle} · {r.studentName}
+                  </Link>
+                  <RescheduleRequestCard view={r} onDone={reload} />
+                </div>
               ))}
             </div>
           </section>

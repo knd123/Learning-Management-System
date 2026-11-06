@@ -6,7 +6,8 @@ import { Link } from 'react-router';
 import { isLive, useNow } from '../../components/Sessions.tsx';
 import { Badge, Button, ButtonLink, Card, EmptyState, ErrorBox, Loading, PageHeader, SectionTitle, StatTile, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { browserTimeZone, fmtDateTime, fmtShortDay, fmtTimeRange, sameLocalDay, tzAbbrev } from '../../lib/format.ts';
+import { zoneName } from '../../../shared/time.ts';
+import { displayTimeZone, fmtDateTime, fmtShortDay, fmtTimeRange, sameLocalDay } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 import { useVisibleInterval } from '../../lib/useVisibleInterval.ts';
 
@@ -76,7 +77,7 @@ function NextDayClasses({ classes }: { classes: AdminUpcomingClass[] }) {
       <SectionTitle action={<ButtonLink to="/admin/classes" variant="ghost" size="sm">All classes</ButtonLink>}>Classes in the next 24 hours</SectionTitle>
       <p className="-mt-2 mb-3 text-sm text-ink-soft">
         {showing.length ? `${showing.length} class${showing.length > 1 ? 'es' : ''}${liveCount ? `, ${liveCount} live now` : ''}. ` : ''}
-        Times are in your time zone ({tzAbbrev(browserTimeZone())}). Join buttons light up 15 minutes before class.
+        Times are in your timezone, {zoneName(displayTimeZone())}, as set in your profile. Join buttons light up 15 minutes before class.
       </p>
       {showing.length ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">

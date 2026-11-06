@@ -4,7 +4,7 @@ import { SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
 import { Button, Card, Checkbox, ErrorBox, Field, Input, Loading, PageHeader, Select, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { fmtDateTime, toLocalInput } from '../../lib/format.ts';
+import { fmtDateTime, fromLocalInput, toLocalInput } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 export default function AdminSettings() {
@@ -35,7 +35,7 @@ export default function AdminSettings() {
       const saved = await api.put<Settings>('/api/admin/settings', {
         ...form,
         reminderHours: hours.split(/[,\s]+/).filter(Boolean).map(Number),
-        curriculumWindowOverrideUntil: override ? new Date(override).toISOString() : '',
+        curriculumWindowOverrideUntil: override ? fromLocalInput(override) : '',
       });
       setData(saved);
       toast('Settings saved.');

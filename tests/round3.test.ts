@@ -161,7 +161,7 @@ describe('round 3: 1-on-1 classes, feedback, sign-ups, parents, proctored quizze
     assert.equal(overview.children[0].student.displayName, 'Abeba Tesfaye');
     assert.equal(overview.children[0].classes[0].mentorName, 'Sara Bekele');
     const detail = await parent.get<ParentChildDetail>(`/api/parent/students/${abeba.id}`);
-    assert.equal(detail.upcoming[0].joinUrl, ''); // parents don't get class links
+    assert.equal(detail.upcoming[0].joinUrl, 'https://meet.google.com/abc'); // parents can drop in on a class
     assert.ok(h.mailer.sent.some((e) => e.to[0] === 'hanna@example.org' && /follow Abeba Tesfaye/.test(e.subject)));
   });
 

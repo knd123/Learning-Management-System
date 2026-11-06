@@ -1,14 +1,16 @@
 import clsx from 'clsx';
-import { CalendarClock, ClipboardList, FileText, Sparkles } from 'lucide-react';
+import { ClipboardList, FileText, Sparkles, Video } from 'lucide-react';
 import { useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import type { ParentChildDetail, SessionView } from '../../../shared/api.ts';
 import { HomeworkCard } from '../../components/Homework.tsx';
 import { ProgressView } from '../../components/ProgressView.tsx';
-import { DateBlock, SessionStatusBadge } from '../../components/Sessions.tsx';
+import { ProposeNewTime, RescheduleNote } from '../../components/Reschedule.tsx';
+import { DateBlock, isLive, SessionStatusBadge, useNow, WeekView } from '../../components/Sessions.tsx';
 import { Badge, EmptyState, ErrorBox, Loading, Modal, PageHeader, SectionTitle, StatTile, Table, Tabs } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { fmtDate, fmtDateTime, fmtShortDay, fmtTimeRange, monthLabel } from '../../lib/format.ts';
+import { zoneName } from '../../../shared/time.ts';
+import { addDays, displayTimeZone, firstName, fmtDate, fmtDateTime, fmtShortDay, fmtTimeRange, monthLabel, startOfWeek } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 type Tab = 'classes' | 'homework' | 'progress' | 'quizzes' | 'reports';
@@ -64,25 +66,20 @@ export default function ParentStudentPage() {
       />
 
       {tab === 'classes' && (
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="flex flex-col gap-8">
           <section>
-            <SectionTitle>Coming up</SectionTitle>
-            {data.upcoming.length ? (
-              <div className="flex flex-col gap-2">
-                {data.upcoming.slice(0, 8).map((x) => (
-                  <ParentSessionRow key={x.id} session={x} />
-                ))}
-              </div>
-            ) : (
-              <EmptyState icon={<CalendarClock className="size-7" />} title="No upcoming classes" />
-            )}
+            <SectionTitle>Week by week</SectionTitle>
+            <p className="-mt-2 mb-4 text-sm text-ink-soft">
+              {firstName(s.displayName)}'s classes for any week, in your timezone ({zoneName(displayTimeZone())}, as set in your profile). Use the class link to drop in on a class. To move a class, propose a new time at least 48 hours before it starts.
+            </p>
+            <ParentWeek studentId={s.id} studentName={s.displayName} onChanged={reload} />
           </section>
           <section>
             <SectionTitle>Recent classes</SectionTitle>
             {data.recent.length ? (
-              <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                 {data.recent.slice(0, 10).map((x) => (
-                  <ParentSessionRow key={x.id} session={x} />
+                  <ParentSessionRow key={x.id} session={x} studentId={s.id} studentName={s.displayName} />
                 ))}
               </div>
             ) : (
@@ -185,10 +182,47 @@ export default function ParentStudentPage() {
 }
 
 /** A class as parents see it: time, status and what was covered — no class link. */
-function ParentSessionRow({ session }: { session: SessionView }) {
+/** The child's classes one week at a time, like the student's own schedule. */
+function ParentWeek({ studentId, studentName, onChanged }: { studentId: string; studentName: string; onChanged(): void }) {
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const path = `/api/parent/students/${encodeURIComponent(studentId)}/schedule?from=${encodeURIComponent(weekStart.toISOString())}&to=${encodeURIComponent(addDays(weekStart, 7).toISOString())}`;
+  const { data, error, loading, reload } = useApi<SessionView[]>(path);
+  const changed = () => {
+    void reload();
+    onChanged();
+  };
+  return (
+    <>
+      {error && <ErrorBox message={error} onRetry={reload} />}
+      <WeekView weekStart={weekStart} onWeekChange={setWeekStart} items={data || []} loading={loading} renderItem={(x) => <ParentSessionRow session={x} studentId={studentId} studentName={studentName} onChanged={changed} />} />
+    </>
+  );
+}
+
+/** A parent can open the class link to drop in (it doesn't count as the student's attendance). */
+function ParentJoinLink({ session }: { session: SessionView }) {
+  const now = useNow();
+  if (session.status === 'cancelled' || !session.joinUrl || now > new Date(session.endAt).getTime()) return null;
+  const live = isLive(session, now);
+  return (
+    <a
+      href={session.joinUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={clsx(
+        'inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition',
+        live ? 'bg-sun text-ink shadow-sm hover:brightness-95' : 'border border-sand-300 bg-white text-ink hover:bg-sand-50',
+      )}
+    >
+      <Video className="size-4" aria-hidden /> {live ? 'Join class now' : 'Class link'}
+    </a>
+  );
+}
+
+function ParentSessionRow({ session, studentId, studentName, onChanged }: { session: SessionView; studentId: string; studentName: string; onChanged?(): void }) {
   const past = Date.now() > new Date(session.endAt).getTime();
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-sand-200 bg-white p-4">
+    <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-sand-200 bg-white p-4">
       <DateBlock iso={session.startAt} muted={past || session.status === 'cancelled'} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -201,6 +235,11 @@ function ParentSessionRow({ session }: { session: SessionView }) {
           {fmtShortDay(session.startAt)} · {fmtTimeRange(session.startAt, session.endAt)}
         </p>
         {session.topicsCovered && <p className="mt-1 text-sm text-ink-soft">Covered: {session.topicsCovered}</p>}
+        <RescheduleNote session={session} answerEndpoint={(id) => `/api/parent/students/${encodeURIComponent(studentId)}/reschedule-requests/${encodeURIComponent(id)}`} onChanged={onChanged} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <ProposeNewTime session={session} endpoint={`/api/parent/students/${encodeURIComponent(studentId)}/sessions/${encodeURIComponent(session.id)}/reschedule`} onSent={onChanged} to="mentor" studentName={studentName} />
+        <ParentJoinLink session={session} />
       </div>
     </div>
   );

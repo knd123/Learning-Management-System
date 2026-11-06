@@ -3,14 +3,16 @@ import { CalendarX2, CheckCircle2, FolderOpen, PlayCircle, Video, VideoOff } fro
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { MentorCourseDetail, MentorSessionDetail } from '../../../shared/api.ts';
-import { classFileProblem, MAX_CLASS_FILE_MB, NOT_HELD_REASONS } from '../../../shared/classes.ts';
+import { classFileProblem, MAX_CLASS_FILE_MB, NOT_HELD_REASONS, RESCHEDULE_MAX_PROPOSALS, RESCHEDULE_NOTICE_HOURS } from '../../../shared/classes.ts';
 import type { AttendanceMark, ClassNotHeld, NotHeldReason } from '../../../shared/types.ts';
 import { AttachmentLink } from '../../components/Attachments.tsx';
 import { emptyHomework, HomeworkFields, homeworkPayload, homeworkProblem, type HomeworkDraft } from '../../components/HomeworkFields.tsx';
 import { MentorSessionBadges, Stars } from '../../components/MentorSessions.tsx';
+import { canPropose, ProposeNewTime, RescheduleRequestCard } from '../../components/Reschedule.tsx';
+import { useAuth } from '../../lib/auth.tsx';
 import { Badge, Button, Card, ErrorBox, ExternalButton, Field, Input, Loading, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { fmtDateTime, fmtDay, fmtTimeRange, localYmd, toLocalInput } from '../../lib/format.ts';
+import { fmtDateTime, fmtDay, fmtTimeRange, fromLocalInput, localYmd, toLocalInput } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 export default function MentorSession() {
@@ -32,6 +34,11 @@ export default function MentorSession() {
         back={{ to: `/mentor/classes/${course.id}?tab=sessions`, label: 'Class' }}
         actions={<MentorSessionBadges session={session} />}
       />
+      {data.rescheduleRequest && (
+        <div className="mb-6">
+          <RescheduleRequestCard view={data.rescheduleRequest} onDone={reload} />
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="flex flex-col gap-6 lg:col-span-3">
           {session.status === 'cancelled' ? (
@@ -435,8 +442,17 @@ function RecordingField({
   );
 }
 
+/** Why a mentor can't propose a new time for this class right now. */
+function whyNotPropose(session: MentorSessionDetail['session']): string {
+  if (session.reschedule?.status === 'pending') return 'A proposed time is waiting for an answer (see the top of this page).';
+  if ((session.reschedule?.proposals ?? 0) >= RESCHEDULE_MAX_PROPOSALS) return `This class has had its ${RESCHEDULE_MAX_PROPOSALS} proposed times, so it keeps its time. To move it, write to the Abugida team.`;
+  return `Classes can be moved up to ${RESCHEDULE_NOTICE_HOURS} hours before they start. To move this one, write to the Abugida team.`;
+}
+
 function ManageCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): void }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const isTeam = user?.role === 'admin';
   const { session } = data;
   const started = Date.now() >= new Date(session.startAt).getTime();
   const [cancelling, setCancelling] = useState(false);
@@ -464,14 +480,30 @@ function ManageCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
       <h2 className="mb-4 font-semibold">Manage this class</h2>
       <div className="flex flex-col gap-5">
         {error && <ErrorBox message={error} />}
-        <div className="flex flex-col gap-2">
-          <Field label="Move to" hint="Students see the new time on their schedule.">
-            {(fid) => <Input id={fid} type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />}
-          </Field>
-          <Button size="sm" variant="secondary" className="self-start" loading={busy === 'move'} disabled={toLocalInput(session.startAt) === startAt} onClick={() => patch('move', { startAt: new Date(startAt).toISOString() }, 'Class moved.')}>
-            Reschedule
-          </Button>
-        </div>
+        {isTeam ? (
+          <div className="flex flex-col gap-2">
+            <Field label="Move to" hint="The team can move a class directly. Students see the new time on their schedule.">
+              {(fid) => <Input id={fid} type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />}
+            </Field>
+            <Button size="sm" variant="secondary" className="self-start" loading={busy === 'move'} disabled={toLocalInput(session.startAt) === startAt} onClick={() => patch('move', { startAt: fromLocalInput(startAt) }, 'Class moved.')}>
+              Reschedule
+            </Button>
+          </div>
+        ) : (
+          !started && (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-sm font-medium">Move this class</p>
+              <p className="text-xs text-ink-muted">Propose a new time; {data.students[0]?.displayName.split(' ')[0] || 'the student'} or a parent accepts it. Only this class moves: the weekly schedule and the other classes stay as they are.</p>
+              {canPropose(session) ? (
+                <div>
+                  <ProposeNewTime session={session} endpoint={`/api/mentor/sessions/${encodeURIComponent(session.id)}/reschedule`} onSent={onSaved} to="family" studentName={data.students[0]?.displayName} />
+                </div>
+              ) : (
+                <p className="text-sm text-ink-soft">{whyNotPropose(session)}</p>
+              )}
+            </div>
+          )
+        )}
         <div className="flex flex-col gap-2">
           <Field label="Different link for this class only" hint="Leave empty to use the class's usual link.">
             {(fid) => <Input id={fid} type="url" value={linkOverride} onChange={(e) => setLinkOverride(e.target.value)} placeholder={data.course.meetingUrl || 'https://…'} />}
