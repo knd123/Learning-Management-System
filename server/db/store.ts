@@ -29,6 +29,10 @@ export interface Store {
    * those documents, so jobs and dashboards don't re-read years of history.
    */
   findRange<T>(collection: string, where: Where, range: Range): Promise<T[]>;
+  /** The `limit` newest documents matching `where`, by the ISO date string in `field`, newest first. Reads only those. */
+  findLatest<T>(collection: string, where: Where, field: string, limit: number): Promise<T[]>;
+  /** Adds to number fields of a document (creating it when missing), safely when several requests add at once. */
+  increment(collection: string, id: string, amounts: Record<string, number>): Promise<void>;
   put<T extends { id: string }>(collection: string, doc: T): Promise<T>;
   patch<T>(collection: string, id: string, changes: Partial<T>): Promise<T | null>;
   remove(collection: string, id: string): Promise<void>;
@@ -63,6 +67,10 @@ export const C = {
   homeworkDrafts: 'homeworkDrafts',
   agreements: 'agreements',
   rescheduleRequests: 'rescheduleRequests',
+  /** One small document per person that changes whenever their notifications do (so the bell can check cheaply). */
+  noticeStamps: 'noticeStamps',
+  /** One document per month with metered usage: recording playback bytes and AI spending. */
+  usage: 'usage',
 } as const;
 
 function matches(doc: Record<string, unknown>, where: Where = {}, options: FindOptions = {}): boolean {
@@ -131,6 +139,20 @@ export class MemoryStore implements Store {
     return Object.values(this.col(collection))
       .filter((doc) => matches(doc, where) && inRange(doc[range.field], range))
       .map((doc) => structuredClone(doc) as T);
+  }
+
+  async findLatest<T>(collection: string, where: Where, field: string, limit: number): Promise<T[]> {
+    return Object.values(this.col(collection))
+      .filter((doc) => matches(doc, where))
+      .sort((a, b) => String(b[field] ?? '').localeCompare(String(a[field] ?? '')))
+      .slice(0, limit)
+      .map((doc) => structuredClone(doc) as T);
+  }
+
+  async increment(collection: string, id: string, amounts: Record<string, number>): Promise<void> {
+    const doc = (this.col(collection)[id] ??= { id });
+    for (const [key, by] of Object.entries(amounts)) doc[key] = (typeof doc[key] === 'number' ? (doc[key] as number) : 0) + by;
+    this.scheduleSave();
   }
 
   async put<T extends { id: string }>(collection: string, doc: T): Promise<T> {

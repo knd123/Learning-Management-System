@@ -5,7 +5,7 @@ import { createApp } from '../server/app.ts';
 import { hashPassword, type UserRecord } from '../server/auth.ts';
 import crypto from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
-import { C, MemoryStore, type Store } from '../server/db/store.ts';
+import { C, MemoryStore, type FindOptions, type Range, type Store, type Where } from '../server/db/store.ts';
 import { FirestoreStore } from '../server/db/firestoreStore.ts';
 import type { Deps } from '../server/deps.ts';
 import type { BlobStore } from '../server/files/blobStore.ts';
@@ -28,6 +28,76 @@ export class MemoryBlobs implements BlobStore {
   }
   async remove(key: string) {
     this.files.delete(key);
+  }
+}
+
+/**
+ * Counts documents read and written the way Firestore bills them: every document a query returns is a
+ * read, and FirestoreStore.patch reads the document back after updating it.
+ */
+export class CountingStore extends MemoryStore {
+  reads: Record<string, number> = {};
+  writes: Record<string, number> = {};
+  private count(bucket: Record<string, number>, collection: string, n: number) {
+    bucket[collection] = (bucket[collection] || 0) + n;
+  }
+  totalReads() {
+    return Object.values(this.reads).reduce((a, b) => a + b, 0);
+  }
+  totalWrites() {
+    return Object.values(this.writes).reduce((a, b) => a + b, 0);
+  }
+  /** Documents read (and written) while `fn` runs. */
+  async measure(fn: () => Promise<unknown>): Promise<{ reads: number; writes: number; readsBy: Record<string, number> }> {
+    const [r, w, by] = [this.totalReads(), this.totalWrites(), { ...this.reads }];
+    await fn();
+    const readsBy = Object.fromEntries(Object.entries(this.reads).map(([k, v]) => [k, v - (by[k] || 0)]).filter(([, v]) => (v as number) > 0));
+    return { reads: this.totalReads() - r, writes: this.totalWrites() - w, readsBy };
+  }
+  sessionReads(fn: () => Promise<unknown>) {
+    const before = this.reads[C.sessions] || 0;
+    return fn().then(() => (this.reads[C.sessions] || 0) - before);
+  }
+  override async get<T>(collection: string, id: string) {
+    const doc = await super.get<T>(collection, id);
+    this.count(this.reads, collection, 1); // a missing document is billed as one read too
+    return doc;
+  }
+  override async find<T>(collection: string, where?: Where, options?: FindOptions) {
+    const docs = await super.find<T>(collection, where, options);
+    this.count(this.reads, collection, Math.max(1, docs.length)); // an empty query still costs one read
+    return docs;
+  }
+  override async findRange<T>(collection: string, where: Where, range: Range) {
+    const docs = await super.findRange<T>(collection, where, range);
+    this.count(this.reads, collection, Math.max(1, docs.length));
+    return docs;
+  }
+  override async findLatest<T>(collection: string, where: Where, field: string, limit: number) {
+    const docs = await super.findLatest<T>(collection, where, field, limit);
+    this.count(this.reads, collection, Math.max(1, docs.length));
+    return docs;
+  }
+  override async put<T extends { id: string }>(collection: string, doc: T) {
+    this.count(this.writes, collection, 1);
+    return super.put(collection, doc);
+  }
+  override async patch<T>(collection: string, id: string, changes: Partial<T>) {
+    this.count(this.writes, collection, 1);
+    this.count(this.reads, collection, 1);
+    return super.patch<T>(collection, id, changes);
+  }
+  override async increment(collection: string, id: string, amounts: Record<string, number>) {
+    this.count(this.writes, collection, 1);
+    return super.increment(collection, id, amounts);
+  }
+  override async createIfAbsent<T extends { id: string }>(collection: string, doc: T) {
+    this.count(this.writes, collection, 1);
+    return super.createIfAbsent(collection, doc);
+  }
+  override async remove(collection: string, id: string) {
+    this.count(this.writes, collection, 1);
+    return super.remove(collection, id);
   }
 }
 

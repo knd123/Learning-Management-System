@@ -10,8 +10,8 @@ export const quizIdFor = (courseId: string, month: string) => `${courseId}__${mo
 export const attemptIdFor = (quizId: string, studentId: string) => `${quizId}__${studentId}`;
 
 export async function homeworkInMonth(deps: Deps, courseId: string, month: string, timeZone: string): Promise<Homework[]> {
-  const all = await deps.store.find<Homework>(C.homework, { courseId });
-  return all
+  const inMonth = await deps.store.findRange<Homework>(C.homework, { courseId }, { field: 'assignedAt', from: monthStartUtc(month, timeZone).toISOString(), to: monthStartUtc(addMonths(month, 1), timeZone).toISOString() });
+  return inMonth
     .filter((h) => monthInZone(new Date(h.assignedAt), timeZone) === month)
     .sort((a, b) => a.assignedAt.localeCompare(b.assignedAt));
 }

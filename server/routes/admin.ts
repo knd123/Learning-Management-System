@@ -24,6 +24,7 @@ import { sendAccountSetupLink } from '../services/passwordReset.ts';
 import { recordingState } from '../services/recordings.ts';
 import { findClashes, joinUrl, resyncFutureSessions, sessionsBetween } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
+import { usageSummary } from '../services/usage.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 import { connectParents, pendingStudentSetups, resendStudentInviteForTeam } from '../services/invites.ts';
 import { assertUsernameAvailable, normalizeUsername } from './auth.ts';
@@ -865,6 +866,13 @@ export function adminRoutes(deps: Deps): Router {
     }),
   );
 
+  router.get(
+    '/usage',
+    h(async (_req, res) => {
+      res.json(await usageSummary(deps));
+    }),
+  );
+
   router.put(
     '/settings',
     h(async (req, res) => {
@@ -894,6 +902,8 @@ export function adminRoutes(deps: Deps): Router {
         quizTimeLimitMinutes: num(b.quizTimeLimitMinutes ?? current.quizTimeLimitMinutes, 'Quiz time limit', { min: 10, max: 60 })!,
         proctoringRetentionDays: num(b.proctoringRetentionDays ?? current.proctoringRetentionDays, 'Snapshot retention', { min: 1, max: 365 })!,
         rewardMinScore: num(b.rewardMinScore ?? current.rewardMinScore, 'Gift card score', { min: 50, max: 100 })!,
+        videoMonthlyGb: num(b.videoMonthlyGb ?? current.videoMonthlyGb, 'Recording playback allowance', { min: 0, max: 500 })!,
+        aiMonthlyLimitCad: Math.round(num(b.aiMonthlyLimitCad ?? current.aiMonthlyLimitCad, 'AI allowance', { min: 0, max: 100 })! * 100) / 100,
         updatedAt: deps.now().toISOString(),
       };
       await deps.store.put(C.settings, next);

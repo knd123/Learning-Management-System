@@ -24,6 +24,7 @@ import { getSettings } from '../services/settings.ts';
 import { homeworkView, quizSummary, sessionView } from '../services/views.ts';
 import type { Upload } from './upload.ts';
 import { answerProposal, proposeNewTime, withReschedules } from '../services/reschedule.ts';
+import { recordVideoBytes, resetsOn, usageMonth, videoAllowanceLeft } from '../services/usage.ts';
 
 /** Each response carries at most this much video, so requests stay short and the player fetches the rest as it plays. */
 export const VIDEO_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -247,9 +248,13 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
         .filter(({ session }) => session.recording)
         .map(({ session, course }) => sessionView(session, course, now, req.user!.id))
         .reverse();
+      const available = views.filter((v) => v.recording?.state === 'available');
+      // Checked only when there is something to play, so the page can say why playback is paused.
+      const paused = available.some((v) => v.recording?.streamUrl) && !(await videoAllowanceLeft(deps));
       res.json({
-        available: views.filter((v) => v.recording?.state === 'available'),
+        available,
         expired: views.filter((v) => v.recording?.state === 'expired'),
+        ...(paused ? { pausedUntil: resetsOn(usageMonth(now)) } : {}),
       });
     }),
   );
@@ -266,6 +271,9 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const rec = session.recording;
       if (!rec?.driveFileId || recordingState(session, deps.now()) !== 'available') throw notFound('Recording');
       if (!deps.videos) throw new HttpError(503, 'Recordings cannot be played right now.');
+      if (!(await videoAllowanceLeft(deps))) {
+        throw new HttpError(503, `Recordings are paused until ${resetsOn(usageMonth(deps.now()))}: this month's playback allowance has been used. Ask your mentor if you need to go over something from class.`);
+      }
 
       const asked = /^bytes=(\d+)-(\d*)$/.exec(String(req.headers.range || ''));
       const start = asked ? Number(asked[1]) : 0;
@@ -284,6 +292,8 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
         await chunk.body?.cancel();
         throw new HttpError(502, 'This recording could not be loaded. Ask your mentor to check that the video is shared as “Anyone with the link”.');
       }
+      // Counted before sending (Google bills every byte that leaves), whether or not the player keeps it all.
+      await recordVideoBytes(deps, Number(chunk.contentLength) || end - start + 1);
       res.status(chunk.status).set({
         'Content-Type': chunk.contentType?.startsWith('video/') ? chunk.contentType : 'video/mp4',
         'Accept-Ranges': 'bytes',

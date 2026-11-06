@@ -12,15 +12,17 @@ import { LogMailer, SmtpMailer } from './services/email.ts';
 import { GoogleIdTokenVerifier } from './services/google.ts';
 import { runScheduledJobs } from './services/jobs.ts';
 import { syncTeamAccount } from './services/teamAccount.ts';
+import { AiAllowance } from './services/usage.ts';
 import { buildStorage } from './storage.ts';
 
 async function main() {
   const { store, blobs } = await buildStorage();
+  const aiAllowance = new AiAllowance();
   const deps: Deps = {
     store,
     blobs,
     mailer: config.smtp.host ? new SmtpMailer(config.smtp, config.emailFrom) : new LogMailer(),
-    ai: config.geminiApiKey ? new GeminiAi(config.geminiApiKey, config.geminiModel) : new DisabledAi(),
+    ai: config.geminiApiKey ? new GeminiAi(config.geminiApiKey, config.geminiModel, { meter: aiAllowance, liteModel: config.geminiLiteModel }) : new DisabledAi(),
     drive: config.driveEnabled ? new GoogleDriveService() : null,
     videos: new GoogleDriveVideos(),
     google: config.googleClientId ? new GoogleIdTokenVerifier(config.googleClientId) : null,
@@ -34,6 +36,7 @@ async function main() {
     dataBackend: config.dataBackend,
     adminUsername: config.bootstrapAdmin.password ? config.bootstrapAdmin.username.trim().toLowerCase() : '',
   };
+  aiAllowance.attach(deps);
   for (const line of await syncTeamAccount(store, config.bootstrapAdmin)) console.log(`[setup] ${line}`);
 
   const app = createApp(deps);
@@ -54,7 +57,7 @@ async function main() {
 
   const server = app.listen(config.port, () => {
     console.log(`Abugida LMS running on http://localhost:${config.port}`);
-    console.log(`  data: ${config.dataBackend} | files: ${config.fileBackend} | email: ${deps.mailer.live ? 'SMTP' : 'log only'} | AI: ${deps.ai.enabled ? config.geminiModel : 'off'} | Drive: ${deps.drive ? 'on' : 'off'} | Google sign-in: ${deps.google ? 'on' : 'off'}`);
+    console.log(`  data: ${config.dataBackend} | files: ${config.fileBackend} | email: ${deps.mailer.live ? 'SMTP' : 'log only'} | AI: ${deps.ai.enabled ? `${config.geminiModel} + ${config.geminiLiteModel}` : 'off'} | Drive: ${deps.drive ? 'on' : 'off'} | Google sign-in: ${deps.google ? 'on' : 'off'}`);
   });
 
   let timer: NodeJS.Timeout | undefined;

@@ -12,7 +12,7 @@ import { decideMentor, isApprovedMentor } from './accounts.ts';
 import { emailButton, emailLayout, emailList as list, emailTable as rows, escapeHtml, sendEmail } from './email.ts';
 import type { MentorCandidate } from '../../shared/api.ts';
 import { committedHours, rankMentors } from './matching.ts';
-import { notify, notifyAdmins } from './notifications.ts';
+import { notify, notifyAdmins, touchNotices } from './notifications.ts';
 import { parseSubjectHours, type HourChange } from './profiles.ts';
 import { resyncFutureSessions } from './schedule.ts';
 import { getSettings } from './settings.ts';
@@ -460,13 +460,15 @@ async function announceMentorChange(deps: Deps, student: UserRecord, previous: U
   const paired = pairedNotice(mentor, course);
   const stale = (await noticesOf(student.id)).filter((n) => n.link === studentLink && n.title.startsWith("You're paired with"));
   for (const n of stale) await deps.store.patch<AppNotification>(C.notifications, n.id, { ...paired, createdAt: now, readAt: undefined });
-  if (!stale.length) await notify(deps, student.id, paired.title, paired.body, studentLink);
+  if (stale.length) await touchNotices(deps, student.id);
+  else await notify(deps, student.id, paired.title, paired.body, studentLink);
 
   if (previous && previous.id !== mentor.id) {
     const moved = { title: `Class moved: ${student.displayName}`, body: `The Abugida team moved ${firstName(student.displayName)}'s ${course.subject} class to another mentor. It is no longer in your classes.`, link: '/mentor' };
     const theirs = (await noticesOf(previous.id)).filter((n) => n.link?.includes(course.id));
     const welcome = theirs.find((n) => n.title.startsWith('New student:'));
     for (const n of theirs) await deps.store.patch<AppNotification>(C.notifications, n.id, n === welcome ? { ...moved, createdAt: now, readAt: undefined } : { link: '/mentor' });
+    if (theirs.length) await touchNotices(deps, previous.id);
     if (!welcome) await notify(deps, previous.id, moved.title, moved.body, moved.link);
   }
 

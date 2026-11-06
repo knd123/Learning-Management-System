@@ -12,7 +12,7 @@ import { parentRoutes } from './routes/parent.ts';
 import { studentRoutes } from './routes/student.ts';
 import { createUpload } from './routes/upload.ts';
 import { canDownload, contentDisposition, type StoredFile } from './services/files.ts';
-import { markRead, notificationsFor } from './services/notifications.ts';
+import { checkNotifications, markRead, notificationsFor } from './services/notifications.ts';
 import { runScheduledJobs } from './services/jobs.ts';
 
 function safeEqual(a: string, b: string): boolean {
@@ -69,7 +69,9 @@ export function createApp(deps: Deps) {
     '/api/notifications',
     requireRole('student', 'parent', 'mentor', 'admin'),
     h(async (req, res) => {
-      res.json(await notificationsFor(deps, req.user!.id));
+      // The bell sends the version it already has; nothing new costs one small read.
+      const since = typeof req.query.since === 'string' ? req.query.since.slice(0, 40) : undefined;
+      res.json(await checkNotifications(deps, req.user!.id, since));
     }),
   );
 

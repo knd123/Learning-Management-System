@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import type { MonthlyUsage } from '../../../shared/api.ts';
 import type { Settings } from '../../../shared/types.ts';
 import { SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
@@ -10,6 +11,7 @@ import { useApi } from '../../lib/useApi.ts';
 export default function AdminSettings() {
   const toast = useToast();
   const { data, error, loading, reload, setData } = useApi<Settings>('/api/admin/settings');
+  const usage = useApi<MonthlyUsage>('/api/admin/usage');
   const [form, setForm] = useState<Settings | null>(null);
   const [hours, setHours] = useState('');
   const [override, setOverride] = useState('');
@@ -38,6 +40,7 @@ export default function AdminSettings() {
         curriculumWindowOverrideUntil: override ? fromLocalInput(override) : '',
       });
       setData(saved);
+      usage.reload();
       toast('Settings saved.');
     } catch (err) {
       setSaveError(errorMessage(err));
@@ -128,6 +131,22 @@ export default function AdminSettings() {
               </Select>
             )}
           </Field>
+        </Card>
+
+        <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <h2 className="font-semibold">Monthly allowances</h2>
+            <p className="mt-1 text-sm text-ink-soft">
+              Keep the Google Cloud bill for the portal and website under about CA$5 a month. When one runs out, that feature pauses until the 1st and the team gets a notice; raise it here to turn it back on.
+            </p>
+          </div>
+          <Field label="Recording playback (GB per month)" hint={`An hour-long class is about 0.8 GB each time it is watched; each GB costs about CA$0.20 (4 GB ≈ five viewings).${usage.data ? ` This month: ${usage.data.videoGb} GB.` : ''}`}>
+            {(id) => <Input id={id} type="number" min={0} max={500} step={1} value={form.videoMonthlyGb} onChange={(e) => set({ videoMonthlyGb: Number(e.target.value) })} />}
+          </Field>
+          <Field label="AI features (CA$ per month)" hint={`Monthly quizzes, report wording and homework drafts, estimated at Google's prices.${usage.data ? ` This month: CA$${usage.data.aiCad.toFixed(2)} over ${usage.data.aiRequests} request${usage.data.aiRequests === 1 ? '' : 's'}.` : ''}`}>
+            {(id) => <Input id={id} type="number" min={0} max={100} step={0.25} value={form.aiMonthlyLimitCad} onChange={(e) => set({ aiMonthlyLimitCad: Number(e.target.value) })} />}
+          </Field>
+          {usage.data && <p className="text-xs text-ink-muted sm:col-span-2">Both reset on {usage.data.resetsOn} (Google's billing month, Pacific time).</p>}
         </Card>
 
         <div className="flex items-center gap-4">

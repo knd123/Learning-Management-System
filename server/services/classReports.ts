@@ -122,7 +122,9 @@ export async function classReportRows(deps: Deps, opts: { since?: Date; mentorId
   const since = opts.since?.toISOString() || '';
   const courses = await deps.store.find<Course>(C.courses);
   // A report is sent after its class, usually within days: classes from a month before the period cover late ones.
-  const windowed = opts.since ? await deps.store.findRange<ClassSession>(C.sessions, {}, { field: 'startAt', from: new Date(opts.since.getTime() - 31 * 86_400_000).toISOString() }) : null;
+  const windowed = opts.since
+    ? await deps.store.findRange<ClassSession>(C.sessions, {}, { field: 'startAt', from: new Date(opts.since.getTime() - 31 * 86_400_000).toISOString(), to: deps.now().toISOString() })
+    : null;
   const found = (
     await Promise.all(
       courses.map(async (course) =>

@@ -2,37 +2,10 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import type { AdminOverview, StudentCourseDetail } from '../shared/api.ts';
 import type { ClassSession, Course, PublicUser } from '../shared/types.ts';
-import { C, MemoryStore, type Range, type Where } from '../server/db/store.ts';
-import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
+import { C } from '../server/db/store.ts';
+import { Client, CountingStore, seedAdmin, startHarness, type Harness } from './helpers.ts';
 
 const NY = 'America/New_York';
-
-/** Counts the documents each read returns, as Firestore bills them. */
-class CountingStore extends MemoryStore {
-  reads: Record<string, number> = {};
-  private count(collection: string, n: number) {
-    this.reads[collection] = (this.reads[collection] || 0) + n;
-  }
-  override async get<T>(collection: string, id: string) {
-    const doc = await super.get<T>(collection, id);
-    this.count(collection, doc ? 1 : 0);
-    return doc;
-  }
-  override async find<T>(collection: string, where?: Where, options?: Parameters<MemoryStore['find']>[2]) {
-    const docs = await super.find<T>(collection, where, options);
-    this.count(collection, docs.length);
-    return docs;
-  }
-  override async findRange<T>(collection: string, where: Where, range: Range) {
-    const docs = await super.findRange<T>(collection, where, range);
-    this.count(collection, docs.length);
-    return docs;
-  }
-  sessionReads(fn: () => Promise<unknown>) {
-    const before = this.reads[C.sessions] || 0;
-    return fn().then(() => (this.reads[C.sessions] || 0) - before);
-  }
-}
 
 describe('keeping database reads low as class history grows', () => {
   let h: Harness;

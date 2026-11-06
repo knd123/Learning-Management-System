@@ -2,7 +2,17 @@ import type { App } from 'firebase-admin/app';
 import { FieldValue, getFirestore, type Firestore, type Query } from 'firebase-admin/firestore';
 import { inRange, type FindOptions, type Range, type Store, type Where } from './store.ts';
 
-let warnedMissingIndex = false;
+const warnedMissingIndex = new Set<string>();
+
+/** An equality filter plus a range or an order needs a composite index (deploy/gcp/deploy.sh creates them). */
+function missingIndex(err: unknown, what: string): boolean {
+  if ((err as { code?: number }).code !== 9) return false; // FAILED_PRECONDITION
+  if (!warnedMissingIndex.has(what)) {
+    warnedMissingIndex.add(what);
+    console.warn(`[firestore] missing index for ${what}; reading without it`);
+  }
+  return true;
+}
 
 /** Firestore-backed store used in production (Cloud Run uses application default credentials). */
 export class FirestoreStore implements Store {
@@ -37,15 +47,29 @@ export class FirestoreStore implements Store {
       const snap = await query.get();
       return snap.docs.map((d) => d.data() as T);
     } catch (err) {
-      // An equality filter plus a range needs a composite index (deploy/gcp/deploy.sh creates it).
-      // Until it exists, read the matching documents and filter here, so nothing breaks.
-      if ((err as { code?: number }).code !== 9) throw err; // FAILED_PRECONDITION
-      if (!warnedMissingIndex) {
-        warnedMissingIndex = true;
-        console.warn(`[firestore] missing index for ${collection} (${Object.keys(where).join(', ')} + ${range.field}); reading without it`);
-      }
+      // Until the index exists, read the matching documents and filter here, so nothing breaks.
+      if (!missingIndex(err, `${collection} (${Object.keys(where).join(', ')} + ${range.field})`)) throw err;
       return (await this.find<Record<string, unknown>>(collection, where)).filter((d) => inRange(d[range.field], range)) as T[];
     }
+  }
+
+  async findLatest<T>(collection: string, where: Where, field: string, limit: number): Promise<T[]> {
+    let query: Query = this.db.collection(collection);
+    for (const [key, value] of Object.entries(where)) query = query.where(key, '==', value);
+    try {
+      const snap = await query.orderBy(field, 'desc').limit(limit).get();
+      return snap.docs.map((d) => d.data() as T);
+    } catch (err) {
+      if (!missingIndex(err, `${collection} (${Object.keys(where).join(', ')} + ${field} desc)`)) throw err;
+      const all = await this.find<Record<string, unknown>>(collection, where);
+      return all.sort((a, b) => String(b[field] ?? '').localeCompare(String(a[field] ?? ''))).slice(0, limit) as T[];
+    }
+  }
+
+  async increment(collection: string, id: string, amounts: Record<string, number>): Promise<void> {
+    const update: Record<string, unknown> = { id };
+    for (const [key, by] of Object.entries(amounts)) update[key] = FieldValue.increment(by);
+    await this.db.collection(collection).doc(id).set(update, { merge: true });
   }
 
   async put<T extends { id: string }>(collection: string, doc: T): Promise<T> {

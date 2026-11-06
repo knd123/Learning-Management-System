@@ -139,6 +139,20 @@ else
   run gcloud firestore indexes composite create --collection-group=sessions --query-scope=COLLECTION \
     --field-config=field-path=courseId,order=ascending --field-config=field-path=startAt,order=ascending --async --quiet
 fi
+# Lets the monthly quiz job read one class's homework for one month instead of all of it.
+if [ -z "$DRY_RUN" ] && gcloud firestore indexes composite list --format='value(fields)' 2>/dev/null | grep -q "courseId.*assignedAt"; then
+  note "Homework date index already exists."
+else
+  run gcloud firestore indexes composite create --collection-group=homework --query-scope=COLLECTION \
+    --field-config=field-path=courseId,order=ascending --field-config=field-path=assignedAt,order=ascending --async --quiet
+fi
+# Lets the notification bell read a person's newest 50 notices instead of every notice they ever had.
+if [ -z "$DRY_RUN" ] && gcloud firestore indexes composite list --format='value(fields)' 2>/dev/null | grep -q "userId.*createdAt"; then
+  note "Notification index already exists."
+else
+  run gcloud firestore indexes composite create --collection-group=notifications --query-scope=COLLECTION \
+    --field-config=field-path=userId,order=ascending --field-config=field-path=createdAt,order=descending --async --quiet
+fi
 
 BUCKET="${PROJECT}-lms-files"
 step "File storage (gs://$BUCKET)"

@@ -323,8 +323,14 @@ export interface MentorDirectoryRow {
 
 export interface NotificationList {
   notifications: AppNotification[];
+  /** Unread among the notifications listed (the newest 50). */
   unread: number;
+  /** Changes whenever this person's notifications do; send it back as ?since= to check cheaply. */
+  version: string;
 }
+
+/** GET /api/notifications?since=<version>: the list, or "unchanged" when the version still matches. */
+export type NotificationCheck = NotificationList | { unchanged: true; version: string };
 
 export interface StudentCourseDetail {
   course: StudentCourse;
@@ -696,4 +702,18 @@ export interface AgreementSendResult {
   agreement: MentorAgreement;
   emailStatus: EmailLog['status'];
   emailError?: string;
+}
+
+/** This month's metered usage against the monthly allowances in Settings (GET /api/admin/usage). */
+export interface MonthlyUsage {
+  /** "2026-11": Google's billing month (Pacific time); the allowances reset when it ends. */
+  month: string;
+  /** First day of next month, e.g. "December 1". */
+  resetsOn: string;
+  videoGb: number;
+  videoLimitGb: number;
+  /** Estimated from Google's list prices, rounded up. */
+  aiCad: number;
+  aiLimitCad: number;
+  aiRequests: number;
 }

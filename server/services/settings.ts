@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS: Settings = {
   quizTimeLimitMinutes: 30,
   proctoringRetentionDays: 30,
   rewardMinScore: 90,
+  videoMonthlyGb: 4,
+  aiMonthlyLimitCad: 1.5,
   allowMentorSignup: true,
   allowParentSignup: true,
   siblingDiscountPercent: 5,

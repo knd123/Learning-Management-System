@@ -7,7 +7,7 @@ import { fmtDateTime, fmtRelative } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 export default function StudentRecordings() {
-  const { data, error, loading, reload } = useApi<{ available: SessionView[]; expired: SessionView[] }>('/api/student/recordings');
+  const { data, error, loading, reload } = useApi<{ available: SessionView[]; expired: SessionView[]; pausedUntil?: string }>('/api/student/recordings');
   // Links elsewhere in the portal open this page with ?play=<class id>, so recordings always play here.
   const [params] = useSearchParams();
   const [playing, setPlaying] = useState<string | null>(params.get('play'));
@@ -21,6 +21,11 @@ export default function StudentRecordings() {
   return (
     <>
       <PageHeader title="Class recordings" subtitle="Rewatch your classes to revise. Recordings stay here for a limited time after each class — check the date on each one." />
+      {data.pausedUntil && (
+        <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Recordings are paused until {data.pausedUntil}: this month's playback allowance has been used. Ask your mentor if you need to go over something from class.
+        </p>
+      )}
       {data.available.length ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {data.available.map((s) => {
@@ -31,7 +36,9 @@ export default function StudentRecordings() {
                   // The portal's own player: the video comes through the portal, never a Google Drive page.
                   <div className="aspect-video overflow-hidden rounded-xl bg-ink">
                     {failed === s.id ? (
-                      <p className="grid size-full place-items-center p-6 text-center text-sm text-white">This recording can't be played right now. Try again later, or ask your mentor to check the video.</p>
+                      <p className="grid size-full place-items-center p-6 text-center text-sm text-white">
+                        {data.pausedUntil ? `Recordings are paused until ${data.pausedUntil}.` : "This recording can't be played right now. Try again later, or ask your mentor to check the video."}
+                      </p>
                     ) : (
                       <video
                         src={rec.streamUrl}

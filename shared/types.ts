@@ -689,6 +689,13 @@ export interface Settings {
   proctoringRetentionDays: number;
   /** A score of at least this on four monthly quizzes in a row, in one class, earns a Starbucks gift card. */
   rewardMinScore: number;
+  /**
+   * Class recordings play through the portal, and Google bills each gigabyte sent (about CA$0.20).
+   * Playback pauses for the rest of the month once students have played this much.
+   */
+  videoMonthlyGb: number;
+  /** AI features (quizzes, report wording, homework drafts) pause for the rest of the month once they have cost this much. */
+  aiMonthlyLimitCad: number;
   updatedAt: string;
 }
 

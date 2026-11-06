@@ -10,6 +10,7 @@ import { curriculumWindow } from './curriculum.ts';
 import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
 import { finalizeExpiredSessions, purgeOldSnapshots } from './proctoring.ts';
 import { generateMonthlyQuiz, homeworkInMonth, quizIdFor, topicsInMonth } from './quizzes.ts';
+import { aiAllowanceLeft } from './usage.ts';
 import { revokeExpiredDriveAccess, sendRecordingReminders } from './recordings.ts';
 import { generateParentReport, reportIdFor, sendParentReport } from './reports.ts';
 import { ensureSessions } from './schedule.ts';
@@ -40,6 +41,16 @@ interface RetryLock {
 }
 
 const MAX_ATTEMPTS = 3;
+/** How often the scheduled job extends every class's three weeks of coming classes. */
+export const SESSION_SYNC_HOURS = 6;
+/** How often a class with nothing to quiz on yet is looked at again after quiz day. */
+export const QUIZ_RECHECK_HOURS = 6;
+
+interface QuizWait {
+  id: string;
+  /** Class id → when to look at it again. */
+  until: Record<string, string>;
+}
 
 /** Runs `work` at most once successfully per key, retrying failures with a back-off. */
 async function withRetryLock(deps: Deps, key: string, work: () => Promise<void>): Promise<'done' | 'skipped' | 'failed'> {
@@ -101,19 +112,39 @@ async function generateDueQuizzes(deps: Deps, courses: Course[], result: JobResu
     return;
   }
   const month = `${local.year}-${String(local.month).padStart(2, '0')}`;
+  let allowanceChecked = false;
+  // Classes with nothing to assess yet (no homework or class reports this month) are looked at again
+  // every QUIZ_RECHECK_HOURS, not on every run: one small document remembers when.
+  const waitId = `quizwait_${month}`;
+  let wait: QuizWait | null = null;
+  let waitChanged = false;
   for (const course of courses) {
     if (await deps.store.get<Quiz>(C.quizzes, quizIdFor(course.id, month))) continue;
+    wait ??= (await deps.store.get<QuizWait>(C.locks, waitId)) || { id: waitId, until: {} };
+    if (wait.until[course.id] && new Date(wait.until[course.id]) > now) continue;
+    if (!allowanceChecked) {
+      allowanceChecked = true;
+      if (!(await aiAllowanceLeft(deps))) {
+        result.notes.push("Monthly quizzes are waiting: this month's AI allowance is used up (raise it in Settings).");
+        return;
+      }
+    }
     const [homework, topics] = await Promise.all([
       homeworkInMonth(deps, course.id, month, settings.timezone),
       topicsInMonth(deps, course.id, month, settings.timezone),
     ]);
-    if (!homework.length && !topics.length) continue; // nothing to assess yet; check again on the next run
+    if (!homework.length && !topics.length) {
+      wait.until[course.id] = new Date(now.getTime() + QUIZ_RECHECK_HOURS * ONE_HOUR).toISOString();
+      waitChanged = true;
+      continue;
+    }
     const outcome = await withRetryLock(deps, `quizgen_${course.id}_${month}`, async () => {
       await generateMonthlyQuiz(deps, course, month, settings, { publish: settings.quizAutoPublish });
     });
     if (outcome === 'done') result.quizzesGenerated++;
     if (outcome === 'failed') result.notes.push(`Quiz generation failed for ${course.title}; it will be retried.`);
   }
+  if (wait && waitChanged) await deps.store.put(C.locks, wait);
 }
 
 async function generateDueReports(deps: Deps, result: JobResult) {
@@ -164,9 +195,15 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
 
   const steps: Array<[string, () => Promise<void>]> = [
     ['sessions', async () => {
+      // Setting up or changing a class creates its coming classes at once; this only keeps the
+      // three-week window rolling, so every SESSION_SYNC_HOURS is plenty (and saves reading every
+      // class's coming weeks on each run).
+      const mark = await deps.store.get<{ id: string; at: string }>(C.meta, 'sessions_synced');
+      if (mark && now.getTime() - new Date(mark.at).getTime() < SESSION_SYNC_HOURS * ONE_HOUR && now >= new Date(mark.at)) return;
       for (const course of courses) {
         result.sessionsChecked += (await ensureSessions(deps, course, new Date(now.getTime() - 2 * ONE_DAY), new Date(now.getTime() + 21 * ONE_DAY))).length;
       }
+      await deps.store.put(C.meta, { id: 'sessions_synced', at: now.toISOString() });
     }],
     ['reminders', async () => {
       result.remindersSent = await sendRecordingReminders(deps, settings);

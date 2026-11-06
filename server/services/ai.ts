@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, type Schema } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type, type GenerateContentParameters, type GenerateContentResponse, type Schema } from '@google/genai';
 import type { QuizQuestion, ReportMetrics, ReportNarrative } from '../../shared/types.ts';
 
 export class AiUnavailableError extends Error {
@@ -43,6 +43,25 @@ export interface ReportGenInput {
 }
 
 export type GeneratedQuestion = Omit<QuizQuestion, 'id'>;
+
+/** Tokens one AI request used (output includes thinking), for the monthly AI allowance. */
+export interface AiUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Keeps AI spending within the monthly allowance: checked before each request, told what each one used. */
+export interface AiMeter {
+  /** Throws AiUnavailableError when this month's allowance is used up. */
+  check(): Promise<void>;
+  record(usage: AiUsage): Promise<void>;
+}
+
+/** The part of the Gemini client the platform uses (a stand-in in tests). */
+export interface GeminiClient {
+  models: { generateContent(params: GenerateContentParameters): Promise<GenerateContentResponse> };
+}
 
 export interface AiService {
   readonly enabled: boolean;
@@ -156,23 +175,64 @@ const narrativeSchema: Schema = {
   required: ['summary', 'strengths', 'focusAreas', 'recommendations'],
 };
 
+/**
+ * How a request is made. Quizzes (answer keys must be right) use the main model with some thinking;
+ * report wording and homework drafts use the cheaper Flash-Lite model with little thinking (thinking
+ * is billed as output).
+ */
+type Task = { lite: boolean; thinking?: ThinkingLevel };
+const QUIZ: Task = { lite: false, thinking: ThinkingLevel.MEDIUM };
+const WRITING: Task = { lite: true, thinking: ThinkingLevel.LOW };
+const READING: Task = { lite: false };
+
 export class GeminiAi implements AiService {
   readonly enabled = true;
-  private readonly client: GoogleGenAI;
+  private readonly client: GeminiClient;
+  private readonly meter?: AiMeter;
+  private readonly liteModel: string;
 
   constructor(
     apiKey: string,
     private readonly model: string,
+    opts: { meter?: AiMeter; client?: GeminiClient; liteModel?: string } = {},
   ) {
-    this.client = new GoogleGenAI({ apiKey });
+    this.client = opts.client || new GoogleGenAI({ apiKey });
+    this.meter = opts.meter;
+    this.liteModel = opts.liteModel || model;
   }
 
-  private async json<T>(prompt: string, schema: Schema, system: string): Promise<T> {
-    const response = await this.client.models.generateContent({
-      model: this.model,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: { systemInstruction: system, responseMimeType: 'application/json', responseSchema: schema, temperature: 0.4 },
+  /**
+   * Every request goes through here: refused when the month's AI allowance is used up, and what it
+   * used is recorded. A model that doesn't take the thinking setting is asked again without it.
+   */
+  private async generate(params: Omit<GenerateContentParameters, 'model'>, task: Task): Promise<GenerateContentResponse> {
+    await this.meter?.check();
+    const model = task.lite ? this.liteModel : this.model;
+    const thinking = task.thinking && /^gemini-([3-9]|flash|pro)/.test(model) ? { thinkingConfig: { thinkingLevel: task.thinking } } : {};
+    let response: GenerateContentResponse;
+    try {
+      response = await this.client.models.generateContent({ ...params, model, config: { ...params.config, ...thinking } });
+    } catch (err) {
+      if (!thinking.thinkingConfig || !/thinking/i.test(err instanceof Error ? err.message : String(err))) throw err;
+      response = await this.client.models.generateContent({ ...params, model });
+    }
+    const u = response.usageMetadata;
+    await this.meter?.record({
+      model,
+      inputTokens: u?.promptTokenCount || 0,
+      outputTokens: (u?.candidatesTokenCount || 0) + (u?.thoughtsTokenCount || 0),
     });
+    return response;
+  }
+
+  private async json<T>(prompt: string, schema: Schema, system: string, task: Task): Promise<T> {
+    const response = await this.generate(
+      {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { systemInstruction: system, responseMimeType: 'application/json', responseSchema: schema, temperature: 0.4 },
+      },
+      task,
+    );
     const text = response.text;
     if (!text) throw new Error('The AI returned an empty response.');
     return JSON.parse(text) as T;
@@ -198,7 +258,7 @@ This is a monthly assessment taken under exam conditions in 30 minutes, without 
 - Use plausible distractors based on common mistakes; vary which option is correct.
 - "topic" is a short skill label (2-4 words) reused across related questions, so results can be grouped by skill.
 - "explanation" is one or two friendly sentences shown to the student after they submit.`;
-    const raw = await this.json<unknown>(prompt, questionSchema, 'You are an experienced K-12 teacher who writes clear, accurate, age-appropriate assessment questions that test understanding and application, not memorisation.');
+    const raw = await this.json<unknown>(prompt, questionSchema, 'You are an experienced K-12 teacher who writes clear, accurate, age-appropriate assessment questions that test understanding and application, not memorisation.', QUIZ);
     return validateQuestions(raw, input.questionCount);
   }
 
@@ -214,7 +274,7 @@ ${input.curriculum ? `Curriculum:\n${clip(input.curriculum, 6000)}` : ''}
 
 Write student-facing instructions in plain text: a one-line goal, then numbered tasks or questions, then what to submit.
 Use simple language appropriate for grade ${input.gradeLevel}. Do not include answers.`;
-    const out = await this.json<{ title: string; instructions: string }>(prompt, homeworkSchema, 'You are a supportive mentor who designs focused, age-appropriate homework.');
+    const out = await this.json<{ title: string; instructions: string }>(prompt, homeworkSchema, 'You are a supportive mentor who designs focused, age-appropriate homework.', WRITING);
     if (!out.title || !out.instructions) throw new Error('The AI response was incomplete.');
     return { title: out.title.trim(), instructions: out.instructions.trim() };
   }
@@ -232,7 +292,7 @@ Guidelines:
 - "focusAreas": 1-3 bullet points on topics or habits that need work (e.g. topics < 60%, missed homework).
 - "recommendations": 2-3 practical things parents can do at home this month.
 - Address the parents, refer to the student by first name, keep it encouraging and professional.`;
-    const out = await this.json<ReportNarrative>(prompt, narrativeSchema, `You write clear, kind and accurate progress reports for ${input.organizationName}, a K-12 tutoring company.`);
+    const out = await this.json<ReportNarrative>(prompt, narrativeSchema, `You write clear, kind and accurate progress reports for ${input.organizationName}, a K-12 tutoring company.`, WRITING);
     if (!out.summary) throw new Error('The AI response was incomplete.');
     return {
       summary: out.summary.trim(),
@@ -243,18 +303,20 @@ Guidelines:
   }
 
   async outlineCurriculumPdf(pdf: Buffer, title: string): Promise<string> {
-    const response = await this.client.models.generateContent({
-      model: this.model,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: 'application/pdf', data: pdf.toString('base64') } },
-            { text: `This PDF is the curriculum "${title}". Produce a faithful plain-text outline: units/weeks in order, the topics and skills in each, and any learning objectives. Do not add content that is not in the document.` },
-          ],
-        },
-      ],
-    });
+    const response = await this.generate(
+      {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: 'application/pdf', data: pdf.toString('base64') } },
+              { text: `This PDF is the curriculum "${title}". Produce a faithful plain-text outline: units/weeks in order, the topics and skills in each, and any learning objectives. Do not add content that is not in the document.` },
+            ],
+          },
+        ],
+      },
+      READING,
+    );
     const text = response.text?.trim();
     if (!text) throw new Error('Could not read the curriculum PDF.');
     return text;

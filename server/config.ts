@@ -40,6 +40,8 @@ export const config = {
 
   geminiApiKey: env.GEMINI_API_KEY || '',
   geminiModel: env.GEMINI_MODEL || 'gemini-flash-latest',
+  /** Cheaper model for report wording and homework drafts. */
+  geminiLiteModel: env.GEMINI_LITE_MODEL || 'gemini-3.5-flash-lite',
 
   smtp: {
     host: env.SMTP_HOST || '',

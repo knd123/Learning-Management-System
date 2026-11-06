@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { Bell } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import type { NotificationList } from '../../shared/api.ts';
+import type { NotificationCheck, NotificationList } from '../../shared/api.ts';
 import { api } from '../lib/api.ts';
 import { fmtRelative } from '../lib/format.ts';
 import { useVisibleInterval } from '../lib/useVisibleInterval.ts';
@@ -14,11 +14,24 @@ export function NotificationBell({ align = 'right' }: { align?: 'left' | 'right'
   const box = useRef<HTMLDivElement>(null);
   const location = useLocation();
 
+  const version = useRef<string | null>(null);
+  const show = useCallback((d: NotificationList) => {
+    version.current = d.version;
+    setData(d);
+  }, []);
+
   const load = useCallback(() => {
     // The menu draws a bell for wide screens and one for phones; only the one on screen checks.
     if (box.current && !box.current.offsetParent) return;
-    api.get<NotificationList>('/api/notifications').then(setData).catch(() => undefined);
-  }, []);
+    // Sends the version already on screen: when nothing changed the server answers "unchanged" cheaply.
+    const since = version.current ? `?since=${encodeURIComponent(version.current)}` : '';
+    api
+      .get<NotificationCheck>(`/api/notifications${since}`)
+      .then((d) => {
+        if (!('unchanged' in d)) show(d);
+      })
+      .catch(() => undefined);
+  }, [show]);
 
   // Checked on each page change, and every 3 minutes while the portal is on screen (not in a hidden tab).
   useEffect(() => {
@@ -39,7 +52,7 @@ export function NotificationBell({ align = 'right' }: { align?: 'left' | 'right'
     const next = !open;
     setOpen(next);
     if (next && data?.unread) {
-      api.post<NotificationList>('/api/notifications/read').then((d) => setTimeout(() => setData(d), 1500)).catch(() => undefined);
+      api.post<NotificationList>('/api/notifications/read').then((d) => setTimeout(() => show(d), 1500)).catch(() => undefined);
     }
   };
 
