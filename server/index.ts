@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import express from 'express';
 import { createApp } from './app.ts';
+import { serveClient } from './compress.ts';
 import { config } from './config.ts';
 import { C } from './db/store.ts';
 import type { Deps } from './deps.ts';
@@ -44,7 +44,7 @@ async function main() {
 
   if (config.isProduction) {
     const clientDir = fs.existsSync(path.join(root, 'client')) ? path.join(root, 'client') : path.join(root, 'dist', 'client');
-    app.use(express.static(clientDir, { index: false, maxAge: '1h' }));
+    serveClient(app, clientDir);
     app.get('*', (_req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(clientDir, 'index.html'));

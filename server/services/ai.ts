@@ -1,4 +1,5 @@
-import { GoogleGenAI, ThinkingLevel, Type, type GenerateContentParameters, type GenerateContentResponse, type Schema } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type, type BatchJob, type CreateBatchJobParameters, type GenerateContentParameters, type GenerateContentResponse, type GetBatchJobParameters, type InlinedRequest, type Schema } from '@google/genai';
+import { aiCostUsd } from './aiPrices.ts';
 import type { QuizQuestion, ReportMetrics, ReportNarrative } from '../../shared/types.ts';
 
 export class AiUnavailableError extends Error {
@@ -49,6 +50,8 @@ export interface AiUsage {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** Made through Batch mode, at half price. */
+  batch?: boolean;
 }
 
 /** Keeps AI spending within the monthly allowance: checked before each request, told what each one used. */
@@ -56,12 +59,36 @@ export interface AiMeter {
   /** Throws AiUnavailableError when this month's allowance is used up. */
   check(): Promise<void>;
   record(usage: AiUsage): Promise<void>;
+  /** US$ left in this month's allowance. */
+  remainingUsd(): Promise<number>;
+  /** Counts an amount against the allowance without a request (negative gives it back): a batch's worst case is held until its results arrive. */
+  hold(usd: number): Promise<void>;
 }
 
 /** The part of the Gemini client the platform uses (a stand-in in tests). */
 export interface GeminiClient {
   models: { generateContent(params: GenerateContentParameters): Promise<GenerateContentResponse> };
+  batches?: {
+    create(params: CreateBatchJobParameters): Promise<BatchJob>;
+    get(params: GetBatchJobParameters): Promise<BatchJob>;
+    cancel?(params: { name: string }): Promise<void>;
+  };
 }
+
+/** A batch of monthly quizzes sent to Gemini's Batch mode. */
+export interface QuizBatch {
+  name: string;
+  /** How many of the inputs were sent, in order (the rest didn't fit in this month's AI allowance). */
+  accepted: number;
+  /** US$ held against the allowance until the results arrive. */
+  heldUsd: number;
+}
+
+export type QuizBatchResult =
+  | { state: 'running' }
+  | { state: 'failed'; message: string }
+  /** In the order sent: the questions, or why that quiz couldn't be used. */
+  | { state: 'done'; results: Array<GeneratedQuestion[] | Error> };
 
 export interface AiService {
   readonly enabled: boolean;
@@ -69,6 +96,14 @@ export interface AiService {
   generateHomework(input: HomeworkGenInput): Promise<{ title: string; instructions: string }>;
   writeReport(input: ReportGenInput): Promise<ReportNarrative>;
   outlineCurriculumPdf(pdf: Buffer, title: string): Promise<string>;
+  /**
+   * Optional: the monthly quizzes at half price through Gemini's Batch mode (results within 24 hours).
+   * Without it the monthly run makes each quiz at once, at the standard price.
+   */
+  readonly batchQuizzes?: boolean;
+  submitQuizBatch?(inputs: QuizGenInput[], displayName: string): Promise<QuizBatch>;
+  quizBatchResults?(batch: QuizBatch, questionCounts: number[]): Promise<QuizBatchResult>;
+  cancelQuizBatch?(batch: QuizBatch): Promise<void>;
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -175,6 +210,30 @@ const narrativeSchema: Schema = {
   required: ['summary', 'strengths', 'focusAreas', 'recommendations'],
 };
 
+/** The monthly quiz prompt, for instant and batched quizzes alike. */
+function quizPrompt(input: QuizGenInput): { prompt: string; system: string } {
+  const homework = input.homework
+    .map((h, i) => `Homework ${i + 1}: ${h.title}\n${clip(h.instructions, 1500)}`)
+    .join('\n\n');
+  const prompt = `Create a monthly progress quiz for the class "${input.courseTitle}" (${input.subject}, grade ${input.gradeLevel}) covering ${input.month}.
+
+The quiz must assess the skills practised in this month's homework:
+${homework || '(no homework was assigned this month)'}
+
+Topics covered in class this month: ${input.sessionTopics.length ? input.sessionTopics.join('; ') : '(not recorded)'}
+
+${input.curriculum ? `Class curriculum for context (use it to pick the right level and terminology, but focus on what was taught this month):\n${clip(input.curriculum, 6000)}` : ''}
+
+Write exactly ${input.questionCount} multiple-choice questions with 4 options each and one correct answer (answerIndex is 0-based).
+This is a monthly assessment taken under exam conditions in 30 minutes, without notes or help:
+- Make it slightly MORE challenging than the homework: ask students to apply what they practised to new situations, combine steps, or reason about why — avoid pure recall or copying a homework item.
+- Every question must still be answerable in about 3 minutes by a well-prepared grade ${input.gradeLevel} student, with language suited to that grade.
+- Use plausible distractors based on common mistakes; vary which option is correct.
+- "topic" is a short skill label (2-4 words) reused across related questions, so results can be grouped by skill.
+- "explanation" is one or two friendly sentences shown to the student after they submit.`;
+  return { prompt, system: 'You are an experienced K-12 teacher who writes clear, accurate, age-appropriate assessment questions that test understanding and application, not memorisation.' };
+}
+
 /**
  * How a request is made. Quizzes (answer keys must be right) use the main model with some thinking;
  * report wording and homework drafts use the cheaper Flash-Lite model with little thinking (thinking
@@ -183,13 +242,16 @@ const narrativeSchema: Schema = {
 type Task = { lite: boolean; thinking?: ThinkingLevel };
 const QUIZ: Task = { lite: false, thinking: ThinkingLevel.MEDIUM };
 const WRITING: Task = { lite: true, thinking: ThinkingLevel.LOW };
-const READING: Task = { lite: false };
+const READING: Task = { lite: true, thinking: ThinkingLevel.LOW };
+/** The most a batched quiz may write, thinking included: bounds what each one can cost. */
+export const QUIZ_MAX_OUTPUT_TOKENS = 12_000;
 
 export class GeminiAi implements AiService {
   readonly enabled = true;
   private readonly client: GeminiClient;
   private readonly meter?: AiMeter;
   private readonly liteModel: string;
+  readonly batchQuizzes: boolean;
 
   constructor(
     apiKey: string,
@@ -197,6 +259,7 @@ export class GeminiAi implements AiService {
     opts: { meter?: AiMeter; client?: GeminiClient; liteModel?: string } = {},
   ) {
     this.client = opts.client || new GoogleGenAI({ apiKey });
+    this.batchQuizzes = Boolean(this.client.batches);
     this.meter = opts.meter;
     this.liteModel = opts.liteModel || model;
   }
@@ -239,27 +302,78 @@ export class GeminiAi implements AiService {
   }
 
   async generateQuiz(input: QuizGenInput): Promise<GeneratedQuestion[]> {
-    const homework = input.homework
-      .map((h, i) => `Homework ${i + 1}: ${h.title}\n${clip(h.instructions, 1500)}`)
-      .join('\n\n');
-    const prompt = `Create a monthly progress quiz for the class "${input.courseTitle}" (${input.subject}, grade ${input.gradeLevel}) covering ${input.month}.
-
-The quiz must assess the skills practised in this month's homework:
-${homework || '(no homework was assigned this month)'}
-
-Topics covered in class this month: ${input.sessionTopics.length ? input.sessionTopics.join('; ') : '(not recorded)'}
-
-${input.curriculum ? `Class curriculum for context (use it to pick the right level and terminology, but focus on what was taught this month):\n${clip(input.curriculum, 6000)}` : ''}
-
-Write exactly ${input.questionCount} multiple-choice questions with 4 options each and one correct answer (answerIndex is 0-based).
-This is a monthly assessment taken under exam conditions in 30 minutes, without notes or help:
-- Make it slightly MORE challenging than the homework: ask students to apply what they practised to new situations, combine steps, or reason about why — avoid pure recall or copying a homework item.
-- Every question must still be answerable in about 3 minutes by a well-prepared grade ${input.gradeLevel} student, with language suited to that grade.
-- Use plausible distractors based on common mistakes; vary which option is correct.
-- "topic" is a short skill label (2-4 words) reused across related questions, so results can be grouped by skill.
-- "explanation" is one or two friendly sentences shown to the student after they submit.`;
-    const raw = await this.json<unknown>(prompt, questionSchema, 'You are an experienced K-12 teacher who writes clear, accurate, age-appropriate assessment questions that test understanding and application, not memorisation.', QUIZ);
+    const { prompt, system } = quizPrompt(input);
+    const raw = await this.json<unknown>(prompt, questionSchema, system, QUIZ);
     return validateQuestions(raw, input.questionCount);
+  }
+
+  private quizRequest(input: QuizGenInput): InlinedRequest {
+    const { prompt, system } = quizPrompt(input);
+    return {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: system,
+        responseMimeType: 'application/json',
+        responseSchema: questionSchema,
+        temperature: 0.4,
+        maxOutputTokens: QUIZ_MAX_OUTPUT_TOKENS,
+        ...(QUIZ.thinking && /^gemini-([3-9]|flash|pro)/.test(this.model) ? { thinkingConfig: { thinkingLevel: QUIZ.thinking } } : {}),
+      },
+    };
+  }
+
+  async submitQuizBatch(inputs: QuizGenInput[], displayName: string): Promise<QuizBatch> {
+    if (!this.client.batches) throw new AiUnavailableError('Batch mode is not available.');
+    await this.meter?.check();
+    const remaining = this.meter ? await this.meter.remainingUsd() : Infinity;
+    // Each quiz is held at its worst case: its prompt (about 1 token per 3 characters) and the most it may write.
+    const requests: InlinedRequest[] = [];
+    let held = 0;
+    for (const input of inputs) {
+      const request = this.quizRequest(input);
+      const worst = aiCostUsd(this.model, Math.ceil(JSON.stringify(request).length / 3), QUIZ_MAX_OUTPUT_TOKENS, true);
+      if (held + worst > remaining) break;
+      requests.push(request);
+      held += worst;
+    }
+    if (!requests.length) return { name: '', accepted: 0, heldUsd: 0 };
+    const job = await this.client.batches.create({ model: this.model, src: requests, config: { displayName } });
+    if (!job.name) throw new Error('Gemini did not return a batch name.');
+    await this.meter?.hold(held);
+    return { name: job.name, accepted: requests.length, heldUsd: held };
+  }
+
+  async quizBatchResults(batch: QuizBatch, questionCounts: number[]): Promise<QuizBatchResult> {
+    if (!this.client.batches) throw new AiUnavailableError('Batch mode is not available.');
+    const job = await this.client.batches.get({ name: batch.name });
+    const state = String(job.state || '');
+    if (/(FAILED|CANCELLED|EXPIRED)$/.test(state)) {
+      await this.meter?.hold(-batch.heldUsd);
+      return { state: 'failed', message: job.error?.message || state };
+    }
+    if (!/SUCCEEDED$/.test(state)) return { state: 'running' };
+    const responses = job.dest?.inlinedResponses || [];
+    const results: Array<GeneratedQuestion[] | Error> = [];
+    for (let i = 0; i < questionCounts.length; i++) {
+      const item = responses[i];
+      const u = item?.response?.usageMetadata;
+      if (u) await this.meter?.record({ model: this.model, inputTokens: u.promptTokenCount || 0, outputTokens: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), batch: true });
+      try {
+        if (!item?.response) throw new Error(item?.error?.message || 'No answer for this quiz.');
+        const text = (item.response.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').join('');
+        if (!text) throw new Error('The AI returned an empty response.');
+        results.push(validateQuestions(JSON.parse(text), questionCounts[i]));
+      } catch (err) {
+        results.push(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
+    await this.meter?.hold(-batch.heldUsd);
+    return { state: 'done', results };
+  }
+
+  async cancelQuizBatch(batch: QuizBatch): Promise<void> {
+    await this.client.batches?.cancel?.({ name: batch.name }).catch(() => undefined);
+    await this.meter?.hold(-batch.heldUsd);
   }
 
   async generateHomework(input: HomeworkGenInput): Promise<{ title: string; instructions: string }> {

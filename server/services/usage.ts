@@ -3,30 +3,15 @@ import { addMonths, monthInZone } from '../../shared/time.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { AiUnavailableError, type AiMeter, type AiUsage } from './ai.ts';
+import { aiCostUsd, CAD_PER_USD } from './aiPrices.ts';
 import { notifyAdmins } from './notifications.ts';
 import { getSettings } from './settings.ts';
 
 /** Google bills by calendar month in Pacific time; the monthly allowances reset at the same moment. */
 export const BILLING_TIME_ZONE = 'America/Los_Angeles';
-/** Canadian dollars per US dollar, rounded up so estimates err on the high side. */
-export const CAD_PER_USD = 1.45;
+
 export const GIB = 1024 ** 3;
-
-/**
- * Gemini list prices in US$ per million tokens (output includes thinking), on the high side on purpose:
- * Flash uses the prices Google set from January 1, 2027 (double November's), and any model that isn't
- * Flash or Flash-Lite is priced like Pro.
- */
-export const AI_PRICES: Array<{ match: RegExp; input: number; output: number }> = [
-  { match: /flash-lite/, input: 0.3, output: 2.5 },
-  { match: /flash/, input: 1.5, output: 7.5 },
-  { match: /./, input: 4, output: 20 },
-];
-
-export function aiCostUsd(model: string, inputTokens: number, outputTokens: number): number {
-  const price = AI_PRICES.find((p) => p.match.test(model))!;
-  return (inputTokens * price.input + outputTokens * price.output) / 1e6;
-}
+export { AI_PRICES, aiCostUsd, BATCH_DISCOUNT, CAD_PER_USD } from './aiPrices.ts';
 
 export function usageMonth(now: Date): string {
   return monthInZone(now, BILLING_TIME_ZONE);
@@ -116,11 +101,22 @@ export class AiAllowance implements AiMeter {
   async record(usage: AiUsage): Promise<void> {
     if (!this.deps) return;
     await this.deps.store.increment(C.usage, usageMonth(this.deps.now()), {
-      aiUsd: aiCostUsd(usage.model, usage.inputTokens, usage.outputTokens),
+      aiUsd: aiCostUsd(usage.model, usage.inputTokens, usage.outputTokens, usage.batch),
       aiRequests: 1,
       aiInputTokens: usage.inputTokens,
       aiOutputTokens: usage.outputTokens,
     });
+  }
+
+  async remainingUsd(): Promise<number> {
+    if (!this.deps) return Infinity;
+    const settings = await getSettings(this.deps.store);
+    const { doc } = await thisMonth(this.deps);
+    return Math.max(0, settings.aiMonthlyLimitCad / CAD_PER_USD - (doc?.aiUsd || 0));
+  }
+
+  async hold(usd: number): Promise<void> {
+    if (this.deps && usd) await this.deps.store.increment(C.usage, usageMonth(this.deps.now()), { aiUsd: usd });
   }
 }
 

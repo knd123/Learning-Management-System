@@ -143,7 +143,7 @@ export default function AdminSettings() {
           <Field label="Recording playback (GB per month)" hint={`An hour-long class is about 0.8 GB each time it is watched; each GB costs about CA$0.20 (4 GB ≈ five viewings).${usage.data ? ` This month: ${usage.data.videoGb} GB.` : ''}`}>
             {(id) => <Input id={id} type="number" min={0} max={500} step={1} value={form.videoMonthlyGb} onChange={(e) => set({ videoMonthlyGb: Number(e.target.value) })} />}
           </Field>
-          <Field label="AI features (CA$ per month)" hint={`Monthly quizzes, report wording and homework drafts, estimated at Google's prices.${usage.data ? ` This month: CA$${usage.data.aiCad.toFixed(2)} over ${usage.data.aiRequests} request${usage.data.aiRequests === 1 ? '' : 's'}.` : ''}`}>
+          <Field label="AI features (CA$ per month)" hint={`Monthly quizzes (sent in Google's half-price batch mode), report wording and homework drafts, estimated at Google's prices.${usage.data ? ` This month: CA$${usage.data.aiCad.toFixed(2)} over ${usage.data.aiRequests} request${usage.data.aiRequests === 1 ? '' : 's'}.` : ''}`}>
             {(id) => <Input id={id} type="number" min={0} max={100} step={0.25} value={form.aiMonthlyLimitCad} onChange={(e) => set({ aiMonthlyLimitCad: Number(e.target.value) })} />}
           </Field>
           {usage.data && <p className="text-xs text-ink-muted sm:col-span-2">Both reset on {usage.data.resetsOn} (Google's billing month, Pacific time).</p>}

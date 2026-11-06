@@ -198,7 +198,7 @@ describe('AI spending stays within the monthly allowance', () => {
     const flash = aiCostUsd('gemini-3.8-flash', 4000, 4000) * CAD_PER_USD;
     assert.ok(Math.abs(lite - 0.01624) < 1e-9 && Math.abs(flash - 0.0522) < 1e-9, `a draft is under 2 cents, a quiz about 5 (${lite}, ${flash})`);
     const u = await admin.get<MonthlyUsage>('/api/admin/usage');
-    assert.deepEqual([u.aiRequests, u.aiCad, u.aiLimitCad], [1, 0.02, 1.5]);
+    assert.deepEqual([u.aiRequests, u.aiCad, u.aiLimitCad], [1, 0.02, 1]);
   });
 
   it('writes drafts and reports with Flash-Lite and little thinking, quizzes with Flash and more thinking', async () => {

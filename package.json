@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "tsx watch --ignore ./data --ignore ./src server/index.ts",
-    "build": "vite build && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/index.js && esbuild server/scripts/seed.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/seed.js",
+    "build": "vite build && node server/scripts/precompress.mjs dist/client && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/index.js && esbuild server/scripts/seed.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/seed.js",
     "start": "NODE_ENV=production node dist/server/index.js",
     "seed:demo": "tsx server/scripts/seed.ts --demo",
     "test": "tsx --test tests/*.test.ts",

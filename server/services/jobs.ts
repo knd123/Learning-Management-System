@@ -1,4 +1,4 @@
-import type { Course, ParentReport, Quiz } from '../../shared/types.ts';
+import type { Course, ParentReport, Quiz, Settings } from '../../shared/types.ts';
 import { addMonths, ONE_DAY, ONE_HOUR, zonedParts } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -9,7 +9,8 @@ import { sendAgreementReminders } from './agreements.ts';
 import { curriculumWindow } from './curriculum.ts';
 import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
 import { finalizeExpiredSessions, purgeOldSnapshots } from './proctoring.ts';
-import { generateMonthlyQuiz, homeworkInMonth, quizIdFor, topicsInMonth } from './quizzes.ts';
+import type { QuizBatch } from './ai.ts';
+import { generateMonthlyQuiz, quizIdFor, quizSource, saveMonthlyQuiz, type QuizSource } from './quizzes.ts';
 import { aiAllowanceLeft } from './usage.ts';
 import { revokeExpiredDriveAccess, sendRecordingReminders } from './recordings.ts';
 import { generateParentReport, reportIdFor, sendParentReport } from './reports.ts';
@@ -43,6 +44,8 @@ interface RetryLock {
 const MAX_ATTEMPTS = 3;
 /** How often the scheduled job extends every class's three weeks of coming classes. */
 export const SESSION_SYNC_HOURS = 6;
+/** A quiz batch still unfinished after this long is cancelled and its quizzes are made one by one. */
+export const QUIZ_BATCH_TIMEOUT_HOURS = 26;
 /** How often a class with nothing to quiz on yet is looked at again after quiz day. */
 export const QUIZ_RECHECK_HOURS = 6;
 
@@ -102,6 +105,13 @@ async function announceCurriculumWindow(deps: Deps, result: JobResult) {
   }
 }
 
+/**
+ * The monthly quizzes, from quiz day to the end of the month. Where the AI can use Gemini's Batch mode
+ * (half price, results within 24 hours), every class ready for its quiz goes into one batch and the
+ * quizzes are saved on a later run when the results are in; a class whose batch failed, or whose
+ * answer couldn't be used, gets its quiz made at once instead. Classes with nothing to assess yet are
+ * looked at again every QUIZ_RECHECK_HOURS.
+ */
 async function generateDueQuizzes(deps: Deps, courses: Course[], result: JobResult) {
   const settings = await getSettings(deps.store);
   const now = deps.now();
@@ -112,13 +122,16 @@ async function generateDueQuizzes(deps: Deps, courses: Course[], result: JobResu
     return;
   }
   const month = `${local.year}-${String(local.month).padStart(2, '0')}`;
+  const publish = { publish: settings.quizAutoPublish };
+  const batches = deps.ai.batchQuizzes && deps.ai.submitQuizBatch && deps.ai.quizBatchResults ? await collectQuizBatches(deps, courses, month, settings, publish, result) : null;
+
   let allowanceChecked = false;
-  // Classes with nothing to assess yet (no homework or class reports this month) are looked at again
-  // every QUIZ_RECHECK_HOURS, not on every run: one small document remembers when.
   const waitId = `quizwait_${month}`;
   let wait: QuizWait | null = null;
   let waitChanged = false;
+  const ready: Array<{ course: Course; source: QuizSource }> = [];
   for (const course of courses) {
+    if (batches?.inFlight.has(course.id)) continue;
     if (await deps.store.get<Quiz>(C.quizzes, quizIdFor(course.id, month))) continue;
     wait ??= (await deps.store.get<QuizWait>(C.locks, waitId)) || { id: waitId, until: {} };
     if (wait.until[course.id] && new Date(wait.until[course.id]) > now) continue;
@@ -126,25 +139,100 @@ async function generateDueQuizzes(deps: Deps, courses: Course[], result: JobResu
       allowanceChecked = true;
       if (!(await aiAllowanceLeft(deps))) {
         result.notes.push("Monthly quizzes are waiting: this month's AI allowance is used up (raise it in Settings).");
-        return;
+        break;
       }
     }
-    const [homework, topics] = await Promise.all([
-      homeworkInMonth(deps, course.id, month, settings.timezone),
-      topicsInMonth(deps, course.id, month, settings.timezone),
-    ]);
-    if (!homework.length && !topics.length) {
+    const source = await quizSource(deps, course, month, settings);
+    if (!source) {
       wait.until[course.id] = new Date(now.getTime() + QUIZ_RECHECK_HOURS * ONE_HOUR).toISOString();
       waitChanged = true;
       continue;
     }
+    if (batches && !batches.record.failedCourseIds.includes(course.id)) {
+      ready.push({ course, source });
+      continue;
+    }
     const outcome = await withRetryLock(deps, `quizgen_${course.id}_${month}`, async () => {
-      await generateMonthlyQuiz(deps, course, month, settings, { publish: settings.quizAutoPublish });
+      await generateMonthlyQuiz(deps, course, month, settings, publish);
     });
     if (outcome === 'done') result.quizzesGenerated++;
     if (outcome === 'failed') result.notes.push(`Quiz generation failed for ${course.title}; it will be retried.`);
   }
   if (wait && waitChanged) await deps.store.put(C.locks, wait);
+  if (batches && ready.length) await submitQuizBatch(deps, month, batches.record, ready, result);
+}
+
+/** The month's quiz batches: what was sent, and the classes whose batch failed (they are made at once). */
+interface QuizBatchRecord {
+  id: string;
+  batches: Array<QuizBatch & { submittedAt: string; items: Array<{ courseId: string; questionCount: number; homeworkIds: string[]; curriculumId?: string }> }>;
+  failedCourseIds: string[];
+}
+
+/** Saves the quizzes of finished batches; returns the classes still waiting on one. */
+async function collectQuizBatches(deps: Deps, courses: Course[], month: string, settings: Settings, publish: { publish: boolean }, result: JobResult) {
+  const id = `quizbatch_${month}`;
+  const record = (await deps.store.get<QuizBatchRecord>(C.locks, id)) || { id, batches: [], failedCourseIds: [] };
+  const inFlight = new Set<string>();
+  let changed = false;
+  const byId = new Map(courses.map((c) => [c.id, c]));
+  for (const batch of [...record.batches]) {
+    const outcome = deps.now().getTime() - new Date(batch.submittedAt).getTime() > QUIZ_BATCH_TIMEOUT_HOURS * ONE_HOUR
+      ? ({ state: 'failed', message: `not finished after ${QUIZ_BATCH_TIMEOUT_HOURS} hours` } as const)
+      : await deps.ai.quizBatchResults!(batch, batch.items.map((i) => i.questionCount)).catch((err) => {
+          console.error('[jobs] could not check a quiz batch:', err);
+          return { state: 'running' } as const;
+        });
+    if (outcome.state === 'running') {
+      for (const item of batch.items) inFlight.add(item.courseId);
+      continue;
+    }
+    record.batches = record.batches.filter((b) => b.name !== batch.name);
+    changed = true;
+    if (outcome.state === 'failed') {
+      if (/not finished/.test(outcome.message)) await deps.ai.cancelQuizBatch?.(batch);
+      record.failedCourseIds.push(...batch.items.map((i) => i.courseId));
+      result.notes.push(`A batch of ${batch.items.length} monthly quizzes failed (${outcome.message}); they are being made one by one instead.`);
+      continue;
+    }
+    for (const [i, item] of batch.items.entries()) {
+      const course = byId.get(item.courseId);
+      const questions = outcome.results[i];
+      if (!course) continue;
+      if (questions instanceof Error || !questions) {
+        record.failedCourseIds.push(item.courseId);
+        result.notes.push(`The batched quiz for ${course.title} couldn't be used (${questions instanceof Error ? questions.message : 'missing'}); it is being made on its own instead.`);
+        continue;
+      }
+      if (await deps.store.get<Quiz>(C.quizzes, quizIdFor(course.id, month))) continue; // made by hand meanwhile
+      await saveMonthlyQuiz(deps, course, month, settings, item, questions, publish);
+      result.quizzesGenerated++;
+    }
+  }
+  if (changed) await deps.store.put(C.locks, record);
+  return { record, inFlight };
+}
+
+async function submitQuizBatch(deps: Deps, month: string, record: QuizBatchRecord, ready: Array<{ course: Course; source: QuizSource }>, result: JobResult) {
+  const batch = await deps.ai.submitQuizBatch!(ready.map((r) => r.source.input), `Abugida monthly quizzes ${month}`).catch((err) => {
+    console.error('[jobs] could not send the quiz batch:', err);
+    result.notes.push(`Monthly quizzes could not be sent to Gemini's batch mode (${err instanceof Error ? err.message : String(err)}); trying again on the next run.`);
+    return null;
+  });
+  if (!batch) return;
+  if (!batch.accepted) {
+    result.notes.push("Monthly quizzes are waiting: this month's AI allowance is used up (raise it in Settings).");
+    return;
+  }
+  const sent = ready.slice(0, batch.accepted);
+  record.batches.push({
+    ...batch,
+    submittedAt: deps.now().toISOString(),
+    items: sent.map(({ course, source }) => ({ courseId: course.id, questionCount: source.input.questionCount, homeworkIds: source.homeworkIds, curriculumId: source.curriculumId })),
+  });
+  await deps.store.put(C.locks, record);
+  result.notes.push(`${sent.length} monthly quiz${sent.length === 1 ? '' : 'zes'} sent to Gemini's batch mode (half price); they appear within a day.`);
+  if (batch.accepted < ready.length) result.notes.push(`${ready.length - batch.accepted} more wait for room in this month's AI allowance.`);
 }
 
 async function generateDueReports(deps: Deps, result: JobResult) {

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { compressAnswers } from './compress.ts';
 import multer from 'multer';
 import { requireRole, sessionMiddleware } from './auth.ts';
 import { C } from './db/store.ts';
@@ -27,6 +28,8 @@ export function createApp(deps: Deps) {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '1mb' }));
+  // API answers go out compressed (see server/compress.ts).
+  app.use('/api', compressAnswers());
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');

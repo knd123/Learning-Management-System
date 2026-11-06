@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import type { GenerateContentParameters, GenerateContentResponse } from '@google/genai';
+import type { BatchJob, CreateBatchJobParameters, GenerateContentParameters, GenerateContentResponse, InlinedRequest } from '@google/genai';
 import type { NotificationList } from '../shared/api.ts';
 import type { AppNotification, ClassSession, Course, PublicUser } from '../shared/types.ts';
 import { C } from '../server/db/store.ts';
@@ -41,7 +41,8 @@ const PRICE = {
 
 /** Measured on the live site over 31 hours (Nov 5–6), scaled to one day. Cron ticks are simulated separately. */
 const MEASURED_PER_DAY = {
-  bellChecks: 2948,
+  /** Measured with the bell checking every 3 minutes; it now checks every 5 (page changes still check), so about 70% as many. */
+  bellChecks: Math.round(2948 * 0.7),
   mentorReportPrompt: 112,
   studentRatingPrompt: 59,
   me: 53,
@@ -65,25 +66,49 @@ const NOTICES_PER_DAY = 14;
 /** Website: 27,000 requests and 0.22 GB a month; its assistant answered 24 questions in 30 days. */
 const WEBSITE = { askPerMonth: 24, egressGiB: 0.22 };
 /** LMS pages, files and scripts sent (not recordings): 1.28 GB in 30 days minus 0.81 GB of recordings. */
-const LMS_PAGES_GIB = 0.47;
+const LMS_PAGES_GIB = 0.47 * 0.35; // sent compressed now: the build shrinks 76%, JSON answers about 70%
 /** One viewing of an hour-long class measured on Nov 4. */
 const GIB_PER_VIEWING = 0.8;
 
-/** Stands in for Gemini, reporting realistic token use for each kind of request. */
+/** Gemini's answer and token use for one request: realistic on the high side for each kind of request. */
+function answer(params: { contents?: unknown; config?: { thinkingConfig?: unknown } }) {
+  const prompt = JSON.stringify(params.contents);
+  const low = Boolean(params.config?.thinkingConfig);
+  const count = Number(/Write exactly (\d+)/.exec(prompt)?.[1] || 0);
+  const usage = count
+    ? { promptTokenCount: 4000, candidatesTokenCount: 3000, thoughtsTokenCount: 3000 } // a quiz, medium thinking
+    : { promptTokenCount: 2500, candidatesTokenCount: 800, thoughtsTokenCount: low ? 300 : 2000 }; // a report or a draft
+  const text = count
+    ? JSON.stringify({ questions: Array.from({ length: count }, (_, i) => ({ prompt: `Q${i + 1}`, options: ['A', 'B', 'C', 'D'], answerIndex: i % 4, explanation: 'Because.', topic: 'Fractions' })) })
+    : JSON.stringify({ title: 'Practice', instructions: '1. Solve.', summary: 'A good month.', strengths: ['Effort'], focusAreas: ['Fractions'], recommendations: ['Practice'] });
+  return { text, usage };
+}
+
+/** Stands in for Gemini, with Batch mode: a batch is done by the next run. */
 class FakeGemini implements GeminiClient {
+  private jobs = new Map<string, InlinedRequest[]>();
   models = {
     generateContent: async (params: GenerateContentParameters): Promise<GenerateContentResponse> => {
-      const prompt = JSON.stringify(params.contents);
-      const low = Boolean(params.config?.thinkingConfig);
-      const count = Number(/Write exactly (\d+)/.exec(prompt)?.[1] || 0);
-      const usage = count
-        ? { promptTokenCount: 4000, candidatesTokenCount: 3000, thoughtsTokenCount: 3000 } // a quiz, medium thinking
-        : { promptTokenCount: 2500, candidatesTokenCount: 800, thoughtsTokenCount: low ? 300 : 2000 }; // a report or a draft
-      const text = count
-        ? JSON.stringify({ questions: Array.from({ length: count }, (_, i) => ({ prompt: `Q${i + 1}`, options: ['A', 'B', 'C', 'D'], answerIndex: i % 4, explanation: 'Because.', topic: 'Fractions' })) })
-        : JSON.stringify({ title: 'Practice', instructions: '1. Solve.', summary: 'A good month.', strengths: ['Effort'], focusAreas: ['Fractions'], recommendations: ['Practice'] });
+      const { text, usage } = answer(params);
       return { text, usageMetadata: usage } as unknown as GenerateContentResponse;
     },
+  };
+  batches = {
+    create: async (params: CreateBatchJobParameters): Promise<BatchJob> => {
+      const name = `batches/${this.jobs.size + 1}`;
+      this.jobs.set(name, params.src as InlinedRequest[]);
+      return { name, state: 'JOB_STATE_PENDING' } as BatchJob;
+    },
+    get: async ({ name }: { name: string }): Promise<BatchJob> => ({
+      name,
+      state: 'JOB_STATE_SUCCEEDED',
+      dest: {
+        inlinedResponses: this.jobs.get(name)!.map((r) => {
+          const { text, usage } = answer(r);
+          return { response: { candidates: [{ content: { parts: [{ text }] } }], usageMetadata: usage } };
+        }),
+      },
+    }) as unknown as BatchJob,
   };
 }
 

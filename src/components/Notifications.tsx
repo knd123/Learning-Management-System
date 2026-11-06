@@ -33,11 +33,11 @@ export function NotificationBell({ align = 'right' }: { align?: 'left' | 'right'
       .catch(() => undefined);
   }, [show]);
 
-  // Checked on each page change, and every 3 minutes while the portal is on screen (not in a hidden tab).
+  // Checked on each page change, and every 5 minutes while the portal is on screen (not in a hidden tab).
   useEffect(() => {
     load();
   }, [load, location.pathname]);
-  useVisibleInterval(load, 3 * 60_000);
+  useVisibleInterval(load, 5 * 60_000);
 
   useEffect(() => {
     if (!open) return;

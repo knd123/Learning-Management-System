@@ -4,6 +4,7 @@ import { addDaysYmd, addMonths, monthInZone, monthStartUtc, zonedTimeToUtc } fro
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest } from '../http.ts';
+import type { GeneratedQuestion, QuizGenInput } from './ai.ts';
 import { currentCurriculum } from './curriculum.ts';
 
 export const quizIdFor = (courseId: string, month: string) => `${courseId}__${month}`;
@@ -53,34 +54,60 @@ export async function generateMonthlyQuiz(
     const attempts = await deps.store.find<QuizAttempt>(C.attempts, { quizId: id });
     if (attempts.length) throw badRequest('Students have already taken this quiz, so it cannot be regenerated.');
   }
+  const source = await quizSource(deps, course, month, settings);
+  if (!source) throw badRequest('There is no homework or class report for this month yet, so there is nothing to build a quiz from.');
+  return saveMonthlyQuiz(deps, course, month, settings, source, await deps.ai.generateQuiz(source.input), opts);
+}
+
+/** What a class's monthly quiz is built from: that month's homework and class topics, and its curriculum. Null when there is nothing yet. */
+export interface QuizSource {
+  input: QuizGenInput;
+  homeworkIds: string[];
+  curriculumId?: string;
+}
+
+export async function quizSource(deps: Deps, course: Course, month: string, settings: Settings): Promise<QuizSource | null> {
   const [homework, sessionTopics, curriculum] = await Promise.all([
     homeworkInMonth(deps, course.id, month, settings.timezone),
     topicsInMonth(deps, course.id, month, settings.timezone),
     currentCurriculum(deps, course.id),
   ]);
-  if (!homework.length && !sessionTopics.length) {
-    throw badRequest('There is no homework or class report for this month yet, so there is nothing to build a quiz from.');
-  }
-  const generated = await deps.ai.generateQuiz({
-    courseTitle: course.title,
-    subject: course.subject,
-    gradeLevel: course.gradeLevel,
-    month,
-    questionCount: Math.min(10, settings.quizQuestionCount),
-    homework: homework.map((h) => ({ title: h.title, instructions: h.instructions })),
-    sessionTopics,
-    curriculum: curriculum?.content,
-  });
+  if (!homework.length && !sessionTopics.length) return null;
+  return {
+    input: {
+      courseTitle: course.title,
+      subject: course.subject,
+      gradeLevel: course.gradeLevel,
+      month,
+      questionCount: Math.min(10, settings.quizQuestionCount),
+      homework: homework.map((h) => ({ title: h.title, instructions: h.instructions })),
+      sessionTopics,
+      curriculum: curriculum?.content,
+    },
+    homeworkIds: homework.map((h) => h.id),
+    curriculumId: curriculum?.id,
+  };
+}
+
+export async function saveMonthlyQuiz(
+  deps: Deps,
+  course: Course,
+  month: string,
+  settings: Settings,
+  source: Pick<QuizSource, 'homeworkIds' | 'curriculumId'>,
+  generated: GeneratedQuestion[],
+  opts: { publish: boolean },
+): Promise<Quiz> {
   const now = deps.now().toISOString();
   const quiz: Quiz = {
-    id,
+    id: quizIdFor(course.id, month),
     courseId: course.id,
     month,
     title: `${course.subject} monthly check-in — ${monthLabel(month)}`,
     status: opts.publish ? 'published' : 'draft',
     questions: generated.map((q) => ({ ...q, id: crypto.randomUUID().slice(0, 8) })),
-    sourceHomeworkIds: homework.map((h) => h.id),
-    curriculumId: curriculum?.id,
+    sourceHomeworkIds: source.homeworkIds,
+    curriculumId: source.curriculumId,
     generatedBy: 'ai',
     closesAt: quizClosesAt(month, settings).toISOString(),
     createdAt: now,

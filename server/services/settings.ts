@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   proctoringRetentionDays: 30,
   rewardMinScore: 90,
   videoMonthlyGb: 4,
-  aiMonthlyLimitCad: 1.5,
+  aiMonthlyLimitCad: 1,
   allowMentorSignup: true,
   allowParentSignup: true,
   siblingDiscountPercent: 5,
