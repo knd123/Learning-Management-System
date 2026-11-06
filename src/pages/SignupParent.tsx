@@ -4,6 +4,8 @@ import { Navigate, useNavigate } from 'react-router';
 import type { PublicConfig } from '../../shared/api.ts';
 import type { PublicUser } from '../../shared/types.ts';
 import { SignupLayout } from '../components/SignupLayout.tsx';
+import { phoneError } from '../../shared/phone.ts';
+import { PHONE_HINT, PhoneInput } from '../components/PhoneInput.tsx';
 import { Button, Checkbox, ErrorBox, Field, Input, Loading } from '../components/ui.tsx';
 import { api, errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
@@ -49,7 +51,8 @@ export default function SignupParentPage() {
   const problem = (): string | null => {
     if (!displayName.trim()) return 'Please enter your full name.';
     if (!EMAIL_RE.test(email.trim())) return 'Please enter a valid email address.';
-    if (phone.replace(/\D/g, '').length < 7) return 'Please enter your phone number.';
+    const phoneProblem = phoneError(phone, 'Your phone number');
+    if (phoneProblem) return phoneProblem;
     for (const [i, s] of students.entries()) {
       const who = students.length > 1 ? `student ${i + 1}` : 'your student';
       if (!s.name.trim()) return `Please enter ${who}'s full name.`;
@@ -115,7 +118,9 @@ export default function SignupParentPage() {
             )}
           </Field>
           <Field label="Email">{(id) => <Input id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />}</Field>
-          <Field label="Phone number">{(id) => <Input id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" required />}</Field>
+          <Field label="Phone number" hint={PHONE_HINT}>
+            {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} required />}
+          </Field>
         </section>
 
         <section className="flex flex-col gap-4">

@@ -4,6 +4,7 @@ import type { AvailabilityWindow, BankAccounts, ParentContact, Role } from '../.
 import { isValidHm, isValidTimeZone } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
 import { badRequest, httpUrl, num, str } from '../http.ts';
+import { joinPhone, PHONE_EXAMPLE, phoneProblem, splitPhone } from '../../shared/phone.ts';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -38,6 +39,16 @@ export function parseTimezone(value: unknown, fallback: string): string {
   const tz = str(value, 'Timezone') || fallback;
   if (!isValidTimeZone(tz)) throw badRequest(`"${tz}" is not a valid timezone.`);
   return tz;
+}
+
+/** A parent's number: a country code, then the number; stored as "+1-416-555-0123" (see shared/phone.ts). */
+export function parseParentPhone(value: unknown, field: string, required = false): string | undefined {
+  const s = str(value, field, { required, max: 40 });
+  if (!s) return undefined;
+  const parts = splitPhone(s);
+  const problem = phoneProblem(parts);
+  if (problem) throw badRequest(`${field}: ${problem} (for example ${PHONE_EXAMPLE}).`);
+  return joinPhone(parts);
 }
 
 export function parsePhone(value: unknown, field: string, required = false): string | undefined {
@@ -93,7 +104,7 @@ export function parseParents(value: unknown, required: boolean): ParentContact[]
     return {
       name: str(p?.name, `${who}'s full name`, { required: true, max: 100 }),
       email: parseEmail(p?.email, `${who}'s email`, true)!,
-      phone: parsePhone(p?.phone, `${who}'s phone number`, true)!,
+      phone: parseParentPhone(p?.phone, `${who}'s phone number`, true)!,
     };
   });
   if (required && !out.length) throw badRequest("Add a parent or guardian's name, email and phone number.");
@@ -159,7 +170,8 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
     if (has('subjects')) target.subjects = parseSubjects(body.subjects, 'Subject', req);
     if (has('availability')) target.availability = parseAvailability(body.availability, req);
   }
-  if ((role === 'mentor' || role === 'parent') && has('phone')) target.phone = parsePhone(body.phone, 'Phone number', req);
+  if (role === 'mentor' && has('phone')) target.phone = parsePhone(body.phone, 'Phone number', req);
+  if (role === 'parent' && has('phone')) target.phone = parseParentPhone(body.phone, 'Phone number', req);
 
   if (role === 'student') {
     if (has('grade')) target.grade = num(body.grade, 'Grade', { min: 3, max: 12, required: true });
@@ -191,7 +203,7 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
       target.parentEmails = [...new Set([...parents.map((p) => p.email), ...others])];
     } else {
       if (body.parentName !== undefined) target.parentName = str(body.parentName, 'Parent name', { max: 100 }) || undefined;
-      if (has('parentPhone')) target.parentPhone = parsePhone(body.parentPhone, "Parent's phone number", req);
+      if (has('parentPhone')) target.parentPhone = parseParentPhone(body.parentPhone, "Parent's phone number", req);
       if (has('parentEmails')) target.parentEmails = parseEmailList(body.parentEmails, "Parent's email", req);
     }
     if (opts.admin) {

@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router';
 import type { InviteInfo } from '../../shared/api.ts';
 import type { PublicUser } from '../../shared/types.ts';
 import { SignupLayout } from '../components/SignupLayout.tsx';
+import { phoneError } from '../../shared/phone.ts';
+import { PHONE_HINT, PhoneInput } from '../components/PhoneInput.tsx';
 import { Button, ButtonLink, ErrorBox, Field, Input, Loading } from '../components/ui.tsx';
 import { api, errorMessage } from '../lib/api.ts';
 import { useAuth } from '../lib/auth.tsx';
@@ -77,7 +79,8 @@ function ParentInvite({ token, info }: { token: string; info: InviteInfo }) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!displayName.trim()) return setError('Please enter your full name.');
-    if (phone.replace(/\D/g, '').length < 7) return setError('Please enter your phone number.');
+    const phoneProblem = phoneError(phone, 'Your phone number');
+    if (phoneProblem) return setError(phoneProblem);
     if (password.length < 8) return setError('Choose a password with at least 8 characters.');
     if (password !== confirm) return setError('The passwords do not match.');
     void accept({ displayName, phone, username, password });
@@ -116,7 +119,9 @@ function ParentInvite({ token, info }: { token: string; info: InviteInfo }) {
           <Field label="Email" hint="Where this link was sent.">
             {(id) => <Input id={id} type="email" value={info.email || ''} readOnly />}
           </Field>
-          <Field label="Phone number">{(id) => <Input id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" required />}</Field>
+          <Field label="Phone number" hint={PHONE_HINT}>
+            {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} required />}
+          </Field>
         </section>
         <section className="flex flex-col gap-4 border-t border-sand-200 pt-6">
           <h2 className="font-semibold">Your login</h2>

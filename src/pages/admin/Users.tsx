@@ -8,6 +8,7 @@ import { AvailabilityEditor } from '../../components/Availability.tsx';
 import { ParentsEditor, parentsOf, parentsProblem } from '../../components/ParentsEditor.tsx';
 import { SubjectHoursEditor, SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
+import { PHONE_HINT, PhoneInput } from '../../components/PhoneInput.tsx';
 import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtRelative } from '../../lib/format.ts';
@@ -519,8 +520,8 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
         )}
         {role === 'parent' && (
           <>
-            <Field label="Phone number" className="max-w-xs">
-              {(id) => <Input id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}
+            <Field label="Phone number" hint={PHONE_HINT} className="max-w-sm">
+              {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} />}
             </Field>
             <hr className="border-sand-200" />
             <div>

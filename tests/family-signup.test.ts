@@ -7,8 +7,8 @@ import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
 const NY = 'America/New_York';
 const week = [{ weekday: 1, start: '15:00', end: '20:00' }];
 const intake = { schoolName: 'Wilson High School', city: 'Washington', state: 'DC', grade: 9, subjects: ['Math'], subjectHours: { Math: 1 }, availability: week, timezone: NY };
-const tigist = { name: 'Tigist Tadesse', email: 'tigist@example.com', phone: '+1 202 555 0100' };
-const hanna = { name: 'Hanna Tesfaye', email: 'hanna@example.org', phone: '+1 202 555 0101' };
+const tigist = { name: 'Tigist Tadesse', email: 'tigist@example.com', phone: '+1-202-555-0100' };
+const hanna = { name: 'Hanna Tesfaye', email: 'hanna@example.org', phone: '+1-202-555-0101' };
 
 describe('family sign-up: students list their parents, parents register their students', () => {
   let h: Harness;
@@ -76,7 +76,7 @@ describe('family sign-up: students list their parents, parents register their st
     const nahom = new Client(h);
     await nahom.login('nahom', 'nahom-pass-1');
     const before = h.mailer.sent.length;
-    const dawit = { name: 'Dawit Bekele', email: 'dawit@example.com', phone: '+1 202 555 0102' };
+    const dawit = { name: 'Dawit Bekele', email: 'dawit@example.com', phone: '+1-202-555-0102' };
     await nahom.put('/api/student/profile', { parents: [tigist, dawit] });
     const sent = h.mailer.sent.slice(before).filter((e) => /parent account|added to your/.test(e.subject));
     assert.deepEqual(sent.map((e) => e.to), [[dawit.email]]);
@@ -87,7 +87,7 @@ describe('family sign-up: students list their parents, parents register their st
   it('lets a parent register students: the link goes to the student, or to the parent when they share an email', async () => {
     const meron = new Client(h);
     await meron.post('/api/auth/signup/parent', {
-      displayName: 'Meron Alemu', email: 'meron@example.com', phone: '+1 202 555 0110', username: 'meron', password: 'meron-pass-1', timezone: NY,
+      displayName: 'Meron Alemu', email: 'meron@example.com', phone: '+1-202-555-0110', username: 'meron', password: 'meron-pass-1', timezone: NY,
       students: [{ name: 'Abel Alemu', email: 'abel@example.com' }, { name: 'Bethel Alemu', usesParentEmail: true }, { name: 'Caleb Alemu', hasAccount: true }],
     }, 201);
     const abelLink = linkTo('abel@example.com', /^Meron Alemu registered you for Abugida Education$/);
@@ -100,16 +100,16 @@ describe('family sign-up: students list their parents, parents register their st
 
     // Abel sets up his own account and adds his father as a second parent.
     const info = await new Client(h).post<InviteInfo>('/api/auth/invite/check', { token: abelLink });
-    assert.deepEqual([info.kind, info.name, info.email, info.sentToParent, info.parent], ['student', 'Abel Alemu', 'abel@example.com', false, { name: 'Meron Alemu', email: 'meron@example.com', phone: '+1 202 555 0110' }]);
+    assert.deepEqual([info.kind, info.name, info.email, info.sentToParent, info.parent], ['student', 'Abel Alemu', 'abel@example.com', false, { name: 'Meron Alemu', email: 'meron@example.com', phone: '+1-202-555-0110' }]);
     const abel = new Client(h);
-    const father = { name: 'Yonas Alemu', email: 'yonas@example.com', phone: '+1 202 555 0111' };
+    const father = { name: 'Yonas Alemu', email: 'yonas@example.com', phone: '+1-202-555-0111' };
     const r = await abel.post<{ user: PublicUser; signedIn: boolean }>('/api/auth/invite/accept', {
       token: abelLink, ...intake, displayName: 'Abel Alemu', email: 'someone-else@example.com', username: 'abel', password: 'abel-pass-1',
-      parents: [{ name: 'Not Meron', email: 'x@example.com', phone: '+1 202 555 0199' }, father],
+      parents: [{ name: 'Not Meron', email: 'x@example.com', phone: '+1-202-555-0199' }, father],
     }, 201);
     assert.equal(r.signedIn, true);
     assert.equal(r.user.email, 'abel@example.com', 'the email the link went to');
-    assert.deepEqual(r.user.parents, [{ name: 'Meron Alemu', email: 'meron@example.com', phone: '+1 202 555 0110' }, father], 'the registering parent is always parent 1');
+    assert.deepEqual(r.user.parents, [{ name: 'Meron Alemu', email: 'meron@example.com', phone: '+1-202-555-0110' }, father], 'the registering parent is always parent 1');
     assert.equal((await abel.get<{ user: PublicUser }>('/api/auth/me')).user.username, 'abel');
     linkTo(father.email, /^Create your parent account for Abel Alemu$/);
     assert.ok(h.mailer.sent.some((e) => e.subject === 'New student sign-up: Abel Alemu'));

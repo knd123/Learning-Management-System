@@ -1,5 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react';
 import type { ParentContact, PublicUser } from '../../shared/types.ts';
+import { phoneError } from '../../shared/phone.ts';
+import { PHONE_HINT, PhoneInput } from './PhoneInput.tsx';
 import { Button, Field, Input } from './ui.tsx';
 
 export const EMPTY_PARENT: ParentContact = { name: '', email: '', phone: '' };
@@ -19,7 +21,8 @@ export function parentsProblem(parents: ParentContact[]): string | null {
     const who = parents.length > 1 ? `parent ${i + 1}` : 'the parent';
     if (!p.name.trim()) return `Please enter ${who}’s full name.`;
     if (!EMAIL_RE.test(p.email.trim())) return `Please enter ${who}’s email address.`;
-    if (p.phone.replace(/\D/g, '').length < 7) return `Please enter ${who}’s phone number.`;
+    const phone = phoneError(p.phone, `${who[0].toUpperCase()}${who.slice(1)}’s phone number`);
+    if (phone) return phone;
   }
   if (parents.length === 2 && parents[0].email.trim().toLowerCase() === parents[1].email.trim().toLowerCase()) return 'Each parent needs their own email address.';
   return null;
@@ -59,7 +62,9 @@ export function ParentsEditor({ value, onChange, lockFirst, allowNone }: { value
                   {(id) => <Input id={id} value={p.name} onChange={(e) => set(i, { name: e.target.value })} required />}
                 </Field>
                 <Field label="Email">{(id) => <Input id={id} type="email" value={p.email} onChange={(e) => set(i, { email: e.target.value })} required />}</Field>
-                <Field label="Phone number">{(id) => <Input id={id} type="tel" value={p.phone} onChange={(e) => set(i, { phone: e.target.value })} required />}</Field>
+                <Field label="Phone number" hint={PHONE_HINT}>
+                  {(id) => <PhoneInput id={id} value={p.phone} onChange={(phone) => set(i, { phone })} required />}
+                </Field>
               </div>
             )}
           </div>
