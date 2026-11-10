@@ -7,6 +7,7 @@ import { homePath, useAuth } from './lib/auth.tsx';
 import AccountPage from './pages/Account.tsx';
 import ForgotPasswordPage from './pages/ForgotPassword.tsx';
 import JoinPage from './pages/Join.tsx';
+import ClientAgreementPage from './pages/ClientAgreement.tsx';
 import LoginPage from './pages/Login.tsx';
 import ResetPasswordPage from './pages/ResetPassword.tsx';
 import SignupPage from './pages/Signup.tsx';
@@ -67,6 +68,7 @@ export default function App() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/join" element={<JoinPage />} />
+      <Route path="/client-agreement" element={<ClientAgreementPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/signup/mentor" element={<SignupMentorPage />} />
       <Route path="/signup/parent" element={<SignupParentPage />} />

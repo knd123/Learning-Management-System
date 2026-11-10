@@ -611,6 +611,54 @@ export type EmailKind =
  * A mentor's Independent Contractor Agreement (one per mentor, id `ica_<mentorId>`). The text is
  * saved filled in, so what the mentor signs never changes. Only the mentor and the team see it.
  */
+/**
+ * A family's Client Service Agreement for one class, drawn up and emailed when the team approves the
+ * class (classes approved before this feature have none). The filled-in text is saved with it.
+ */
+export interface ClientAgreement {
+  /** "csa_<class id>" */
+  id: string;
+  courseId: string;
+  studentId: string;
+  studentName: string;
+  subject: string;
+  templateVersion: string;
+  title: string;
+  /** The first parent or guardian on the student's profile (the student, when none is listed). Typed to sign. */
+  clientName: string;
+  /** Lower case. Where the link to sign goes. */
+  clientEmail?: string;
+  /** No parent was listed, so the student is the client. */
+  clientIsStudent?: boolean;
+  /** The class's timezone: dates in the agreement are in it. */
+  timeZone: string;
+  /** YYYY-MM-DD: the day the team approved the class. */
+  effectiveDate: string;
+  /** "Services Provided", one line per class, from its weekly schedule. */
+  services: string[];
+  /** Where sessions are held, from the class's meeting link. */
+  platform: string;
+  body: import('./agreement.ts').AgreementBlock[];
+  /** Signed for the Company on the effective date. */
+  company: { name: string; signatory: string; title: string; signedDate: string };
+  status: 'awaiting_signature' | 'signed';
+  /** When the client was last emailed the link to sign; links from earlier emails stop working, and reminders count from here. */
+  sentAt: string;
+  /** Reminder emails sent, by hours after `sentAt`. */
+  reminders?: Record<string, string>;
+  signature?: {
+    name: string;
+    drawing: { path: string; viewBox: string };
+    signedAt: string;
+    /** YYYY-MM-DD in the class's timezone. */
+    signedDate: string;
+    ip?: string;
+    userAgent?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MentorAgreement {
   id: string;
   mentorId: string;

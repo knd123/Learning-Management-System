@@ -4,12 +4,28 @@ import { useApi } from '../lib/useApi.ts';
 import { Button, ErrorBox, Loading } from './ui.tsx';
 
 /**
- * A contractor agreement as the server lays it out (the same page that prints), in a frame that
- * grows to fit it. The frame runs no scripts. `version` reloads it after a change, such as signing.
- * `onReadToEnd` is called once the reader has scrolled to the end of the agreement.
+ * An agreement as the server lays it out (the same page that prints), in a frame that grows to fit
+ * it. The frame runs no scripts. The page comes from `src` (reloaded when `version` changes, such as
+ * after signing) or is given as `html`. `onReadToEnd` is called once the reader has scrolled to its end.
  */
-export function AgreementDocument({ src, version, toolbar, onReadToEnd }: { src: string; version?: string; toolbar?: ReactNode; onReadToEnd?(): void }) {
-  const { data, error, loading, reload } = useApi<string>(`${src}?v=${encodeURIComponent(version || '')}`);
+export function AgreementDocument({
+  src,
+  html,
+  title = 'Independent Contractor Agreement',
+  version,
+  toolbar,
+  onReadToEnd,
+}: {
+  src?: string;
+  html?: string;
+  title?: string;
+  version?: string;
+  toolbar?: ReactNode;
+  onReadToEnd?(): void;
+}) {
+  const fetched = useApi<string>(src ? `${src}?v=${encodeURIComponent(version || '')}` : null);
+  const { error, loading, reload } = fetched;
+  const data = html ?? fetched.data;
   const frame = useRef<HTMLIFrameElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const [fitted, setFitted] = useState(false);
@@ -48,7 +64,7 @@ export function AgreementDocument({ src, version, toolbar, onReadToEnd }: { src:
   }, [fitted, onReadToEnd]);
 
   if (loading && !data) return <Loading label="Loading the agreement…" />;
-  if (error || !data) return <ErrorBox message={error || 'Could not load the agreement.'} onRetry={reload} />;
+  if ((error && !html) || !data) return <ErrorBox message={error || 'Could not load the agreement.'} onRetry={reload} />;
   return (
     <div className="overflow-hidden rounded-2xl border border-sand-200 bg-white shadow-[0_1px_2px_rgba(31,42,42,0.04)]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sand-200 bg-sand-50 px-4 py-2">
@@ -57,7 +73,7 @@ export function AgreementDocument({ src, version, toolbar, onReadToEnd }: { src:
           <Printer className="size-4" aria-hidden /> Print or save as PDF
         </Button>
       </div>
-      <iframe ref={frame} title="Independent Contractor Agreement" srcDoc={data} sandbox="allow-same-origin allow-modals" onLoad={fit} className="block h-[70vh] w-full" />
+      <iframe ref={frame} title={title} srcDoc={data} sandbox="allow-same-origin allow-modals" onLoad={fit} className="block h-[70vh] w-full" />
       <div ref={end} className="h-px" aria-hidden />
     </div>
   );

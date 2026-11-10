@@ -296,7 +296,7 @@ export async function agreementRows(deps: Deps): Promise<AgreementRow[]> {
 
 // --- The agreement as a printable page ---------------------------------------------
 
-function blockHtml(b: AgreementBlock): string {
+export function blockHtml(b: AgreementBlock): string {
   const lead = 'lead' in b && b.lead ? `<strong>${escapeHtml(b.lead)}</strong> ` : '';
   switch (b.kind) {
     case 'section':
@@ -313,7 +313,7 @@ function blockHtml(b: AgreementBlock): string {
 }
 
 /** The mentor's drawn signature, scaled to the signature line. */
-function drawnSignature(drawing: { path: string; viewBox: string }, name: string): string {
+export function drawnSignature(drawing: { path: string; viewBox: string }, name: string): string {
   return `<svg viewBox="${escapeHtml(drawing.viewBox)}" preserveAspectRatio="xMinYMid meet" role="img" aria-label="${escapeHtml(`Signature of ${name}`)}"><path d="${escapeHtml(drawing.path)}" fill="none" stroke="#14306b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
 }
 

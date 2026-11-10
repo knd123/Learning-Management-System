@@ -1,7 +1,8 @@
-import { CalendarClock, ChevronRight, ClipboardList, Hourglass, MailCheck, Plus, Sparkles, UsersRound } from 'lucide-react';
+import { CalendarClock, ChevronRight, ClipboardList, FileSignature, Hourglass, MailCheck, Plus, Sparkles, UsersRound } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import type { InvitedStudent, ParentChildSummary, ParentOverview } from '../../../shared/api.ts';
+import { longDate } from '../../../shared/agreement.ts';
+import type { InvitedStudent, ParentAgreementLink, ParentChildSummary, ParentOverview } from '../../../shared/api.ts';
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorBox, Field, Input, Loading, Notice, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { useAuth } from '../../lib/auth.tsx';
@@ -23,6 +24,8 @@ export default function ParentHome() {
         </h1>
         <p className="mt-1 text-ink-soft">Classes, homework and progress for your {data.children.length === 1 ? 'child' : 'children'}.</p>
       </div>
+
+      <ParentAgreements />
 
       {data.pendingNames.length > 0 && (
         <Notice icon={<Hourglass className="size-5 shrink-0" />}>
@@ -217,5 +220,40 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 're
       <dd className={tone === 'red' ? 'text-xl font-semibold text-red-700' : 'text-xl font-semibold'}>{value}</dd>
       <dt className="mt-0.5 text-xs text-ink-muted">{label}</dt>
     </Card>
+  );
+}
+
+/** The parent's Client Service Agreements: one to sign stands out; signed ones can be opened again. */
+function ParentAgreements() {
+  const { data } = useApi<ParentAgreementLink[]>('/api/parent/agreements');
+  if (!data?.length) return null;
+  const waiting = data.filter((a) => a.status !== 'signed');
+  const signed = data.filter((a) => a.status === 'signed');
+  return (
+    <div className="flex flex-col gap-3">
+      {waiting.map((a) => (
+        <Notice key={a.id} tone="blue" icon={<FileSignature className="size-5 shrink-0" />}>
+          <p className="font-semibold">Please sign the client service agreement for {a.studentName}’s {a.subject} classes</p>
+          <p className="mt-0.5">It sets out the services, billing every four weeks, rescheduling, pauses and cancellations. It takes about 10 minutes.</p>
+          <a href={a.link} className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800">
+            <FileSignature className="size-4" aria-hidden /> Review and sign
+          </a>
+        </Notice>
+      ))}
+      {signed.length > 0 && (
+        <p className="text-sm text-ink-soft">
+          Signed agreements:{' '}
+          {signed.map((a, i) => (
+            <span key={a.id}>
+              {i > 0 && ' · '}
+              <a href={a.link} className="font-medium text-brand-700 hover:underline">
+                {a.studentName}, {a.subject}
+              </a>
+              {a.signedDate && ` (${longDate(a.signedDate)})`}
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
   );
 }

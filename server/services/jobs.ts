@@ -16,12 +16,14 @@ import { revokeExpiredDriveAccess, sendRecordingReminders } from './recordings.t
 import { generateParentReport, reportIdFor, sendParentReport } from './reports.ts';
 import { ensureSessions } from './schedule.ts';
 import { getSettings } from './settings.ts';
+import { sendClientAgreementReminders } from './clientAgreements.ts';
 
 export interface JobResult {
   ranAt: string;
   sessionsChecked: number;
   remindersSent: number;
   agreementReminders: number;
+  clientAgreementReminders: number;
   driveAccessRevoked: number;
   curriculumWindowEmails: number;
   quizzesGenerated: number;
@@ -269,6 +271,7 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
     sessionsChecked: 0,
     remindersSent: 0,
     agreementReminders: 0,
+    clientAgreementReminders: 0,
     driveAccessRevoked: 0,
     curriculumWindowEmails: 0,
     quizzesGenerated: 0,
@@ -298,6 +301,9 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
     }],
     ['agreement reminders', async () => {
       result.agreementReminders = await sendAgreementReminders(deps);
+    }],
+    ['client agreement reminders', async () => {
+      result.clientAgreementReminders = await sendClientAgreementReminders(deps);
     }],
     ['drive', async () => {
       result.driveAccessRevoked = await revokeExpiredDriveAccess(deps);

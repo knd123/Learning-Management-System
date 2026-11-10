@@ -1,31 +1,5 @@
 // Response shapes of the REST API, shared by server and client.
-import type {
-  AppNotification,
-  Attachment,
-  AttendanceMark,
-  ClassSession,
-  ClassType,
-  Course,
-  Curriculum,
-  CurriculumWindow,
-  EmailLog,
-  MentorAgreement,
-  Homework,
-  MatchItem,
-  MatchRequest,
-  ParentLinkRequest,
-  ParentReport,
-  PublicUser,
-  Quiz,
-  QuizAttempt,
-  RewardRequest,
-  QuizStatus,
-  Role,
-  ScheduleSlot,
-  SessionReport,
-  Settings,
-  Submission,
-} from './types.ts';
+import type { AppNotification, Attachment, AttendanceMark, ClassSession, ClassType, ClientAgreement, Course, Curriculum, CurriculumWindow, EmailLog, Homework, MatchItem, MatchRequest, MentorAgreement, ParentLinkRequest, ParentReport, PublicUser, Quiz, QuizAttempt, QuizStatus, RewardRequest, Role, ScheduleSlot, SessionReport, Settings, Submission } from './types.ts';
 
 export interface SessionView {
   id: string;
@@ -716,4 +690,55 @@ export interface MonthlyUsage {
   aiCad: number;
   aiLimitCad: number;
   aiRequests: number;
+}
+
+/** One family's Client Service Agreement, for the team's list. */
+export interface ClientAgreementRow {
+  id: string;
+  courseId: string;
+  studentId: string;
+  studentName: string;
+  subject: string;
+  clientName: string;
+  clientEmail?: string;
+  clientIsStudent: boolean;
+  status: ClientAgreement['status'];
+  effectiveDate: string;
+  services: string[];
+  sentAt: string;
+  remindersSent: number[];
+  signedAt?: string;
+}
+
+/** What the person signing sees (POST /api/client-agreement/view): no internal details. */
+export interface ClientAgreementView {
+  id: string;
+  title: string;
+  clientName: string;
+  studentName: string;
+  subject: string;
+  effectiveDate: string;
+  services: string[];
+  status: ClientAgreement['status'];
+  timeZone: string;
+  signedDate?: string;
+  /** The agreement as a printable page. */
+  html: string;
+}
+
+export interface ClientAgreementSendResult {
+  row: ClientAgreementRow;
+  emailStatus: EmailLog['status'] | 'no_email';
+  emailError?: string;
+}
+
+/** A parent's own agreements (GET /api/parent/agreements), with the link to read or sign each one. */
+export interface ParentAgreementLink {
+  id: string;
+  studentName: string;
+  subject: string;
+  status: ClientAgreement['status'];
+  sentAt: string;
+  signedDate?: string;
+  link: string;
 }

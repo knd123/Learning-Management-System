@@ -66,6 +66,8 @@ export const C = {
   invites: 'invites',
   homeworkDrafts: 'homeworkDrafts',
   agreements: 'agreements',
+  /** Families' Client Service Agreements, one per class approved since they were introduced. */
+  clientAgreements: 'clientAgreements',
   rescheduleRequests: 'rescheduleRequests',
   /** One small document per person that changes whenever their notifications do (so the bell can check cheaply). */
   noticeStamps: 'noticeStamps',

@@ -15,6 +15,7 @@ import { answerProposal, proposeNewTime, withReschedules } from '../services/res
 import { ensureSessions } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
 import { homeworkView, sessionView } from '../services/views.ts';
+import { parentAgreements } from '../services/clientAgreements.ts';
 
 /** Read-only views for parents of the students the team linked to them. */
 export function parentRoutes(deps: Deps): Router {
@@ -66,6 +67,13 @@ export function parentRoutes(deps: Deps): Router {
     };
     return { now, courses, sessions, homework, attempts, summary };
   }
+
+  router.get(
+    '/agreements',
+    h(async (req, res) => {
+      res.json(await parentAgreements(deps, req.user!));
+    }),
+  );
 
   router.get(
     '/overview',

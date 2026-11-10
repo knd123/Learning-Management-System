@@ -27,6 +27,7 @@ import { getSettings } from '../services/settings.ts';
 import { usageSummary } from '../services/usage.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 import { connectParents, pendingStudentSetups, resendStudentInviteForTeam } from '../services/invites.ts';
+import { clientAgreementById, clientAgreementHtml, clientAgreementRows, createClientAgreementSafely, resendClientAgreement } from '../services/clientAgreements.ts';
 import { assertUsernameAvailable, normalizeUsername } from './auth.ts';
 
 const email = parseEmail;
@@ -336,6 +337,7 @@ export function adminRoutes(deps: Deps): Router {
       };
       await deps.store.put(C.courses, course);
       await resyncFutureSessions(deps, course);
+      await createClientAgreementSafely(deps, course);
       res.status(201).json(course);
     }),
   );
@@ -614,6 +616,27 @@ export function adminRoutes(deps: Deps): Router {
     '/agreements/:mentorId/send',
     h(async (req, res) => {
       res.json(await sendAgreement(deps, await agreementMentor(req.params.mentorId), { effectiveDate: req.body?.effectiveDate }));
+    }),
+  );
+
+  // Families' Client Service Agreements (one per class approved since they were introduced).
+  router.get(
+    '/client-agreements',
+    h(async (_req, res) => {
+      res.json(await clientAgreementRows(deps));
+    }),
+  );
+  router.get(
+    '/client-agreements/:id/document',
+    h(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.type('html').send(clientAgreementHtml(await clientAgreementById(deps, req.params.id)));
+    }),
+  );
+  router.post(
+    '/client-agreements/:id/send',
+    h(async (req, res) => {
+      res.json(await resendClientAgreement(deps, req.params.id));
     }),
   );
 

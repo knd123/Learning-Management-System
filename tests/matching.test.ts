@@ -202,7 +202,12 @@ describe('student sign-up and mentor pairing', () => {
     });
     assert.equal(detail.items[0].item.status, 'approved');
     assert.equal(detail.request.status, 'open'); // chemistry still pending
-    const emails = h.mailer.sent.slice(sent);
+    // The pairing emails, then the family's client service agreement to sign.
+    const all = h.mailer.sent.slice(sent);
+    const agreement = all.filter((e) => /client service agreement/i.test(e.subject));
+    assert.deepEqual(agreement.map((e) => e.to.join()), ['parent.bekele@example.com']);
+    assert.match(agreement[0].text, /One \(1\) one-on-one Chemistry class per week|One \(1\) one-on-one \w+ class per week/);
+    const emails = all.filter((e) => !agreement.includes(e));
     assert.deepEqual(emails.map((e) => e.to.join()).sort(), ['kalkidan@example.com', 'parent.bekele@example.com', 'sara@example.org']);
     assert.ok(emails.every((e) => /Mondays at 4:00 PM/.test(e.text)));
     assert.match(emails.find((e) => e.to[0] === 'sara@example.org')!.text, /ADHD/);

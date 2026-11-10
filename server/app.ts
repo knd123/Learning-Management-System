@@ -12,6 +12,7 @@ import { mentorRoutes } from './routes/mentor.ts';
 import { parentRoutes } from './routes/parent.ts';
 import { studentRoutes } from './routes/student.ts';
 import { createUpload } from './routes/upload.ts';
+import { clientAgreementRoutes } from './routes/clientAgreement.ts';
 import { canDownload, contentDisposition, type StoredFile } from './services/files.ts';
 import { checkNotifications, markRead, notificationsFor } from './services/notifications.ts';
 import { runScheduledJobs } from './services/jobs.ts';
@@ -66,6 +67,7 @@ export function createApp(deps: Deps) {
   app.use('/api/student', studentRoutes(deps, upload));
   app.use('/api/mentor', mentorRoutes(deps, upload));
   app.use('/api/parent', parentRoutes(deps));
+  app.use('/api/client-agreement', clientAgreementRoutes(deps));
   app.use('/api/admin', adminRoutes(deps));
 
   app.get(

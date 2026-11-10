@@ -16,6 +16,7 @@ import { notify, notifyAdmins, touchNotices } from './notifications.ts';
 import { parseSubjectHours, type HourChange } from './profiles.ts';
 import { resyncFutureSessions } from './schedule.ts';
 import { getSettings } from './settings.ts';
+import { createClientAgreementSafely } from './clientAgreements.ts';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -253,6 +254,7 @@ export async function approveMatchItem(deps: Deps, admin: UserRecord, request: M
   );
   await deps.store.put(C.matchRequests, updated);
   await announcePairing(deps, student, mentor, course, await getSettings(deps.store));
+  await createClientAgreementSafely(deps, course);
   return { request: updated, course };
 }
 
