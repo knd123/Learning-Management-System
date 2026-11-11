@@ -148,9 +148,23 @@ export interface QuizSummary {
   attempt?: Pick<QuizAttempt, 'score' | 'correct' | 'total' | 'submittedAt'>;
 }
 
+/**
+ * A class's most recent lesson, for "Pick up where you left off": what was covered, the slides, the
+ * homework (with where the student is with it) and the recording while it can be watched.
+ */
+export interface RecentClassView {
+  session: SessionView;
+  mentorName: string;
+  homework?: HomeworkView;
+  /** A later class has ended and its report (slides and homework) isn't in yet: when that class started. */
+  reportPendingFor?: string;
+}
+
 export interface StudentOverview {
   courses: StudentCourse[];
   upcoming: SessionView[];
+  /** Each class's latest lesson from the last 14 days, the ones with homework still to do first. */
+  recentClasses: RecentClassView[];
   homeworkDue: HomeworkView[];
   recordings: SessionView[];
   openQuizzes: QuizSummary[];

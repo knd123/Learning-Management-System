@@ -1,8 +1,9 @@
-import { BookOpen, CalendarDays, ClipboardList, PlayCircle, Sparkles } from 'lucide-react';
+import { BookOpen, CalendarDays, ClipboardList, Sparkles } from 'lucide-react';
 import { Link } from 'react-router';
 import type { StudentOverview } from '../../../shared/api.ts';
 import { missingStudentDetails } from '../../../shared/profile.ts';
 import { HomeworkCard } from '../../components/Homework.tsx';
+import { RecentClasses } from '../../components/RecentClasses.tsx';
 import { StudentRequests } from '../../components/StudentRequests.tsx';
 import { isLive, JoinButton, StudentSessionRow, useNow } from '../../components/Sessions.tsx';
 import { Badge, ButtonLink, Card, EmptyState, ErrorBox, Loading, SectionTitle } from '../../components/ui.tsx';
@@ -91,6 +92,8 @@ export default function StudentHome() {
         </div>
       )}
 
+      <RecentClasses items={data.recentClasses} />
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
         <section className="lg:col-span-3">
           <SectionTitle action={<ButtonLink to="/student/schedule" variant="ghost" size="sm">Full schedule</ButtonLink>}>This week</SectionTitle>
@@ -120,24 +123,6 @@ export default function StudentHome() {
           )}
         </section>
       </div>
-
-      {data.recordings.length > 0 && (
-        <section>
-          <SectionTitle action={<ButtonLink to="/student/recordings" variant="ghost" size="sm">All recordings</ButtonLink>}>Rewatch recent classes</SectionTitle>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {data.recordings.slice(0, 3).map((s) => (
-              <Link key={s.id} to={`/student/recordings?play=${encodeURIComponent(s.id)}`} className="flex items-center gap-3 rounded-2xl border border-sand-200 bg-white p-4 hover:border-brand-300">
-                <PlayCircle className="size-9 shrink-0 text-brand-600" />
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold">{s.courseTitle}</span>
-                  <span className="block text-sm text-ink-soft">{fmtDateTime(s.startAt)}</span>
-                  <Badge tone="amber" className="mt-1">Available until {fmtDateTime(s.recording!.availableUntil)}</Badge>
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
 
       <section>
         <SectionTitle>My classes</SectionTitle>

@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { Router } from 'express';
-import type { HomeworkView, StudentCourse, StudentCourseDetail, StudentOverview, StudentProfile } from '../../shared/api.ts';
+import type { HomeworkView, RecentClassView, StudentCourse, StudentCourseDetail, StudentOverview, StudentProfile } from '../../shared/api.ts';
 import type { Attachment, ClassSession, Course, Homework, Quiz, QuizAttempt, QuizSession, Submission } from '../../shared/types.ts';
 import { ONE_DAY } from '../../shared/time.ts';
 import { requireRole, toPublicUser, type UserRecord } from '../auth.ts';
@@ -71,6 +71,42 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
     };
   }
 
+  /**
+   * Each class's latest lesson for "Pick up where you left off": the newest class with a mentor's report
+   * (topics, slides, homework). When a newer class has ended but its report isn't in yet, the card says so;
+   * a class whose only recent lesson still waits for its report (in the last 2 days) shows that alone.
+   * Cancelled classes and classes marked not held don't count.
+   */
+  function recentClasses(
+    recent: Array<{ session: ClassSession; course: Course }>,
+    homeworkById: Map<string, HomeworkView>,
+    mentors: Map<string, UserRecord>,
+    now: Date,
+    studentId: string,
+  ): RecentClassView[] {
+    const ended = recent.filter(({ session }) => new Date(session.endAt) <= now && session.status !== 'cancelled' && !session.notHeld);
+    const byCourse = new Map<string, Array<{ session: ClassSession; course: Course }>>();
+    for (const item of ended) byCourse.set(item.course.id, [...(byCourse.get(item.course.id) || []), item]);
+    const cards: RecentClassView[] = [];
+    for (const items of byCourse.values()) {
+      const newestFirst = [...items].sort((a, b) => b.session.startAt.localeCompare(a.session.startAt));
+      const reported = newestFirst.find(({ session }) => session.report);
+      const waiting = newestFirst[0].session.report ? undefined : newestFirst[0];
+      const shown = reported || (waiting && now.getTime() - new Date(waiting.session.endAt).getTime() <= 2 * ONE_DAY ? waiting : undefined);
+      if (!shown) continue;
+      const view = sessionView(shown.session, shown.course, now, studentId);
+      cards.push({
+        session: view,
+        mentorName: mentors.get(shown.course.mentorId)?.displayName || 'your mentor',
+        homework: view.homeworkId ? homeworkById.get(view.homeworkId) : undefined,
+        ...(waiting && waiting !== shown ? { reportPendingFor: waiting.session.startAt } : {}),
+      });
+    }
+    // Homework still to do first (past due before due), then the newest class.
+    const urgency = (c: RecentClassView) => (c.homework?.status === 'late' ? 0 : c.homework?.status === 'todo' ? 1 : 2);
+    return cards.sort((a, b) => urgency(a) - urgency(b) || b.session.startAt.localeCompare(a.session.startAt)).slice(0, 6);
+  }
+
   router.get(
     '/overview',
     h(async (req, res) => {
@@ -90,8 +126,10 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const titles = new Map(courses.map((c) => [c.id, c.title]));
       const recentCutoff = new Date(now.getTime() - 14 * ONE_DAY).toISOString();
       const attemptByQuiz = new Map(attempts.map((a) => [a.quizId, a]));
+      const homeworkById = new Map(homework.map((hw) => [hw.id, hw]));
       const overview: StudentOverview = {
         courses: courseViews,
+        recentClasses: recentClasses(recent, homeworkById, mentors, now, user.id),
         upcoming: await withReschedules(deps, user.id, week.filter(({ session }) => new Date(session.endAt) > now).map(({ session, course }) => sessionView(session, course, now, user.id))),
         homeworkDue: homework.filter((hw) => hw.status === 'todo' || hw.status === 'late').sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999')),
         recordings: recent
