@@ -20,6 +20,7 @@ export function sessionView(session: ClassSession, course: Course, now: Date, st
     status: session.status,
     joinUrl: joinUrl(session, course),
     rescheduled: session.startAt !== session.originalStartAt,
+    ...(session.makeUpFor ? { makeUpFor: session.makeUpFor.startAt } : {}),
   };
   if (session.report) {
     view.topicsCovered = session.report.topicsCovered;

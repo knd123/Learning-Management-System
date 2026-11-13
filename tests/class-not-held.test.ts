@@ -51,8 +51,9 @@ describe('a class that didn’t take place', () => {
     assert.equal((await mentor.get<MentorSessionDetail>(`/api/mentor/sessions/${mon5()}`)).session.needsReport, true);
     assert.match((await mentor.post(`/api/mentor/sessions/${mon5()}/not-held`, {}, 400)).error, /Choose why/);
     await mentor.post(`/api/mentor/sessions/${mon5()}/not-held`, { reason: 'holiday' }, 400);
+    assert.match((await mentor.post(`/api/mentor/sessions/${mon5()}/not-held`, { reason: 'student_emergency' }, 400)).error, /moved to another day, or this week is skipped/);
 
-    const saved = await mentor.post<ClassSession>(`/api/mentor/sessions/${mon5()}/not-held`, { reason: 'student_emergency', note: 'Nahom was sick' });
+    const saved = await mentor.post<ClassSession>(`/api/mentor/sessions/${mon5()}/not-held`, { reason: 'student_emergency', note: 'Nahom was sick', followUp: 'skip' });
     assert.equal(saved.status, 'cancelled');
     assert.deepEqual([saved.notHeld?.reason, saved.notHeld?.note, saved.notHeld?.afterStart], ['student_emergency', 'Nahom was sick', true]);
 
@@ -60,7 +61,7 @@ describe('a class that didn’t take place', () => {
     assert.deepEqual([detail.session.needsReport, detail.session.needsRecording, detail.session.notHeld?.reason], [false, false, 'student_emergency']);
     assert.ok(!(await mentor.get<MentorOverview>('/api/mentor/overview')).pendingReports.some((s) => s.id === mon5()), 'no report is asked for');
     assert.match((await report(mon5(), 400)).error, /cancelled/);
-    assert.match((await mentor.post(`/api/mentor/sessions/${mon5()}/not-held`, { reason: 'mentor_emergency' }, 400)).error, /already/);
+    assert.match((await mentor.post(`/api/mentor/sessions/${mon5()}/not-held`, { reason: 'mentor_emergency', followUp: 'skip' }, 400)).error, /already/);
   });
 
   it('tells the team, with the signs that the class did take place', async () => {
@@ -79,7 +80,7 @@ describe('a class that didn’t take place', () => {
 
   it('asks for a reason to cancel in advance too, and tells the team', async () => {
     assert.match((await mentor.patch(`/api/mentor/sessions/${mon12()}`, { status: 'cancelled' }, 400)).error, /didn’t take place/);
-    const saved = await mentor.post<ClassSession>(`/api/mentor/sessions/${mon12()}/not-held`, { reason: 'family_request' });
+    const saved = await mentor.post<ClassSession>(`/api/mentor/sessions/${mon12()}/not-held`, { reason: 'family_request', followUp: 'skip' });
     assert.equal(saved.notHeld?.afterStart, false);
 
     const email = notHeldEmails().at(-1)!;
@@ -91,7 +92,7 @@ describe('a class that didn’t take place', () => {
 
   it('doesn’t count it as a missed class or ask for a rating or a recording', async () => {
     h.clock.now = new Date('2026-10-07T21:30:00Z');
-    await mentor.post(`/api/mentor/sessions/${wed7()}/not-held`, { reason: 'mentor_emergency', note: 'Power cut' });
+    await mentor.post(`/api/mentor/sessions/${wed7()}/not-held`, { reason: 'mentor_emergency', note: 'Power cut', followUp: 'skip' });
     assert.equal((await student.get<{ pending: unknown }>('/api/student/feedback/pending')).pending, null);
     const progress = await student.get<StudentProgress>('/api/student/progress');
     assert.deepEqual([progress.courses[0].classesHeld, progress.courses[0].classesAttended], [0, 0]);
@@ -118,8 +119,8 @@ describe('a class that didn’t take place', () => {
 
   it('doesn’t notify the team about its own changes, and is only for the class’s mentor and the team', async () => {
     const before = notHeldEmails().length;
-    await admin.post(`/api/mentor/sessions/${mon12()}/not-held`, { reason: 'family_request' });
+    await admin.post(`/api/mentor/sessions/${mon12()}/not-held`, { reason: 'family_request', followUp: 'skip' });
     assert.equal(notHeldEmails().length, before);
-    await student.post(`/api/mentor/sessions/${wed7()}/not-held`, { reason: 'family_request' }, 403);
+    await student.post(`/api/mentor/sessions/${wed7()}/not-held`, { reason: 'family_request', followUp: 'skip' }, 403);
   });
 });

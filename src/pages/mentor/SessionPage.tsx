@@ -1,9 +1,9 @@
 import clsx from 'clsx';
-import { CalendarX2, CheckCircle2, FolderOpen, PlayCircle, Video, VideoOff } from 'lucide-react';
+import { CalendarClock, CalendarX2, CheckCircle2, FolderOpen, PlayCircle, Video, VideoOff } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { MentorCourseDetail, MentorSessionDetail } from '../../../shared/api.ts';
-import { classFileProblem, MAX_CLASS_FILE_MB, NOT_HELD_REASONS, RESCHEDULE_MAX_PROPOSALS, RESCHEDULE_NOTICE_HOURS } from '../../../shared/classes.ts';
+import { classFileProblem, MAKEUP_DAYS_AFTER, MAKEUP_DAYS_BEFORE, MAX_CLASS_FILE_MB, NOT_HELD_REASONS, RESCHEDULE_MAX_PROPOSALS, RESCHEDULE_NOTICE_HOURS } from '../../../shared/classes.ts';
 import type { AttendanceMark, ClassNotHeld, NotHeldReason } from '../../../shared/types.ts';
 import { AttachmentLink } from '../../components/Attachments.tsx';
 import { emptyHomework, HomeworkFields, homeworkPayload, homeworkProblem, type HomeworkDraft } from '../../components/HomeworkFields.tsx';
@@ -12,7 +12,7 @@ import { canPropose, ProposeNewTime, RescheduleRequestCard } from '../../compone
 import { useAuth } from '../../lib/auth.tsx';
 import { Badge, Button, Card, ErrorBox, ExternalButton, Field, Input, Loading, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { fmtDateTime, fmtDay, fmtTimeRange, fromLocalInput, localYmd, toLocalInput } from '../../lib/format.ts';
+import { addDays, dayOfMonth, fmtDateTime, fmtDay, fmtShortDay, fmtTimeRange, fmtWeekdayShort, fromLocalInput, localYmd, toLocalInput } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
 export default function MentorSession() {
@@ -41,6 +41,11 @@ export default function MentorSession() {
       )}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="flex flex-col gap-6 lg:col-span-3">
+          {session.makeUpFor && (
+            <Notice tone="blue" icon={<CalendarClock className="mt-0.5 size-4" />}>
+              Make-up class for the {fmtDateTime(session.makeUpFor)} class that didn’t take place. Submit its class report after it, like any class.
+            </Notice>
+          )}
           {session.status === 'cancelled' ? (
             session.notHeld ? (
               <NotHeldNotice notHeld={session.notHeld} />
@@ -262,7 +267,7 @@ function ReportCard({ data, onSaved, initialHeld }: { data: MentorSessionDetail;
         ))}
       </div>
       {!held ? (
-        <NotHeldForm sessionId={session.id} afterStart onDone={onSaved} />
+        <NotHeldForm session={session} afterStart onDone={onSaved} />
       ) : (
       <form onSubmit={submit} className="flex flex-col gap-5">
         {error && <ErrorBox message={error} />}
@@ -519,7 +524,7 @@ function ManageCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
         ) : started ? (
           <p className="text-sm text-ink-soft">Class didn’t take place? Say so at the top of the class report.</p>
         ) : cancelling ? (
-          <NotHeldForm sessionId={session.id} afterStart={false} onDone={onSaved} onBack={() => setCancelling(false)} />
+          <NotHeldForm session={session} afterStart={false} onDone={onSaved} onBack={() => setCancelling(false)} />
         ) : (
           <Button variant="ghost" className="self-start text-red-600 hover:bg-red-50" onClick={() => setCancelling(true)}>
             <CalendarX2 className="size-4" /> Cancel this class
@@ -531,24 +536,40 @@ function ManageCard({ data, onSaved }: { data: MentorSessionDetail; onSaved(): v
 }
 
 /**
- * Why a class doesn't take place, instead of the class report (or before the class, to cancel it).
- * The Abugida team is notified and checks it against the class records.
+ * Why a class doesn't take place, instead of the class report (or before the class, to cancel it),
+ * and what happens instead: a make-up class on another day (with its own report), or the week is
+ * skipped. The Abugida team is notified and checks it against the class records.
  */
-function NotHeldForm({ sessionId, afterStart, onDone, onBack }: { sessionId: string; afterStart: boolean; onDone(): void; onBack?(): void }) {
+function NotHeldForm({ session, afterStart, onDone, onBack }: { session: { id: string; startAt: string; endAt: string }; afterStart: boolean; onDone(): void; onBack?(): void }) {
   const toast = useToast();
   const [reason, setReason] = useState<NotHeldReason | ''>('');
   const [note, setNote] = useState('');
+  const [followUp, setFollowUp] = useState<'makeup' | 'skip' | ''>('');
+  const [day, setDay] = useState('');
+  const [time, setTime] = useState(() => toLocalInput(session.startAt).slice(11, 16));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const start = new Date(session.startAt);
+  // Quick picks: the six days after the class, in the mentor's own timezone.
+  const quickDays = Array.from({ length: 6 }, (_, i) => addDays(start, i + 1));
+  const makeUpAt = day && time ? fromLocalInput(`${day}T${time}`) : '';
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!reason) return setError(afterStart ? 'Choose why the class didn’t take place.' : 'Choose why the class is cancelled.');
+    if (!followUp) return setError('Choose what happens instead: another day, or skip this week.');
+    if (followUp === 'makeup' && (!day || !time)) return setError('Choose the day and time of the make-up class.');
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/api/mentor/sessions/${encodeURIComponent(sessionId)}/not-held`, { reason, note });
-      toast(afterStart ? 'Reported. The Abugida team has been told.' : 'Class cancelled. The Abugida team has been told.');
+      await api.post(`/api/mentor/sessions/${encodeURIComponent(session.id)}/not-held`, { reason, note, followUp, ...(followUp === 'makeup' ? { makeUpLocal: `${day}T${time}` } : {}) });
+      toast(
+        followUp === 'makeup'
+          ? `Make-up class added for ${fmtDateTime(makeUpAt)}. Its class report is due after it. The family and the Abugida team have been told.`
+          : afterStart
+            ? 'Reported: this week is skipped. The Abugida team has been told.'
+            : 'Class cancelled: this week is skipped. The Abugida team has been told.',
+      );
       onDone();
     } catch (err) {
       setError(errorMessage(err));
@@ -556,19 +577,68 @@ function NotHeldForm({ sessionId, afterStart, onDone, onBack }: { sessionId: str
     }
   };
 
+  const choice = (value: 'makeup' | 'skip', title: string, detail: string) => (
+    <label className={clsx('flex cursor-pointer items-start gap-3 rounded-xl border-2 px-3 py-2.5 text-sm transition', followUp === value ? 'border-brand-600 bg-brand-50/50' : 'border-sand-200 hover:border-brand-300')}>
+      <input type="radio" name={`follow-up-${session.id}`} checked={followUp === value} onChange={() => setFollowUp(value)} className="mt-0.5 size-4 accent-brand-700" />
+      <span>
+        <span className="block font-medium">{title}</span>
+        <span className="block text-xs text-ink-muted">{detail}</span>
+      </span>
+    </label>
+  );
+
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-sm font-medium">{afterStart ? 'Why didn’t the class take place?' : 'Why is this class cancelled?'}</legend>
         {(Object.entries(NOT_HELD_REASONS) as Array<[NotHeldReason, string]>).map(([value, label]) => (
           <label key={value} className={clsx('flex cursor-pointer items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-sm transition', reason === value ? 'border-brand-600 bg-brand-50/50' : 'border-sand-200 hover:border-brand-300')}>
-            <input type="radio" name={`not-held-${sessionId}`} checked={reason === value} onChange={() => setReason(value)} className="size-4 accent-brand-700" />
+            <input type="radio" name={`not-held-${session.id}`} checked={reason === value} onChange={() => setReason(value)} className="size-4 accent-brand-700" />
             {label}
           </label>
         ))}
       </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-2 text-sm font-medium">What happens instead?</legend>
+        {choice('makeup', afterStart ? 'The class moved to another day' : 'The class moves to another day', 'A make-up class is added to the schedule, with its own class report. The student and parents are told.')}
+        {followUp === 'makeup' && (
+          <div className="ml-7 flex flex-col gap-3 rounded-xl bg-sand-50 p-3">
+            <div role="group" aria-label="Day of the make-up class" className="grid grid-cols-6 gap-1.5 sm:max-w-md">
+              {quickDays.map((d) => {
+                const ymd = localYmd(d);
+                return (
+                  <button
+                    key={ymd}
+                    type="button"
+                    aria-pressed={day === ymd}
+                    aria-label={fmtShortDay(d)}
+                    onClick={() => setDay(ymd)}
+                    className={clsx('flex flex-col items-center rounded-xl py-1.5 transition', day === ymd ? 'bg-brand-700 text-white' : 'bg-white text-ink-soft ring-1 ring-sand-200 hover:bg-sand-100')}
+                  >
+                    <span className="text-[11px] font-medium uppercase tracking-wide">{fmtWeekdayShort(d)}</span>
+                    <span className="text-base font-bold leading-tight">{dayOfMonth(d)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:max-w-sm">
+              <Field label="Day">
+                {(fid) => <Input id={fid} type="date" value={day} min={localYmd(addDays(start, -MAKEUP_DAYS_BEFORE))} max={localYmd(addDays(start, MAKEUP_DAYS_AFTER))} onChange={(e) => setDay(e.target.value)} />}
+              </Field>
+              <Field label="Time">{(fid) => <Input id={fid} type="time" value={time} onChange={(e) => setTime(e.target.value)} />}</Field>
+            </div>
+            <p className="text-xs text-ink-muted">
+              {makeUpAt ? `Make-up class: ${fmtDateTime(makeUpAt)}, as long as the original class.` : 'Pick a day above, or any day from a week before to two weeks after the class.'} Times are in your
+              profile’s timezone.
+            </p>
+          </div>
+        )}
+        {choice('skip', 'Skip this week', 'No make-up class. The family sees this class as cancelled.')}
+      </fieldset>
+
       <Field label="Details for the Abugida team (optional)">
-        {(fid) => <Textarea id={fid} rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. The student was sick; we'll catch up next week." />}
+        {(fid) => <Textarea id={fid} rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. The student was sick; we agreed on Wednesday instead." />}
       </Field>
       <p className="text-xs text-ink-muted">
         {afterStart ? 'You don’t need to fill in the rest of the report. ' : 'Students will see the class as cancelled. '}
@@ -577,7 +647,7 @@ function NotHeldForm({ sessionId, afterStart, onDone, onBack }: { sessionId: str
       {error && <ErrorBox message={error} />}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" loading={busy}>
-          {afterStart ? 'Report class not held' : 'Cancel this class'}
+          {followUp === 'makeup' ? (afterStart ? 'Report and add the make-up class' : 'Cancel and add the make-up class') : afterStart ? 'Report class not held' : 'Cancel this class'}
         </Button>
         {onBack && (
           <Button type="button" variant="secondary" onClick={onBack} disabled={busy}>
@@ -595,9 +665,20 @@ function NotHeldNotice({ notHeld }: { notHeld: ClassNotHeld }) {
     <Notice icon={<CalendarX2 className="mt-0.5 size-4" />}>
       <p className="font-semibold">{notHeld.afterStart ? 'Reported as not taking place' : 'Cancelled in advance'}: {NOT_HELD_REASONS[notHeld.reason].toLowerCase()}.</p>
       {notHeld.note && <p className="mt-1 whitespace-pre-wrap">“{notHeld.note}”</p>}
+      {notHeld.makeUp ? (
+        <p className="mt-2">
+          Moved to a make-up class on <strong>{fmtDateTime(notHeld.makeUp.startAt)}</strong>.{' '}
+          <Link to={`/mentor/sessions/${encodeURIComponent(notHeld.makeUp.sessionId)}`} className="font-semibold underline">
+            Open the make-up class
+          </Link>
+        </p>
+      ) : (
+        notHeld.followUp === 'skip' && <p className="mt-2">This week is skipped: no make-up class.</p>
+      )}
       <p className="mt-1 text-xs">
         Reported {fmtDateTime(notHeld.reportedAt)}. The Abugida team was notified.{' '}
         {notHeld.afterStart ? 'If the class did take place after all, restore it below and submit the class report.' : 'If it goes ahead after all, restore it below.'}
+        {notHeld.makeUp ? ' Restoring it removes the make-up class if it hasn’t been used.' : ''}
       </p>
     </Notice>
   );

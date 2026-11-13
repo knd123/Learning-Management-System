@@ -20,6 +20,8 @@ export interface SessionView {
   attended?: boolean;
   /** The latest request to move this class, while it waits for the mentor or for a few days after the answer. */
   reschedule?: RescheduleSummary;
+  /** A make-up class: when the class it replaces was due to start. */
+  makeUpFor?: string;
 }
 
 export interface RescheduleSummary {

@@ -11,6 +11,11 @@ const FUTURE_HORIZON_DAYS = 120;
 /** Planned class times are checked for clashes over this many weeks of real dates. */
 const CLASH_WEEKS = 8;
 
+/** A make-up class's id: like a regular class's, marked "mu" so it never collides with one. */
+export function makeUpSessionIdFor(courseId: string, start: Date): string {
+  return sessionIdFor(courseId, start).replace(`${courseId}_`, `${courseId}_mu`);
+}
+
 export function sessionIdFor(courseId: string, start: Date): string {
   const iso = start.toISOString(); // 2026-10-12T15:00:00.000Z
   return `${courseId}_${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}Z`;
@@ -81,7 +86,7 @@ export async function ensureSessions(deps: Deps, course: Course, from: Date, to:
 
 /** True when a session has activity that must be kept even if the schedule changes. */
 function hasActivity(s: ClassSession): boolean {
-  return Boolean(s.report || s.recording || (s.joins && Object.keys(s.joins).length) || s.meetingUrlOverride || s.status === 'cancelled' || s.startAt !== s.originalStartAt);
+  return Boolean(s.report || s.recording || (s.joins && Object.keys(s.joins).length) || s.meetingUrlOverride || s.status === 'cancelled' || s.startAt !== s.originalStartAt || s.makeUpFor);
 }
 
 /** After a schedule change, removes untouched future sessions that no longer match the schedule. */

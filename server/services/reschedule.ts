@@ -35,16 +35,16 @@ function proposedMoment(user: UserRecord, local: unknown, iso: unknown): unknown
   return d.toISOString();
 }
 
-type Message = { title: string; body: string; subject: string; heading: string; intro: string; details: Array<[string, string | undefined]>; button: string };
+export type Message = { title: string; body: string; subject: string; heading: string; intro: string; details: Array<[string, string | undefined]>; button: string };
 
-interface ClassParties {
+export interface ClassParties {
   session: ClassSession;
   course: Course;
   student: UserRecord;
   mentor: UserRecord | null;
 }
 
-async function loadClass(deps: Deps, sessionId: string): Promise<ClassParties> {
+export async function loadClass(deps: Deps, sessionId: string): Promise<ClassParties> {
   const session = await deps.store.get<ClassSession>(C.sessions, sessionId);
   const course = session && (await deps.store.get<Course>(C.courses, session.courseId));
   const student = course && (await deps.store.get<UserRecord>(C.users, course.studentIds[0] || ''));
@@ -94,7 +94,7 @@ async function checkProposal(deps: Deps, { session, course }: ClassParties, prop
  * A notice and an email to the student and each parent (never the mentor's contact details), each
  * written with times in that person's own timezone.
  */
-async function tellFamily(deps: Deps, p: ClassParties, build: (timeZone: string) => Message) {
+export async function tellFamily(deps: Deps, p: ClassParties, build: (timeZone: string) => Message) {
   const settings = await getSettings(deps.store);
   const studentTz = zoneOf(p.student, p.course.timezone);
   const parents = await parentsOf(deps, p.student.id);

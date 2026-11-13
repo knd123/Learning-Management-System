@@ -8,10 +8,11 @@ import { Badge } from './ui.tsx';
 
 export function MentorSessionBadges({ session }: { session: MentorSessionView }) {
   const ended = Date.now() > new Date(session.endAt).getTime();
-  if (session.notHeld?.afterStart) return <Badge tone="gray">Not held</Badge>;
+  if (session.notHeld?.afterStart) return <Badge tone="gray">{session.notHeld.makeUp ? 'Not held · made up' : 'Not held'}</Badge>;
   if (session.status === 'cancelled' || !ended) return <SessionStatusBadge session={session} />;
   return (
     <>
+      {session.makeUpFor && <Badge tone="blue">Make-up</Badge>}
       {session.needsReport ? (
         <Badge tone="amber">
           <FileWarning className="size-3" /> Report needed

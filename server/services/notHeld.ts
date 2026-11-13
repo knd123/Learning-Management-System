@@ -1,5 +1,5 @@
-import { NOT_HELD_REASONS } from '../../shared/classes.ts';
-import { ONE_DAY } from '../../shared/time.ts';
+import { MAKEUP_DAYS_AFTER, MAKEUP_DAYS_BEFORE, NOT_HELD_REASONS } from '../../shared/classes.ts';
+import { localInputToUtc, ONE_DAY } from '../../shared/time.ts';
 import type { ClassFeedback, ClassNotHeld, ClassSession, Course, NotHeldReason } from '../../shared/types.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -8,6 +8,8 @@ import { badRequest, str } from '../http.ts';
 import { firstName, usersById } from './access.ts';
 import { emailButton, emailLayout, emailList, emailTable, escapeHtml, sendEmail } from './email.ts';
 import { notify, notifyAdmins } from './notifications.ts';
+import { loadClass, tellFamily } from './reschedule.ts';
+import { makeUpSessionIdFor } from './schedule.ts';
 import { getSettings } from './settings.ts';
 
 function when(iso: string, timeZone: string): string {
@@ -19,16 +21,92 @@ function when(iso: string, timeZone: string): string {
  * the reason instead of the report. The class counts as cancelled everywhere (no report, recording or
  * rating needed, and no missed class for the student), and the team is told so it can check the claim.
  */
-export async function reportNotHeld(deps: Deps, actor: UserRecord, session: ClassSession, course: Course, input: { reason?: unknown; note?: unknown }): Promise<ClassSession> {
+export async function reportNotHeld(
+  deps: Deps,
+  actor: UserRecord,
+  session: ClassSession,
+  course: Course,
+  input: { reason?: unknown; note?: unknown; followUp?: unknown; makeUpLocal?: unknown; makeUpStartAt?: unknown },
+): Promise<ClassSession> {
   if (session.status === 'cancelled') throw badRequest('This class is already marked as not taking place.');
   const reason = String(input.reason || '') as NotHeldReason;
   if (!(reason in NOT_HELD_REASONS)) throw badRequest('Choose why the class didn’t take place.');
   const note = str(input.note, 'Details', { max: 1000 });
+  const followUp = input.followUp === 'makeup' || input.followUp === 'skip' ? input.followUp : null;
+  if (!followUp) throw badRequest('Say what happens instead: the class moved to another day, or this week is skipped.');
   const now = deps.now();
-  const notHeld: ClassNotHeld = { reason, note: note || undefined, reportedAt: now.toISOString(), reportedBy: actor.id, afterStart: new Date(session.startAt) <= now };
+  const makeUpStart = followUp === 'makeup' ? await checkMakeUp(deps, actor, session, course, input) : null;
+
+  let makeUp: ClassSession | null = null;
+  if (makeUpStart) {
+    const length = new Date(session.endAt).getTime() - new Date(session.startAt).getTime();
+    makeUp = {
+      id: makeUpSessionIdFor(course.id, makeUpStart),
+      courseId: course.id,
+      startAt: makeUpStart.toISOString(),
+      endAt: new Date(makeUpStart.getTime() + length).toISOString(),
+      originalStartAt: makeUpStart.toISOString(),
+      status: 'scheduled',
+      makeUpFor: { sessionId: session.id, startAt: session.startAt },
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    if (!(await deps.store.createIfAbsent(C.sessions, makeUp))) throw badRequest('There is already a make-up class at that time.');
+  }
+  const notHeld: ClassNotHeld = {
+    reason,
+    note: note || undefined,
+    reportedAt: now.toISOString(),
+    reportedBy: actor.id,
+    afterStart: new Date(session.startAt) <= now,
+    followUp,
+    ...(makeUp ? { makeUp: { sessionId: makeUp.id, startAt: makeUp.startAt } } : {}),
+  };
   const updated = (await deps.store.patch<ClassSession>(C.sessions, session.id, { status: 'cancelled', notHeld, updatedAt: now.toISOString() }))!;
   if (actor.role !== 'admin') await tellTheTeam(deps, actor, session, course, notHeld);
+  if (makeUp && new Date(makeUp.startAt) > now) await tellFamilyAboutMakeUp(deps, session, makeUp);
   return updated;
+}
+
+/**
+ * The make-up class's start: the day and time the mentor typed in their profile timezone (or an exact
+ * time). It must be near the class it replaces and not clash with another class of this course.
+ */
+async function checkMakeUp(deps: Deps, actor: UserRecord, session: ClassSession, course: Course, input: { makeUpLocal?: unknown; makeUpStartAt?: unknown }): Promise<Date> {
+  const typed = input.makeUpLocal !== undefined && input.makeUpLocal !== '' ? localInputToUtc(input.makeUpLocal, actor.timezone || course.timezone) : null;
+  const exact = !typed && typeof input.makeUpStartAt === 'string' ? new Date(input.makeUpStartAt) : null;
+  const start = typed || (exact && !Number.isNaN(exact.getTime()) ? exact : null);
+  if (!start) throw badRequest('Choose the day and time the class moved to.');
+  const original = new Date(session.startAt).getTime();
+  if (start.getTime() === original) throw badRequest('Choose a different time from the class that didn’t take place.');
+  if (start.getTime() < original - MAKEUP_DAYS_BEFORE * ONE_DAY || start.getTime() > original + MAKEUP_DAYS_AFTER * ONE_DAY) {
+    throw badRequest(`Choose a day within ${MAKEUP_DAYS_BEFORE} days before or ${MAKEUP_DAYS_AFTER} days after the class.`);
+  }
+  const end = start.getTime() + (new Date(session.endAt).getTime() - original);
+  const nearby = await deps.store.findRange<ClassSession>(C.sessions, { courseId: course.id }, { field: 'startAt', from: new Date(start.getTime() - ONE_DAY).toISOString(), to: new Date(end + ONE_DAY).toISOString() });
+  const clash = nearby.find((s) => s.id !== session.id && s.status !== 'cancelled' && new Date(s.startAt).getTime() < end && start.getTime() < new Date(s.endAt).getTime());
+  if (clash) throw badRequest(`This class already meets then (${when(clash.startAt, actor.timezone || course.timezone)}). Choose another time.`);
+  return start;
+}
+
+/** The student and parents are told about a make-up class still to come, each in their own timezone. */
+async function tellFamilyAboutMakeUp(deps: Deps, session: ClassSession, makeUp: ClassSession): Promise<void> {
+  const parties = await loadClass(deps, session.id).catch(() => null);
+  if (!parties) return;
+  const { course } = parties;
+  await tellFamily(deps, parties, (tz) => ({
+    title: `${course.subject} class moved to ${when(makeUp.startAt, tz)}`,
+    body: `The ${when(session.startAt, tz)} class didn’t take place, so a make-up class is set for ${when(makeUp.startAt, tz)}. It is in the schedule with the class link.`,
+    subject: `${course.subject} make-up class: ${when(makeUp.startAt, tz)}`,
+    heading: 'A make-up class is scheduled',
+    intro: `The ${course.subject} class on ${when(session.startAt, tz)} didn’t take place, so a make-up class has been set. It is in the portal schedule with the class link.`,
+    details: [
+      ['Class', course.title],
+      ['Instead of', when(session.startAt, tz)],
+      ['Make-up class', when(makeUp.startAt, tz)],
+    ],
+    button: 'Open the schedule',
+  }));
 }
 
 /** Puts a class back as taking place. When the team overrules a mentor's report, the mentor is asked for the class report. */
@@ -36,6 +114,11 @@ export async function restoreClass(deps: Deps, actor: UserRecord, session: Class
   const updated = (await deps.store.patch<ClassSession>(C.sessions, session.id, { status: 'scheduled', notHeld: undefined, updatedAt: deps.now().toISOString() }))!;
   const reported = session.notHeld;
   if (!reported) return updated;
+  // The class took place after all: its make-up class goes, unless it already has a report or a join.
+  if (reported.makeUp) {
+    const makeUp = await deps.store.get<ClassSession>(C.sessions, reported.makeUp.sessionId);
+    if (makeUp && !makeUp.report && !makeUp.recording && !Object.keys(makeUp.joins || {}).length) await deps.store.remove(C.sessions, makeUp.id);
+  }
   const link = `/mentor/sessions/${encodeURIComponent(session.id)}`;
   const time = when(session.startAt, course.timezone);
   if (actor.role === 'admin') {
@@ -84,7 +167,7 @@ async function tellTheTeam(deps: Deps, mentor: UserRecord, session: ClassSession
   await notifyAdmins(
     deps,
     `Class not held: ${course.title}`,
-    `${mentor.displayName} says the ${time} class with ${studentNames} didn’t take place: ${reason.toLowerCase()}.${notHeld.note ? ` “${notHeld.note}”` : ''}${signs.length ? ` Please check: ${signs.join(' ')}` : ''}${pattern ? ` ${pattern}` : ''}`,
+    `${mentor.displayName} says the ${time} class with ${studentNames} didn’t take place: ${reason.toLowerCase()}.${notHeld.note ? ` “${notHeld.note}”` : ''}${notHeld.makeUp ? ` Make-up class: ${when(notHeld.makeUp.startAt, course.timezone)}.` : notHeld.followUp === 'skip' ? ' This week is skipped.' : ''}${signs.length ? ` Please check: ${signs.join(' ')}` : ''}${pattern ? ` ${pattern}` : ''}`,
     path,
   );
 
@@ -95,6 +178,7 @@ async function tellTheTeam(deps: Deps, mentor: UserRecord, session: ClassSession
     ['Scheduled', time],
     ['Reason', reason],
     ['Details', notHeld.note],
+    ['Instead', notHeld.makeUp ? `Make-up class ${when(notHeld.makeUp.startAt, course.timezone)}` : notHeld.followUp === 'skip' ? 'This week is skipped' : undefined],
     ['Reported', timing],
   ];
   const checkText = [...(signs.length ? ['Please check:', ...signs.map((c) => `- ${c}`)] : [noSign]), ...(pattern ? ['', pattern] : [])];

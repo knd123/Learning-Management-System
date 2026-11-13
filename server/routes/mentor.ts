@@ -395,7 +395,8 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     '/sessions/:id/not-held',
     h(async (req, res) => {
       const { session, course } = await sessionForTeacher(deps, req.user!, req.params.id);
-      res.json(await reportNotHeld(deps, req.user!, session, course, { reason: req.body?.reason, note: req.body?.note }));
+      const b = req.body || {};
+      res.json(await reportNotHeld(deps, req.user!, session, course, { reason: b.reason, note: b.note, followUp: b.followUp, makeUpLocal: b.makeUpLocal, makeUpStartAt: b.makeUpStartAt }));
     }),
   );
 

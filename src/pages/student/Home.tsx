@@ -58,7 +58,7 @@ export default function StudentHome() {
         <Card className={isLive(next, now) ? 'border-sun bg-linear-to-br from-amber-50 to-white ring-2 ring-sun/40' : 'bg-linear-to-br from-brand-50 to-white'}>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-brand-700">{isLive(next, now) ? 'Happening now' : `Next class · ${fmtRelative(next.startAt, now)}`}</p>
+              <p className="text-sm font-semibold text-brand-700">{isLive(next, now) ? 'Happening now' : `${next.makeUpFor ? 'Make-up class' : 'Next class'} · ${fmtRelative(next.startAt, now)}`}</p>
               <p className="mt-1 text-xl font-bold">{next.courseTitle}</p>
               <p className="text-ink-soft">
                 {fmtDay(next.startAt)} · {fmtTimeRange(next.startAt, next.endAt)}

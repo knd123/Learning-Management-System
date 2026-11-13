@@ -7,6 +7,10 @@ export const NOT_HELD_REASONS: Record<NotHeldReason, string> = {
   family_request: 'The family asked in advance to skip this class',
 };
 
+/** A make-up class can be up to this many days before or after the class it replaces. */
+export const MAKEUP_DAYS_BEFORE = 7;
+export const MAKEUP_DAYS_AFTER = 14;
+
 /** Largest slides file or homework worksheet a mentor can upload, in MB (each file). */
 export const MAX_CLASS_FILE_MB = 5;
 

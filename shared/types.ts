@@ -235,6 +235,10 @@ export interface ClassNotHeld {
   reportedBy: string;
   /** Reported once the class time had started, instead of in advance. */
   afterStart: boolean;
+  /** What happens instead: the class moved to another day (a make-up class with its own report), or this week is skipped. */
+  followUp?: 'makeup' | 'skip';
+  /** The make-up class, when the class moved to another day. */
+  makeUp?: { sessionId: string; startAt: string };
 }
 
 /**
@@ -287,6 +291,8 @@ export interface ClassSession {
   status: SessionStatus;
   /** Set (with status "cancelled") when the mentor reports the class didn't or won't take place. */
   notHeld?: ClassNotHeld;
+  /** This is a make-up class for a class that didn't take place (it has its own report). */
+  makeUpFor?: { sessionId: string; startAt: string };
   meetingUrlOverride?: string;
   /** Set when the report was sent without a video because of technical issues. */
   noVideo?: ClassNoVideo;

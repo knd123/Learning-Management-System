@@ -26,6 +26,7 @@ export function SessionStatusBadge({ session }: { session: SessionView }) {
   const now = useNow();
   if (session.status === 'cancelled') return <Badge tone="red">Cancelled</Badge>;
   if (isLive(session, now)) return <Badge tone="green">● Live now</Badge>;
+  if (session.makeUpFor) return <Badge tone="blue">Make-up</Badge>;
   if (session.rescheduled) return <Badge tone="amber">Rescheduled</Badge>;
   return null;
 }
