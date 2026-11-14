@@ -2,13 +2,13 @@ import { Router } from 'express';
 import type { ParentChildDetail, ParentChildSummary, ParentOverview, SessionView } from '../../shared/api.ts';
 import type { ClassSession, Course, Homework, ParentLinkRequest, ParentReport, Quiz, QuizAttempt, Submission } from '../../shared/types.ts';
 import { ONE_DAY } from '../../shared/time.ts';
-import { requireRole, type UserRecord } from '../auth.ts';
+import { requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, h, HttpError, notFound, str } from '../http.ts';
 import { coursesFor, usersById } from '../services/access.ts';
 import { invitedStudents, inviteStudent, resendStudentInvite } from '../services/invites.ts';
-import { parseEmail } from '../services/profiles.ts';
+import { parseCountry, parseEmail } from '../services/profiles.ts';
 import { attendanceFor, studentProgress } from '../services/progress.ts';
 import { renderReportEmail } from '../services/reports.ts';
 import { answerProposal, proposeNewTime, withReschedules } from '../services/reschedule.ts';
@@ -90,6 +90,16 @@ export function parentRoutes(deps: Deps): Router {
         invited: await invitedStudents(deps, parent.id),
       };
       res.json(overview);
+    }),
+  );
+
+  // The parent's own details they may change: where they live.
+  router.put(
+    '/profile',
+    h(async (req, res) => {
+      const parent = req.user!;
+      const country = parseCountry(req.body?.country, true);
+      res.json({ user: toPublicUser((await deps.store.patch<UserRecord>(C.users, parent.id, { country }))!) });
     }),
   );
 

@@ -40,6 +40,18 @@ export function splitPhone(value: string | undefined | null): PhoneParts {
   return { countryCode: '', digits: all };
 }
 
+/** Where the leading 0 is part of the number itself, even after the country code (Italy, San Marino, Côte d’Ivoire, Gabon). */
+const KEEPS_ZERO = new Set(['39', '378', '225', '241']);
+
+/**
+ * Most countries dial a "0" before local numbers at home ("0911 23 45 67" in Ethiopia) that is left
+ * out after the country code: +251-911-234-567. People often type it anyway, so it is dropped.
+ */
+export function dropTrunkZero(parts: PhoneParts): PhoneParts {
+  if (!parts.countryCode || parts.countryCode === '1' || KEEPS_ZERO.has(parts.countryCode) || !parts.digits.startsWith('0')) return parts;
+  return { ...parts, digits: parts.digits.replace(/^0+/, '') };
+}
+
 export function maxDigits(countryCode: string): number {
   return countryCode === '1' ? 10 : 12;
 }
@@ -74,12 +86,12 @@ export function phoneProblem(parts: PhoneParts): string | null {
 
 /** The stored form of a valid number ("+1-416-555-0123"), or null. */
 export function normalizePhone(value: string | undefined | null): string | null {
-  const parts = splitPhone(value);
+  const parts = dropTrunkZero(splitPhone(value));
   return phoneProblem(parts) ? null : joinPhone(parts);
 }
 
 /** "Your phone number: enter the 10-digit number as XXX-XXX-XXXX." or null. `field` names the number. */
 export function phoneError(value: string | undefined | null, field: string): string | null {
-  const problem = phoneProblem(splitPhone(value));
+  const problem = phoneProblem(dropTrunkZero(splitPhone(value)));
   return problem ? `${field}: ${problem}.` : null;
 }

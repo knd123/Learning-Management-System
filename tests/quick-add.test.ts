@@ -7,7 +7,7 @@ import { Client, seedAdmin, startHarness, type Harness } from './helpers.ts';
 
 const NY = 'America/New_York';
 const week = [{ weekday: 1, start: '15:00', end: '20:00' }];
-const EVERYTHING = ['school', 'city and state', 'subjects', 'weekly availability', 'a parent or guardian'];
+const EVERYTHING = ['school', 'country', 'city and state', 'subjects', 'weekly availability', 'a parent or guardian'];
 
 describe('the team adding a student who hasn’t signed up in time', () => {
   let h: Harness;
@@ -68,7 +68,7 @@ describe('the team adding a student who hasn’t signed up in time', () => {
 
   it('is finished later by the team, or by the student in My profile', async () => {
     // The team adds the school and location once the family sends them.
-    const updated = await admin.patch<PublicUser>(`/api/admin/users/${liya.id}`, { schoolName: 'Wilson High School', city: 'Washington', state: 'DC' });
+    const updated = await admin.patch<PublicUser>(`/api/admin/users/${liya.id}`, { schoolName: 'Wilson High School', country: 'US', city: 'Washington', state: 'DC' });
     assert.deepEqual(missingStudentDetails(updated), ['subjects', 'weekly availability', 'a parent or guardian']);
 
     // Liya fills in the rest herself; her new subjects go to the pairing queue as usual.

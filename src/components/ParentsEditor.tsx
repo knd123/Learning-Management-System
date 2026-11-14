@@ -1,7 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react';
 import type { ParentContact, PublicUser } from '../../shared/types.ts';
 import { phoneError } from '../../shared/phone.ts';
-import { PHONE_HINT, PhoneInput } from './PhoneInput.tsx';
+import { callingCode, PHONE_HINT, PhoneInput } from './PhoneInput.tsx';
 import { Button, Field, Input } from './ui.tsx';
 
 export const EMPTY_PARENT: ParentContact = { name: '', email: '', phone: '' };
@@ -32,7 +32,20 @@ export function parentsProblem(parents: ParentContact[]): string | null {
  * One or two parents or guardians, each with a name, email and phone.
  * `lockFirst` shows the first parent read-only (the parent who registered the student).
  */
-export function ParentsEditor({ value, onChange, lockFirst, allowNone }: { value: ParentContact[]; onChange(v: ParentContact[]): void; lockFirst?: boolean; allowNone?: boolean }) {
+export function ParentsEditor({
+  value,
+  onChange,
+  lockFirst,
+  allowNone,
+  country,
+}: {
+  value: ParentContact[];
+  onChange(v: ParentContact[]): void;
+  lockFirst?: boolean;
+  allowNone?: boolean;
+  /** The family's country: a parent's phone code starts at its calling code. */
+  country?: string;
+}) {
   const parents = value.length || allowNone ? value : [EMPTY_PARENT];
   const set = (i: number, patch: Partial<ParentContact>) => onChange(parents.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   return (
@@ -63,7 +76,7 @@ export function ParentsEditor({ value, onChange, lockFirst, allowNone }: { value
                 </Field>
                 <Field label="Email">{(id) => <Input id={id} type="email" value={p.email} onChange={(e) => set(i, { email: e.target.value })} required />}</Field>
                 <Field label="Phone number" hint={PHONE_HINT}>
-                  {(id) => <PhoneInput id={id} value={p.phone} onChange={(phone) => set(i, { phone })} required />}
+                  {(id) => <PhoneInput id={id} value={p.phone} onChange={(phone) => set(i, { phone })} defaultCode={callingCode(country)} required />}
                 </Field>
               </div>
             )}

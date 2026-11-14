@@ -17,6 +17,7 @@ import {
 } from '../../shared/profile.ts';
 import type { AvailabilityWindow, PublicUser } from '../../shared/types.ts';
 import { AvailabilityEditor } from '../components/Availability.tsx';
+import { browserCountry, CountrySelect } from '../components/CountrySelect.tsx';
 import { SignupLayout } from '../components/SignupLayout.tsx';
 import { SubjectPicker } from '../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../components/TimezoneSelect.tsx';
@@ -40,6 +41,7 @@ export default function SignupMentorPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [alternatePhone, setAlternatePhone] = useState('');
+  const [country, setCountry] = useState(browserCountry);
   const [academicLevel, setAcademicLevel] = useState('');
   const [otherLevel, setOtherLevel] = useState('');
   const [subjects, setSubjects] = useState<string[]>([]);
@@ -81,6 +83,7 @@ export default function SignupMentorPage() {
     if (digits(phone).length < 7) return 'Please enter your phone number.';
     if (digits(alternatePhone).length < 7) return 'Please enter an alternate phone number for emergencies.';
     if (digits(alternatePhone) === digits(phone)) return 'Your alternate phone number must be different from your main phone number.';
+    if (!country) return 'Please choose the country where you live.';
     if (!level) return 'Please choose your academic level.';
     if (!photo) return 'Add a professional photo of yourself (a headshot).';
     if (photoProblem(photo)) return photoProblem(photo);
@@ -115,6 +118,7 @@ export default function SignupMentorPage() {
         email,
         phone,
         alternatePhone,
+        country,
         academicLevel: level,
         subjects,
         weeklyCapacityHours: Number(hours),
@@ -171,6 +175,9 @@ export default function SignupMentorPage() {
           <Field label="Phone number">{(id) => <Input id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" required />}</Field>
           <Field label="Alternate phone number" hint="Another number we can call in an emergency, such as a family member's." className="sm:col-span-2">
             {(id) => <Input id={id} type="tel" value={alternatePhone} onChange={(e) => setAlternatePhone(e.target.value)} required />}
+          </Field>
+          <Field label="Country you live in" className="sm:col-span-2">
+            {(id) => <CountrySelect id={id} value={country} onChange={setCountry} required />}
           </Field>
           <Field label="Academic level" className="sm:col-span-2">
             {(id) => (

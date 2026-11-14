@@ -5,7 +5,8 @@ import type { PublicConfig } from '../../shared/api.ts';
 import type { PublicUser } from '../../shared/types.ts';
 import { SignupLayout } from '../components/SignupLayout.tsx';
 import { phoneError } from '../../shared/phone.ts';
-import { PHONE_HINT, PhoneInput } from '../components/PhoneInput.tsx';
+import { browserCountry, CountrySelect } from '../components/CountrySelect.tsx';
+import { callingCode, PHONE_HINT, PhoneInput } from '../components/PhoneInput.tsx';
 import { Button, Checkbox, ErrorBox, Field, Input, Loading } from '../components/ui.tsx';
 import { api, errorMessage } from '../lib/api.ts';
 import { homePath, useAuth } from '../lib/auth.tsx';
@@ -33,6 +34,7 @@ export default function SignupParentPage() {
   const config = useApi<PublicConfig>('/api/auth/config');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
+  const [country, setCountry] = useState(browserCountry);
   const [phone, setPhone] = useState('');
   const [students, setStudents] = useState<StudentEntry[]>([{ ...NEW_STUDENT }]);
   const [username, setUsername] = useState('');
@@ -51,6 +53,7 @@ export default function SignupParentPage() {
   const problem = (): string | null => {
     if (!displayName.trim()) return 'Please enter your full name.';
     if (!EMAIL_RE.test(email.trim())) return 'Please enter a valid email address.';
+    if (!country) return 'Please choose the country where you live.';
     const phoneProblem = phoneError(phone, 'Your phone number');
     if (phoneProblem) return phoneProblem;
     for (const [i, s] of students.entries()) {
@@ -73,6 +76,7 @@ export default function SignupParentPage() {
       const r = await api.post<{ user: PublicUser }>('/api/auth/signup/parent', {
         displayName,
         email,
+        country,
         phone,
         timezone: browserTimeZone(),
         students: students.map((s) => ({ name: s.name.trim(), email: s.email.trim(), usesParentEmail: s.usesParentEmail, hasAccount: s.hasAccount })),
@@ -118,8 +122,9 @@ export default function SignupParentPage() {
             )}
           </Field>
           <Field label="Email">{(id) => <Input id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />}</Field>
-          <Field label="Phone number" hint={PHONE_HINT}>
-            {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} required />}
+          <Field label="Country you live in">{(id) => <CountrySelect id={id} value={country} onChange={setCountry} required />}</Field>
+          <Field label="Phone number" hint={PHONE_HINT} className="sm:col-span-2">
+            {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} defaultCode={callingCode(country)} required />}
           </Field>
         </section>
 

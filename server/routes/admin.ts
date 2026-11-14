@@ -480,7 +480,7 @@ export function adminRoutes(deps: Deps): Router {
         }
         return {
           request,
-          student: { id: request.studentId, displayName: student?.displayName || 'Former student', grade: student?.grade, schoolName: student?.schoolName, city: student?.city, state: student?.state },
+          student: { id: request.studentId, displayName: student?.displayName || 'Former student', grade: student?.grade, schoolName: student?.schoolName, city: student?.city, state: student?.state, country: student?.country },
           mentorNames,
           requestedNames,
           teamPickNames,

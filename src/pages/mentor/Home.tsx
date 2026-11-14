@@ -1,6 +1,7 @@
 import { BookOpen, CalendarCheck, CheckCircle2, ClipboardCheck, FileSignature, FileStack, Hourglass, MapPin, School, Users } from 'lucide-react';
 import { Link } from 'react-router';
 import type { MentorOverview, MentorStudentCard, ReviewItem } from '../../../shared/api.ts';
+import { placeText } from '../../../shared/countries.ts';
 import { MentorSessionRow } from '../../components/MentorSessions.tsx';
 import { RescheduleRequestCard } from '../../components/Reschedule.tsx';
 import { Badge, ButtonLink, Card, EmptyState, ErrorBox, Loading, Notice, PageHeader, SectionTitle } from '../../components/ui.tsx';
@@ -51,6 +52,16 @@ export default function MentorHome() {
                 page, so the team can finish reviewing your application.
               </p>
             )}
+          </Notice>
+        )}
+
+        {!isAdmin && !user!.country && (
+          <Notice tone="blue" icon={<MapPin className="mt-0.5 size-4 shrink-0" />}>
+            Which country do you live in? Add it on your{' '}
+            <Link to="/mentor/profile" className="font-semibold underline">
+              Availability &amp; subjects
+            </Link>{' '}
+            page.
           </Notice>
         )}
 
@@ -205,7 +216,7 @@ export default function MentorHome() {
 
 function StudentCard({ card }: { card: MentorStudentCard }) {
   const { student } = card;
-  const place = [student.city, student.state].filter(Boolean).join(', ');
+  const place = placeText(student);
   return (
     <Link to={`/mentor/students/${student.id}`} className="group flex flex-col gap-3 rounded-2xl border border-sand-200 bg-white p-5 hover:border-brand-300">
       <div className="flex items-start justify-between gap-3">

@@ -11,6 +11,7 @@ import { firstName, usersById } from './access.ts';
 import { decideMentor, isApprovedMentor } from './accounts.ts';
 import { emailButton, emailLayout, emailList as list, emailTable as rows, escapeHtml, sendEmail } from './email.ts';
 import type { MentorCandidate } from '../../shared/api.ts';
+import { placeText } from '../../shared/countries.ts';
 import { committedHours, rankMentors } from './matching.ts';
 import { notify, notifyAdmins, touchNotices } from './notifications.ts';
 import { parseSubjectHours, type HourChange } from './profiles.ts';
@@ -430,7 +431,7 @@ async function emailNewStudent(deps: Deps, student: UserRecord, mentor: UserReco
     ['Student', student.displayName],
     ['Grade', student.grade ? String(student.grade) : undefined],
     ['School', student.schoolName],
-    ['Location', [student.city, student.state].filter(Boolean).join(', ') || undefined],
+    ['Location', placeText(student) || undefined],
     ['Subject', course.subject],
     ['Hours per week', course.weeklyHours ? String(course.weeklyHours) : undefined],
     ['Notes from the family', student.notes],
@@ -525,7 +526,7 @@ function studentDetails(student: UserRecord): Array<[string, string | undefined]
     ['Email', student.email],
     ['Grade', student.grade ? String(student.grade) : undefined],
     ['School', student.schoolName],
-    ['City & state', [student.city, student.state].filter(Boolean).join(', ') || undefined],
+    ['Location', placeText(student) || undefined],
     ['Subjects', subjectsWithHours(student)],
     ['Total hours per week', student.hoursPerWeek ? String(student.hoursPerWeek) : undefined],
     ['Availability', student.availability?.length ? `${student.availability.map((w) => `${days[w.weekday]} ${w.start}–${w.end}`).join(', ')} (${student.timezone})` : undefined],

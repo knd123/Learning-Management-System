@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import type { MatchItemDetail, MatchRequestDetail, MentorCandidate } from '../../../shared/api.ts';
 import type { ScheduleSlot } from '../../../shared/types.ts';
+import { placeText } from '../../../shared/countries.ts';
 import { availabilityText } from '../../components/Availability.tsx';
 import { ClashWarning, useClashes } from '../../components/ClashWarning.tsx';
 import { ScheduleEditor } from '../../components/ScheduleEditor.tsx';
@@ -81,7 +82,7 @@ export default function AdminMatch() {
                 [
                   ['Grade', student.grade ? `Grade ${student.grade}` : undefined],
                   ['School', student.schoolName],
-                  ['City & state', [student.city, student.state].filter(Boolean).join(', ')],
+                  ['Location', placeText(student)],
                   ['Email', student.email],
                   ['Username', `@${student.username}`],
                   ['Subjects', student.subjects?.join(', ')],

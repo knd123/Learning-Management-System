@@ -4,7 +4,8 @@ import type { InviteInfo } from '../../shared/api.ts';
 import type { PublicUser } from '../../shared/types.ts';
 import { SignupLayout } from '../components/SignupLayout.tsx';
 import { phoneError } from '../../shared/phone.ts';
-import { PHONE_HINT, PhoneInput } from '../components/PhoneInput.tsx';
+import { browserCountry, CountrySelect } from '../components/CountrySelect.tsx';
+import { callingCode, PHONE_HINT, PhoneInput } from '../components/PhoneInput.tsx';
 import { Button, ButtonLink, ErrorBox, Field, Input, Loading } from '../components/ui.tsx';
 import { api, errorMessage } from '../lib/api.ts';
 import { useAuth } from '../lib/auth.tsx';
@@ -54,6 +55,7 @@ function ParentInvite({ token, info }: { token: string; info: InviteInfo }) {
   const students = listNames(info.studentNames || []);
   const [displayName, setDisplayName] = useState(info.name || '');
   const [phone, setPhone] = useState(info.phone || '');
+  const [country, setCountry] = useState(browserCountry);
   const [username, setUsername] = useState(suggestUsername(info.name || ''));
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -79,11 +81,12 @@ function ParentInvite({ token, info }: { token: string; info: InviteInfo }) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!displayName.trim()) return setError('Please enter your full name.');
+    if (!country) return setError('Please choose the country where you live.');
     const phoneProblem = phoneError(phone, 'Your phone number');
     if (phoneProblem) return setError(phoneProblem);
     if (password.length < 8) return setError('Choose a password with at least 8 characters.');
     if (password !== confirm) return setError('The passwords do not match.');
-    void accept({ displayName, phone, username, password });
+    void accept({ displayName, country, phone, username, password });
   };
 
   if (addedTo !== null) {
@@ -119,8 +122,9 @@ function ParentInvite({ token, info }: { token: string; info: InviteInfo }) {
           <Field label="Email" hint="Where this link was sent.">
             {(id) => <Input id={id} type="email" value={info.email || ''} readOnly />}
           </Field>
-          <Field label="Phone number" hint={PHONE_HINT}>
-            {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} required />}
+          <Field label="Country you live in">{(id) => <CountrySelect id={id} value={country} onChange={setCountry} required />}</Field>
+          <Field label="Phone number" hint={PHONE_HINT} className="sm:col-span-2">
+            {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} defaultCode={callingCode(country)} required />}
           </Field>
         </section>
         <section className="flex flex-col gap-4 border-t border-sand-200 pt-6">

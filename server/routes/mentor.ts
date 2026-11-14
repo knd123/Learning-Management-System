@@ -163,7 +163,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const user = req.user!;
       if (user.role !== 'mentor') throw forbidden('Only mentors have a teaching profile.');
       const body = (req.body || {}) as Record<string, unknown>;
-      const allowed = ['subjects', 'minGrade', 'maxGrade', 'availability', 'weeklyCapacityHours', 'timezone', 'phone', 'alternatePhone', 'bankAccounts'];
+      const allowed = ['subjects', 'minGrade', 'maxGrade', 'availability', 'weeklyCapacityHours', 'timezone', 'country', 'phone', 'alternatePhone', 'bankAccounts'];
       const changes: Partial<UserRecord> = {};
       applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'mentor', { timezone: user.timezone, current: user });
       if (body.phone !== undefined && !changes.phone) throw badRequest('Enter your phone number.');
@@ -258,7 +258,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
           .map((u) => {
             const work = allWork.filter((w) => w.submission.studentId === u.id);
             return {
-              student: { ...rosterStudent(u, user.id), city: u.city, state: u.state, hoursPerWeek: u.hoursPerWeek, subjects: u.subjects },
+              student: { ...rosterStudent(u, user.id), city: u.city, state: u.state, country: u.country, hoursPerWeek: u.hoursPerWeek, subjects: u.subjects },
               classes: courses.filter((c) => c.studentIds.includes(u.id)).map((c) => ({ courseId: c.id, title: c.title, subject: c.subject })),
               submissionsToReview: toReview.filter((r) => r.submission.studentId === u.id).length,
               lastSubmissionAt: work.map((w) => w.submission.updatedAt).sort().pop(),

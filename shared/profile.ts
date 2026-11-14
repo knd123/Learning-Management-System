@@ -1,4 +1,5 @@
 import { megabytes } from './classes.ts';
+import { regionField } from './countries.ts';
 import type { BankAccounts, PublicUser } from './types.ts';
 
 /** Largest CV a mentor can upload, in MB. */
@@ -53,10 +54,12 @@ export function cvProblem(file: { name?: string; originalname?: string; size: nu
  * What a student's profile still lacks for pairing and reports, e.g. after the team added the
  * student with just a name, grade and email. The team (Edit) or the student (My profile) fills it in.
  */
-export function missingStudentDetails(user: Pick<PublicUser, 'schoolName' | 'city' | 'state' | 'subjects' | 'availability' | 'parents' | 'parentEmails'>): string[] {
+export function missingStudentDetails(user: Pick<PublicUser, 'schoolName' | 'city' | 'state' | 'country' | 'subjects' | 'availability' | 'parents' | 'parentEmails'>): string[] {
   const out: string[] = [];
   if (!user.schoolName) out.push('school');
-  if (!user.city || !user.state) out.push('city and state');
+  if (!user.country) out.push('country');
+  const region = regionField(user.country);
+  if (!user.city || (region.required && !user.state)) out.push(region.required ? `city and ${region.label.toLowerCase()}` : 'city');
   if (!user.subjects?.length) out.push('subjects');
   if (!user.availability?.length) out.push('weekly availability');
   if (!user.parents?.length && !user.parentEmails?.length) out.push('a parent or guardian');

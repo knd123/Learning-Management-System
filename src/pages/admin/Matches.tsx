@@ -2,6 +2,7 @@ import { ChevronRight, Handshake, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import type { MatchRequestRow } from '../../../shared/api.ts';
+import { placeText } from '../../../shared/countries.ts';
 import { Badge, Button, EmptyState, ErrorBox, Loading, Modal, PageHeader, Tabs } from '../../components/ui.tsx';
 import { fmtDate, fmtRelative, REQUEST_KIND_LABEL } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
@@ -44,7 +45,7 @@ export default function AdminMatches() {
                   <Badge tone={request.kind === 'new_student' ? 'blue' : request.kind === 'mentor_request' ? 'amber' : 'gray'}>{REQUEST_KIND_LABEL[request.kind]}</Badge>
                 </div>
                 <p className="text-sm text-ink-soft">
-                  {[student.grade && `Grade ${student.grade}`, student.schoolName, [student.city, student.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}
+                  {[student.grade && `Grade ${student.grade}`, student.schoolName, placeText(student)].filter(Boolean).join(' · ')}
                 </p>
                 <ul className="mt-2 flex flex-wrap gap-1.5">
                   {request.items.map((i) => (

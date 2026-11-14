@@ -31,6 +31,8 @@ export interface PublicUser {
   displayName: string;
   email?: string;
   timezone: string;
+  /** Where the person lives: an ISO country code such as "US", "CA" or "ET". */
+  country?: string;
   active: boolean;
   mustChangePassword?: boolean;
   createdAt: string;

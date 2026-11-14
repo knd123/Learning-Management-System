@@ -5,6 +5,7 @@ import { isValidHm, isValidTimeZone } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
 import { badRequest, httpUrl, num, str } from '../http.ts';
 import { joinPhone, PHONE_EXAMPLE, phoneProblem, splitPhone } from '../../shared/phone.ts';
+import { isCountryCode, regionField } from '../../shared/countries.ts';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -49,6 +50,17 @@ export function parseParentPhone(value: unknown, field: string, required = false
   const problem = phoneProblem(parts);
   if (problem) throw badRequest(`${field}: ${problem} (for example ${PHONE_EXAMPLE}).`);
   return joinPhone(parts);
+}
+
+/** An ISO country code from the list ("us" is read as "US"); empty clears it unless required. */
+export function parseCountry(value: unknown, required = false): string | undefined {
+  const code = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  if (!code) {
+    if (required) throw badRequest('Choose your country.');
+    return undefined;
+  }
+  if (!isCountryCode(code)) throw badRequest('Choose a country from the list.');
+  return code;
 }
 
 export function parsePhone(value: unknown, field: string, required = false): string | undefined {
@@ -163,6 +175,8 @@ export interface ProfileOptions {
 export function applyProfile(target: Partial<UserRecord>, body: Record<string, unknown>, role: Role, opts: ProfileOptions): void {
   const req = Boolean(opts.intake);
   const has = (k: string) => req || body[k] !== undefined;
+  // Everyone may say where they live; the forms ask for it, older apps and API callers may not send it.
+  if (body.country !== undefined) target.country = parseCountry(body.country);
   if (has('displayName')) target.displayName = str(body.displayName, 'Full name', { required: true, max: 100 });
   if (has('email')) target.email = parseEmail(body.email, 'Email', req || role !== 'student');
   if (body.timezone !== undefined) target.timezone = parseTimezone(body.timezone, opts.timezone);
@@ -177,7 +191,11 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
     if (has('grade')) target.grade = num(body.grade, 'Grade', { min: 3, max: 12, required: true });
     if (has('schoolName')) target.schoolName = str(body.schoolName, 'School name', { required: req, max: 150 }) || undefined;
     if (has('city')) target.city = str(body.city, 'City', { required: req, max: 80 }) || undefined;
-    if (has('state')) target.state = str(body.state, 'State', { required: req, max: 80 }) || undefined;
+    if (has('state')) {
+      // "State" in the US, "Province or territory" in Canada, optional where addresses have no such part.
+      const region = regionField(target.country ?? opts.current?.country);
+      target.state = str(body.state, region.label, { required: req && region.required, max: 80 }) || undefined;
+    }
     if (body.subjectHours !== undefined) {
       if (!target.subjects) throw badRequest('Send the subjects together with the hours for each subject.');
       target.subjectHours = parseSubjectHours(body.subjectHours, target.subjects);

@@ -274,7 +274,7 @@ export interface MentorCandidate {
 
 export interface MatchRequestRow {
   request: MatchRequest;
-  student: Pick<PublicUser, 'id' | 'displayName' | 'grade' | 'schoolName' | 'city' | 'state'>;
+  student: Pick<PublicUser, 'id' | 'displayName' | 'grade' | 'schoolName' | 'city' | 'state' | 'country'>;
   /** itemId -> suggested mentor name (or approved mentor). */
   mentorNames: Record<string, string>;
   /** itemId -> the mentor the student asked for. */
@@ -366,7 +366,7 @@ export interface ReviewItem {
 
 /** A student assigned to the mentor, with the profile details mentors need. */
 export interface MentorStudentCard {
-  student: RosterStudent & { city?: string; state?: string; hoursPerWeek?: number; subjects?: string[] };
+  student: RosterStudent & { city?: string; state?: string; country?: string; hoursPerWeek?: number; subjects?: string[] };
   classes: Array<{ courseId: string; title: string; subject: string }>;
   submissionsToReview: number;
   lastSubmissionAt?: string;

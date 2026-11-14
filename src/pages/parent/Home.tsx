@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronRight, ClipboardList, FileSignature, Hourglass, MailCheck, Plus, Sparkles, UsersRound } from 'lucide-react';
+import { CalendarClock, ChevronRight, ClipboardList, FileSignature, Hourglass, MailCheck, MapPin, Plus, Sparkles, UsersRound } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { longDate } from '../../../shared/agreement.ts';
@@ -26,6 +26,16 @@ export default function ParentHome() {
       </div>
 
       <ParentAgreements />
+
+      {!user!.country && (
+        <Notice tone="blue" icon={<MapPin className="size-5 shrink-0" />}>
+          Which country do you live in? Add it on{' '}
+          <Link to="/account" className="font-semibold underline">
+            My account
+          </Link>
+          .
+        </Notice>
+      )}
 
       {data.pendingNames.length > 0 && (
         <Notice icon={<Hourglass className="size-5 shrink-0" />}>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DEFAULT_COUNTRY_CODE, formatDigits, joinPhone, maxDigits, phoneProblem, splitPhone } from '../../shared/phone.ts';
+import { DEFAULT_COUNTRY_CODE, dropTrunkZero, formatDigits, joinPhone, maxDigits, phoneProblem, splitPhone } from '../../shared/phone.ts';
 import { Input } from './ui.tsx';
 
 /**
@@ -7,11 +7,26 @@ import { Input } from './ui.tsx';
  * `value` is the stored form, "+1-416-555-0123"; the country code starts at 1 (US and Canada).
  * Pasting a whole number ("+1 (416) 555-0123") fills in both boxes.
  */
-export function PhoneInput({ id, value, onChange, required, autoComplete = 'tel' }: { id: string; value: string; onChange(v: string): void; required?: boolean; autoComplete?: string }) {
+export function PhoneInput({
+  id,
+  value,
+  onChange,
+  required,
+  autoComplete = 'tel',
+  defaultCode = DEFAULT_COUNTRY_CODE,
+}: {
+  id: string;
+  value: string;
+  onChange(v: string): void;
+  required?: boolean;
+  autoComplete?: string;
+  /** The calling code shown while the number is empty, e.g. "251" for someone in Ethiopia. */
+  defaultCode?: string;
+}) {
   const parts = splitPhone(value);
   // While the number is empty, or its code was cleared to type another, the box shows what was typed.
   const [codeDraft, setCodeDraft] = useState<string | null>(null);
-  const countryCode = value && parts.countryCode ? parts.countryCode : (codeDraft ?? (value ? '' : DEFAULT_COUNTRY_CODE));
+  const countryCode = value && parts.countryCode ? parts.countryCode : (codeDraft ?? (value ? '' : defaultCode));
   const emit = (cc: string, digits: string) => onChange(cc || digits ? joinPhone({ countryCode: cc, digits }) : '');
 
   const onCode = (raw: string) => {
@@ -30,12 +45,13 @@ export function PhoneInput({ id, value, onChange, required, autoComplete = 'tel'
       return;
     }
     if (raw.trim().startsWith('+')) {
-      const pasted = splitPhone(raw);
+      const pasted = dropTrunkZero(splitPhone(raw));
       setCodeDraft(pasted.countryCode);
       return emit(pasted.countryCode, pasted.digits.slice(0, maxDigits(pasted.countryCode)));
     }
     let digits = raw.replace(/\D/g, '');
     if (countryCode === '1' && digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+    digits = dropTrunkZero({ countryCode, digits }).digits;
     emit(countryCode, digits.slice(0, maxDigits(countryCode)));
   };
 
@@ -62,7 +78,7 @@ export function PhoneInput({ id, value, onChange, required, autoComplete = 'tel'
         type="tel"
         inputMode="numeric"
         autoComplete={autoComplete === 'tel' ? 'tel-national' : autoComplete}
-        placeholder="XXX-XXX-XXXX"
+        placeholder={countryCode === '1' || !countryCode ? 'XXX-XXX-XXXX' : 'Number without the first 0'}
         value={formatDigits(parts.digits, countryCode)}
         onChange={(e) => onNumber(e.target.value, e.currentTarget)}
         required={required}
@@ -73,4 +89,7 @@ export function PhoneInput({ id, value, onChange, required, autoComplete = 'tel'
   );
 }
 
-export const PHONE_HINT = 'Country code first (1 for the US and Canada), then the number as XXX-XXX-XXXX.';
+export const PHONE_HINT = 'Country code first (1 for the US and Canada, 251 for Ethiopia), then the number: XXX-XXX-XXXX in the US and Canada.';
+
+/** The calling code for a country, for PhoneInput's `defaultCode` (US and Canada's 1 when unknown). */
+export { callingCode } from '../../shared/countries.ts';

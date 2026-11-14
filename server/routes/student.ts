@@ -482,7 +482,7 @@ export function studentRoutes(deps: Deps, upload: Upload): Router {
       const user = req.user!;
       const settings = await getSettings(deps.store);
       const body = (req.body || {}) as Record<string, unknown>;
-      const allowed = ['displayName', 'email', 'grade', 'schoolName', 'city', 'state', 'subjects', 'subjectHours', 'hoursPerWeek', 'availability', 'timezone', 'notes', 'parents', 'parentName', 'parentPhone', 'parentEmails'];
+      const allowed = ['displayName', 'email', 'grade', 'schoolName', 'country', 'city', 'state', 'subjects', 'subjectHours', 'hoursPerWeek', 'availability', 'timezone', 'notes', 'parents', 'parentName', 'parentPhone', 'parentEmails'];
       const changes: Partial<UserRecord> = {};
       applyProfile(changes, Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k))), 'student', { timezone: user.timezone, current: user });
       if (changes.subjects && !changes.subjects.length) throw badRequest('Keep at least one subject.');

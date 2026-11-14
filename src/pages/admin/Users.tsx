@@ -8,13 +8,15 @@ import { AvailabilityEditor } from '../../components/Availability.tsx';
 import { ParentsEditor, parentsOf, parentsProblem } from '../../components/ParentsEditor.tsx';
 import { SubjectHoursEditor, SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
-import { PHONE_HINT, PhoneInput } from '../../components/PhoneInput.tsx';
+import { callingCode, PHONE_HINT, PhoneInput } from '../../components/PhoneInput.tsx';
 import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtRelative } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 import { suggestUsername } from '../Signup.tsx';
 import { AssignMentor } from './AssignMentor.tsx';
+import { regionField } from '../../../shared/countries.ts';
+import { CountrySelect } from '../../components/CountrySelect.tsx';
 
 const ROLE_TABS: Array<{ id: Role; label: string; singular: string }> = [
   { id: 'student', label: 'Students', singular: 'student' },
@@ -289,6 +291,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
   const [schoolName, setSchoolName] = useState(user?.schoolName || '');
   const [city, setCity] = useState(user?.city || '');
   const [state, setState] = useState(user?.state || '');
+  const [country, setCountry] = useState(user?.country || '');
   const [subjectHours, setSubjectHours] = useState<Record<string, number>>(user?.role === 'student' ? hoursBySubject(user.subjects || [], user.subjectHours, user.hoursPerWeek) : {});
   const [notes, setNotes] = useState(user?.notes || '');
   const initialParents = user ? parentsOf(user) : [];
@@ -339,6 +342,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
     setBusy(true);
     setError(null);
     const body: Record<string, unknown> = { displayName, username, timezone };
+    if (role !== 'admin' && (country || user?.country)) body.country = country;
     if (role !== 'student' || email) body.email = email;
     if (quick) {
       Object.assign(body, { grade: Number(grade), createMatchRequest: false, sendSetupLink: sendSetupLink && Boolean(email) });
@@ -427,6 +431,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
             {(id) => <Input id={id} type="email" required={role !== 'student'} value={email} onChange={(e) => setEmail(e.target.value)} />}
           </Field>
           <Field label="Timezone">{(id) => <TimezoneSelect id={id} value={timezone} onChange={setTimezone} />}</Field>
+          {role !== 'admin' && <Field label="Country">{(id) => <CountrySelect id={id} value={country} onChange={setCountry} />}</Field>}
           {!user && (
             <Field label="Password" hint="Leave empty to generate an easy-to-type password.">
               {(id) => <Input id={id} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />}
@@ -453,7 +458,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
               <Field label="Grade">{(id) => gradeSelect(id, grade, setGrade)}</Field>
               <Field label="School name">{(id) => <Input id={id} value={schoolName} onChange={(e) => setSchoolName(e.target.value)} />}</Field>
               <Field label="City">{(id) => <Input id={id} value={city} onChange={(e) => setCity(e.target.value)} />}</Field>
-              <Field label="State">{(id) => <Input id={id} value={state} onChange={(e) => setState(e.target.value)} />}</Field>
+              <Field label={regionField(country).label}>{(id) => <Input id={id} value={state} onChange={(e) => setState(e.target.value)} />}</Field>
             </div>
             <Field label="Subjects for tutoring">{() => <SubjectPicker options={config.data?.subjectOptions || []} value={subjects} onChange={setSubjects} />}</Field>
             <Field label="Hours of tutoring per week, for each subject">
@@ -521,7 +526,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
         {role === 'parent' && (
           <>
             <Field label="Phone number" hint={PHONE_HINT} className="max-w-sm">
-              {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} />}
+              {(id) => <PhoneInput id={id} value={phone} onChange={setPhone} defaultCode={callingCode(country)} />}
             </Field>
             <hr className="border-sand-200" />
             <div>

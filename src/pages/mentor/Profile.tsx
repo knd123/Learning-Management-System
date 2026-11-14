@@ -4,6 +4,7 @@ import { bankAccountProblem, BANKS, CV_ACCEPT, cvProblem, MAX_CV_MB, MAX_PHOTO_M
 import type { Attachment, AvailabilityWindow, BankAccounts, PublicUser } from '../../../shared/types.ts';
 import { AttachmentLink } from '../../components/Attachments.tsx';
 import { AvailabilityEditor } from '../../components/Availability.tsx';
+import { CountrySelect } from '../../components/CountrySelect.tsx';
 import { SubjectPicker } from '../../components/SubjectPicker.tsx';
 import { TimezoneSelect } from '../../components/TimezoneSelect.tsx';
 import { Button, Card, ErrorBox, Field, Input, Loading, PageHeader, Select, useToast } from '../../components/ui.tsx';
@@ -22,6 +23,7 @@ export default function MentorProfilePage() {
   const [maxGrade, setMaxGrade] = useState('12');
   const [capacity, setCapacity] = useState('');
   const [timezone, setTimezone] = useState('');
+  const [country, setCountry] = useState('');
   const [availability, setAvailability] = useState<AvailabilityWindow[]>([]);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -34,6 +36,7 @@ export default function MentorProfilePage() {
     setMaxGrade(String(u.maxGrade ?? 12));
     setCapacity(u.weeklyCapacityHours === undefined ? '' : String(u.weeklyCapacityHours));
     setTimezone(u.timezone);
+    setCountry(u.country || '');
     setAvailability(u.availability || []);
   }, [data]);
 
@@ -42,10 +45,12 @@ export default function MentorProfilePage() {
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
+    if (!country) return setSaveError('Choose the country you live in.');
     setBusy(true);
     setSaveError(null);
     try {
       const updated = await api.put<MentorProfile>('/api/mentor/profile', {
+        country,
         subjects,
         minGrade: Number(minGrade),
         maxGrade: Number(maxGrade),
@@ -99,7 +104,10 @@ export default function MentorProfilePage() {
           </div>
         </Card>
         <Card className="flex flex-col gap-4">
-          <Field label="Timezone">{(id) => <TimezoneSelect id={id} value={timezone} onChange={setTimezone} />}</Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Country you live in">{(id) => <CountrySelect id={id} value={country} onChange={setCountry} required />}</Field>
+            <Field label="Timezone">{(id) => <TimezoneSelect id={id} value={timezone} onChange={setTimezone} />}</Field>
+          </div>
           <Field label="Weekly availability" hint="When you are free to teach. Times already taken by your classes are excluded automatically when pairing.">
             {() => <AvailabilityEditor value={availability} onChange={setAvailability} />}
           </Field>

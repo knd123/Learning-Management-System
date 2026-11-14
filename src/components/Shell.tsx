@@ -158,7 +158,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </Link>
           <div className="flex items-center gap-1">
             <NotificationBell />
-            <Link to="/account" className="rounded-lg p-2 text-ink-soft hover:bg-sand-100" aria-label="Change password">
+            <Link to="/account" className="rounded-lg p-2 text-ink-soft hover:bg-sand-100" aria-label="My account" title="My account">
               <KeyRound className="size-5" />
             </Link>
             <button onClick={signOut} className="rounded-lg p-2 text-ink-soft hover:bg-sand-100" aria-label="Sign out">

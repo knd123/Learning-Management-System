@@ -24,6 +24,7 @@ export default function StudentProfilePage() {
       displayName: u.displayName,
       email: u.email || '',
       schoolName: u.schoolName || '',
+      country: u.country || '',
       city: u.city || '',
       state: u.state || '',
       grade: String(u.grade || 9),

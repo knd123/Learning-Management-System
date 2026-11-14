@@ -6,6 +6,8 @@ import type { InviteInfo, PublicConfig } from '../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, MAX_WEEKLY_HOURS } from '../../shared/hours.ts';
 import type { AvailabilityWindow, ParentContact, PublicUser } from '../../shared/types.ts';
 import { AvailabilityEditor } from '../components/Availability.tsx';
+import { regionField } from '../../shared/countries.ts';
+import { browserCountry, CountrySelect } from '../components/CountrySelect.tsx';
 import { EMPTY_PARENT, ParentsEditor, parentsProblem } from '../components/ParentsEditor.tsx';
 import { Logo } from '../components/Shell.tsx';
 import { SubjectHoursEditor, SubjectPicker } from '../components/SubjectPicker.tsx';
@@ -23,6 +25,8 @@ export interface IntakeForm {
   displayName: string;
   email: string;
   schoolName: string;
+  /** ISO country code. */
+  country: string;
   city: string;
   state: string;
   grade: string;
@@ -59,7 +63,10 @@ export function intakeProblem(form: IntakeForm, step: number): string | null {
     if (!form.displayName.trim()) return 'Please enter the student’s full name.';
     if (!EMAIL_RE.test(form.email.trim())) return 'Please enter a valid email address.';
     if (!form.schoolName.trim()) return 'Please enter the school name.';
-    if (!form.city.trim() || !form.state.trim()) return 'Please enter the city and state.';
+    if (!form.country) return 'Please choose the country where the student lives.';
+    const region = regionField(form.country);
+    if (!form.city.trim()) return 'Please enter the city.';
+    if (region.required && !form.state.trim()) return `Please enter the ${region.label.toLowerCase()}.`;
   }
   if (step === 1) {
     if (!form.subjects.length) return 'Choose at least one subject.';
@@ -94,6 +101,7 @@ function Stepper({ step }: { step: number }) {
  */
 export function IntakeFields({ form, set, step, subjectOptions, fromInvite }: { form: IntakeForm; set(patch: Partial<IntakeForm>): void; step: number | 'all'; subjectOptions: string[]; fromInvite?: boolean }) {
   const show = (n: number) => step === 'all' || step === n;
+  const region = regionField(form.country);
   const section = (n: number, title: string, children: ReactNode) =>
     show(n) && (
       <section className="flex flex-col gap-4">
@@ -127,8 +135,13 @@ export function IntakeFields({ form, set, step, subjectOptions, fromInvite }: { 
           <Field label="School name" className="sm:col-span-2" hint="The high school (or current school) the student attends.">
             {(id) => <Input id={id} value={form.schoolName} onChange={(e) => set({ schoolName: e.target.value })} required />}
           </Field>
+          <Field label="Country" className="sm:col-span-2" hint="Where the student lives. Classes are online, so families anywhere are welcome.">
+            {(id) => <CountrySelect id={id} value={form.country} onChange={(country) => set({ country })} required />}
+          </Field>
           <Field label="City">{(id) => <Input id={id} value={form.city} onChange={(e) => set({ city: e.target.value })} autoComplete="address-level2" required />}</Field>
-          <Field label="State">{(id) => <Input id={id} value={form.state} onChange={(e) => set({ state: e.target.value })} autoComplete="address-level1" required />}</Field>
+          <Field label={region.required ? region.label : `${region.label} (optional)`}>
+            {(id) => <Input id={id} value={form.state} onChange={(e) => set({ state: e.target.value })} autoComplete="address-level1" required={region.required} />}
+          </Field>
         </div>,
       )}
       {section(
@@ -160,7 +173,7 @@ export function IntakeFields({ form, set, step, subjectOptions, fromInvite }: { 
             Add one or two parents or guardians. Each gets an email with a link to create their own parent account to follow the student's classes and progress. Pairing updates and monthly
             reports go to them too.
           </p>
-          <ParentsEditor value={form.parents} onChange={(parents) => set({ parents })} lockFirst={fromInvite} />
+          <ParentsEditor value={form.parents} onChange={(parents) => set({ parents })} lockFirst={fromInvite} country={form.country} />
         </>,
       )}
     </div>
@@ -172,6 +185,7 @@ export function intakePayload(form: IntakeForm) {
     displayName: form.displayName,
     email: form.email,
     schoolName: form.schoolName,
+    country: form.country,
     city: form.city,
     state: form.state,
     grade: Number(form.grade),
@@ -195,6 +209,7 @@ export default function SignupPage({ invite }: { invite?: { token: string; info:
     displayName: info?.name || '',
     email: info?.email || '',
     schoolName: '',
+    country: browserCountry(),
     city: '',
     state: '',
     grade: '9',
