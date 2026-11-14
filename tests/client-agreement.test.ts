@@ -180,4 +180,52 @@ describe('client service agreements for new classes', () => {
     await admin.patch(`/api/admin/courses/${older.id}`, { schedule: twiceWeekly });
     assert.equal(await h.store.get(C.clientAgreements, 'csa_olderclass01'), null);
   });
+
+  it('records a printed copy the family signed and sent in: no more reminders, and no message asking them to sign', async () => {
+    const physics = await admin.post<Course>('/api/admin/courses', {
+      title: 'Physics with Nahom', subject: 'Physics', gradeLevel: 9, mentorId: sara.id, studentIds: [nahom.id], schedule: [{ weekday: 3, startTime: '18:00', durationMinutes: 60 }], timezone: NY, startDate: '2026-11-12', meetingUrl: '',
+    }, 201);
+    const id = `csa_${physics.id}`;
+    const link = linkIn('tigist@example.com');
+    const parent = new Client(h);
+    await parent.login('tigist', 'parent-pass-1');
+    const toSign = async () => (await parent.get<ParentAgreementLink[]>('/api/parent/agreements')).filter((a) => a.status !== 'signed').map((a) => a.subject).sort();
+    assert.deepEqual(await toSign(), ['Physics', 'Science']);
+
+    const record = (body: Record<string, unknown>, expect = 200) => admin.post<ClientAgreementRow & { error?: string }>(`/api/admin/client-agreements/${id}/paper`, body, expect);
+    assert.match((await record({ signedDate: 'Nov 12' }, 400)).error!, /date written on the signed copy/);
+    assert.match((await record({}, 400)).error!, /date written on the signed copy/);
+    assert.match((await record({ signedDate: '2026-11-13' }, 400)).error!, /can’t be in the future/);
+    assert.match((await record({ signedDate: '2026-11-11' }, 400)).error!, /dated November 12, 2026, so it can’t have been signed before then/);
+    await parent.post(`/api/admin/client-agreements/${id}/paper`, { signedDate: '2026-11-12' }, 403);
+    await admin.post('/api/admin/client-agreements/csa_nothere/paper', { signedDate: '2026-11-12' }, 404);
+
+    const emails = h.mailer.sent.length;
+    const row = await record({ signedDate: '2026-11-12' });
+    assert.deepEqual([row.status, row.onPaper, row.signedDate], ['signed', true, '2026-11-12']);
+    assert.equal(h.mailer.sent.length, emails, 'nobody is emailed');
+    const stored = (await h.store.get<ClientAgreement>(C.clientAgreements, id))!;
+    assert.deepEqual([stored.signature?.name, stored.signature?.onPaper?.recordedBy, stored.signature?.drawing], ['Tigist Tadesse', 'Admin', undefined]);
+    assert.equal((await admin.get<ClientAgreementRow[]>('/api/admin/client-agreements')).find((r) => r.id === id)!.onPaper, true);
+
+    // The parent is no longer asked to sign it; the copy they can open says it was signed on paper.
+    assert.deepEqual(await toSign(), ['Science']);
+    const v = await view(link);
+    assert.deepEqual([v.status, v.signedDate], ['signed', '2026-11-12']);
+    assert.match(v.html, /Signed on paper by Tigist Tadesse on November 12, 2026; Abugida Education, Ltd\. keeps the signed copy on file\. Agreement/);
+    assert.match(v.html, /<dd class="paper">Signed on paper<\/dd>/);
+    assert.ok(!v.html.includes('<svg'), 'no drawn signature');
+    const admDoc = await admin.get<string>(`/api/admin/client-agreements/${id}/document`);
+    assert.match(admDoc, /Signed by the Client on a printed copy, which Abugida Education, Ltd\. keeps on file\./);
+
+    // It can't be signed, recorded or sent again, and no reminders go out for it.
+    assert.match((await new Client(h).post<{ error: string }>('/api/client-agreement/sign', { token: link, name: 'Tigist Tadesse', drawing: SIG, agree: true }, 400)).error, /already signed/);
+    assert.match((await record({ signedDate: '2026-11-12' }, 400)).error!, /Tigist Tadesse already signed this agreement on November 12, 2026/);
+    assert.match((await admin.post<{ error: string }>(`/api/admin/client-agreements/${id}/send`, {}, 400)).error, /already signed/);
+    const physicsReminders = () => h.mailer.sent.filter((e) => e.to.includes('tigist@example.com') && /reminder: please sign/i.test(e.subject) && e.text.includes('Physics')).length;
+    h.clock.now = new Date('2026-11-15T16:00:00Z');
+    await tick();
+    assert.equal(physicsReminders(), 0);
+    assert.ok(!(await adminNotices()).includes('Client agreement not signed yet: Nahom Tadesse (Physics)'));
+  });
 });

@@ -1,15 +1,15 @@
-import { ExternalLink, FilePlus2, Send } from 'lucide-react';
+import { ExternalLink, FileCheck2, FilePlus2, Send } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { longDate } from '../../../shared/agreement.ts';
 import type { AgreementRow, AgreementSendResult, ClientAgreementRow, ClientAgreementSendResult } from '../../../shared/api.ts';
-import { Badge, Button, ErrorBox, Loading, PageHeader, SectionTitle, Table, useToast } from '../../components/ui.tsx';
+import { Badge, Button, ErrorBox, Field, Input, Loading, Modal, PageHeader, SectionTitle, Table, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { fmtDateTime, firstName } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
-export function AgreementStatus({ status }: { status: AgreementRow['status'] }) {
-  if (status === 'signed') return <Badge tone="green">Signed</Badge>;
+export function AgreementStatus({ status, onPaper }: { status: AgreementRow['status']; onPaper?: boolean }) {
+  if (status === 'signed') return <Badge tone="green">{onPaper ? 'Signed on paper' : 'Signed'}</Badge>;
   if (status === 'awaiting_signature') return <Badge tone="amber">Waiting for signature</Badge>;
   if (status === 'draft') return <Badge tone="blue">Draft to review</Badge>;
   return <Badge tone="gray">Not drafted</Badge>;
@@ -153,6 +153,7 @@ function ClientAgreements() {
   const toast = useToast();
   const { data, error, loading, reload } = useApi<ClientAgreementRow[]>('/api/admin/client-agreements');
   const [sending, setSending] = useState<string | null>(null);
+  const [paper, setPaper] = useState<ClientAgreementRow | null>(null);
   const rows = data || [];
   const waiting = rows.filter((r) => r.status === 'awaiting_signature').length;
 
@@ -178,7 +179,7 @@ function ClientAgreements() {
       <p className="mb-4 text-sm text-ink-soft">
         When you approve a new class, the first parent listed on the student's profile (or the student, with no parent) is emailed a private link to read and sign the agreement, no sign-in
         needed. The services come from the class's weekly schedule, billed every four weeks. Classes approved earlier have none. If you change a class's schedule before the family signs, use
-        “Send again”.{data ? ` ${waiting} waiting for a signature · ${rows.length - waiting} signed.` : ''}
+        “Send again”. If the family signs a printed copy instead, click “Record paper copy” once you have it.{data ? ` ${waiting} waiting for a signature · ${rows.length - waiting} signed.` : ''}
       </p>
       {error && <ErrorBox message={error} onRetry={reload} />}
       {loading && !data ? (
@@ -211,12 +212,12 @@ function ClientAgreements() {
                   <p className="text-xs text-ink-muted">{r.clientEmail || 'No email address'}{r.clientIsStudent ? ' · the student' : ''}</p>
                 </td>
                 <td className="whitespace-nowrap">
-                  <AgreementStatus status={r.status} />
+                  <AgreementStatus status={r.status} onPaper={r.onPaper} />
                 </td>
                 <td className="min-w-64 text-xs text-ink-soft">{r.services.join(' · ')}</td>
                 <td className="whitespace-nowrap text-ink-soft">{fmtDateTime(r.sentAt)}</td>
                 <td className="text-ink-soft">{r.remindersSent.length ? r.remindersSent.map((h) => `${h}h`).join(', ') : '—'}</td>
-                <td className="whitespace-nowrap text-ink-soft">{r.signedAt ? fmtDateTime(r.signedAt) : '—'}</td>
+                <td className="whitespace-nowrap text-ink-soft">{r.onPaper && r.signedDate ? longDate(r.signedDate) : r.signedAt ? fmtDateTime(r.signedAt) : '—'}</td>
                 <td className="text-right">
                   <div className="flex justify-end gap-2">
                     <a
@@ -228,9 +229,14 @@ function ClientAgreements() {
                       <ExternalLink className="size-4" aria-hidden /> View
                     </a>
                     {r.status !== 'signed' && (
-                      <Button size="sm" variant="secondary" loading={sending === r.id} disabled={Boolean(sending) && sending !== r.id} onClick={() => void sendAgain(r)}>
-                        <Send className="size-4" aria-hidden /> Send again
-                      </Button>
+                      <>
+                        <Button size="sm" variant="secondary" loading={sending === r.id} disabled={Boolean(sending) && sending !== r.id} onClick={() => void sendAgain(r)}>
+                          <Send className="size-4" aria-hidden /> Send again
+                        </Button>
+                        <Button size="sm" variant="secondary" disabled={Boolean(sending)} onClick={() => setPaper(r)}>
+                          <FileCheck2 className="size-4" aria-hidden /> Record paper copy
+                        </Button>
+                      </>
                     )}
                   </div>
                 </td>
@@ -246,6 +252,57 @@ function ClientAgreements() {
           </tbody>
         </Table>
       )}
+      {paper && (
+        <PaperCopy
+          key={paper.id}
+          row={paper}
+          onClose={() => setPaper(null)}
+          onSaved={async () => {
+            setPaper(null);
+            await reload();
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+/** Records that the family signed a printed copy and sent it in, so the agreement counts as signed. */
+function PaperCopy({ row, onClose, onSaved }: { row: ClientAgreementRow; onClose(): void; onSaved(): Promise<void> }) {
+  const toast = useToast();
+  const today = new Date().toLocaleDateString('en-CA');
+  const [date, setDate] = useState(today);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.post<ClientAgreementRow>(`/api/admin/client-agreements/${row.id}/paper`, { signedDate: date });
+      toast(`Recorded: ${row.clientName} signed a paper copy on ${longDate(date)}. No more reminders will go out.`);
+      await onSaved();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Record a signed paper copy">
+      <p className="text-sm text-ink-soft">
+        {row.clientName} printed the agreement for {row.studentName}’s {row.subject} classes, signed it and sent it to you. Once recorded, it counts as signed: no more reminder emails go
+        out, and the “Please sign” message leaves their dashboard. Keep the paper copy on file.
+      </p>
+      <Field label="Date written on the signed copy" className="mt-4">
+        {(id) => <Input id={id} type="date" value={date} min={row.effectiveDate} max={today} required onChange={(e) => setDate(e.target.value)} />}
+      </Field>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <Button variant="secondary" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        <Button loading={saving} disabled={!date} onClick={() => void save()}>
+          <FileCheck2 className="size-4" aria-hidden /> Record paper copy
+        </Button>
+      </div>
+    </Modal>
   );
 }

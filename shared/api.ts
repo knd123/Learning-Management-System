@@ -724,6 +724,10 @@ export interface ClientAgreementRow {
   sentAt: string;
   remindersSent: number[];
   signedAt?: string;
+  /** YYYY-MM-DD: the day it was signed (for a paper copy, the date written on it). */
+  signedDate?: string;
+  /** The family signed a printed copy and sent it in. */
+  onPaper?: boolean;
 }
 
 /** What the person signing sees (POST /api/client-agreement/view): no internal details. */

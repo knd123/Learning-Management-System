@@ -656,10 +656,14 @@ export interface ClientAgreement {
   reminders?: Record<string, string>;
   signature?: {
     name: string;
-    drawing: { path: string; viewBox: string };
+    /** Drawn in the portal. Not set when the client signed a printed copy. */
+    drawing?: { path: string; viewBox: string };
+    /** When the client signed in the portal, or when the team recorded their paper copy. */
     signedAt: string;
-    /** YYYY-MM-DD in the class's timezone. */
+    /** YYYY-MM-DD in the class's timezone; for a paper copy, the date written on it. */
     signedDate: string;
+    /** The client signed a printed copy and sent it in; the team recorded it and keeps the copy. */
+    onPaper?: { recordedBy: string };
     ip?: string;
     userAgent?: string;
   };

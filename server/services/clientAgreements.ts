@@ -3,7 +3,7 @@ import type { ClientAgreementRow, ClientAgreementSendResult, ClientAgreementView
 import { ICA_REMINDER_HOURS, longDate, sameName, signatureFromDrawing } from '../../shared/agreement.ts';
 import { CSA_COMPANY, CSA_COMPANY_SIGNATORY, CSA_TITLE, CSA_VERSION, csaBody, platformName, serviceLine } from '../../shared/clientAgreement.ts';
 import type { ClientAgreement, Course } from '../../shared/types.ts';
-import { ONE_HOUR, ymdInZone } from '../../shared/time.ts';
+import { isValidYmd, ONE_HOUR, ymdInZone } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
@@ -219,6 +219,8 @@ function rowOf(a: ClientAgreement): ClientAgreementRow {
     sentAt: a.sentAt,
     remindersSent: Object.keys(a.reminders || {}).map(Number).sort((x, y) => x - y),
     signedAt: a.signature?.signedAt,
+    signedDate: a.signature?.signedDate,
+    onPaper: a.signature?.onPaper ? true : undefined,
   };
 }
 
@@ -232,6 +234,29 @@ export async function clientAgreementById(deps: Deps, id: string): Promise<Clien
   const agreement = await deps.store.get<ClientAgreement>(C.clientAgreements, id);
   if (!agreement) throw notFound('Agreement');
   return agreement;
+}
+
+/**
+ * The client signed a printed copy and sent it in: the team records it with the date written on it.
+ * From then on it counts as signed, so no more reminders go out and the "please sign" message leaves
+ * the parent's dashboard. Nobody is emailed.
+ */
+export async function recordPaperCopy(deps: Deps, id: string, admin: UserRecord, input: { signedDate: unknown }): Promise<ClientAgreementRow> {
+  const agreement = await clientAgreementById(deps, id);
+  if (agreement.status === 'signed') throw badRequest(`${agreement.clientName} already signed this agreement on ${longDate(agreement.signature!.signedDate)}.`);
+  const now = deps.now();
+  const signedDate = typeof input.signedDate === 'string' ? input.signedDate.trim() : '';
+  if (!isValidYmd(signedDate)) throw badRequest('Enter the date written on the signed copy.');
+  if (signedDate > ymdInZone(now, agreement.timeZone)) throw badRequest('The date on the signed copy can’t be in the future.');
+  if (signedDate < agreement.effectiveDate) throw badRequest(`The agreement is dated ${longDate(agreement.effectiveDate)}, so it can’t have been signed before then.`);
+  // The same lock as signing online: if the family signs online at the same moment, only one counts.
+  if (!(await deps.store.createIfAbsent(C.locks, { id: `${agreement.id}_signed_${agreement.sentAt}`, createdAt: now.toISOString() }))) throw badRequest('This agreement is already signed.');
+  const signed = (await deps.store.patch<ClientAgreement>(C.clientAgreements, agreement.id, {
+    status: 'signed',
+    signature: { name: agreement.clientName, signedAt: now.toISOString(), signedDate, onPaper: { recordedBy: admin.displayName } },
+    updatedAt: now.toISOString(),
+  }))!;
+  return rowOf(signed);
 }
 
 // --- The client -------------------------------------------------------------------------
@@ -373,6 +398,7 @@ export function clientAgreementHtml(a: ClientAgreement): string {
   dd.script{font-family:'Snell Roundhand','Segoe Script','Brush Script MT','Lucida Handwriting',cursive;font-size:24px;line-height:1.2;color:#14306b}
   dd.drawn{padding:2px 0 0}
   dd.drawn svg{display:block;width:100%;height:58px}
+  dd.paper{font-style:italic;color:#55605c}
   .note{margin:2px 0 0;color:#55605c;font:12px/1.4 'Segoe UI',Helvetica,Arial,sans-serif}
   footer{margin-top:28px;padding-top:12px;border-top:1px solid #ddd;color:#55605c;font:12px/1.5 'Segoe UI',Helvetica,Arial,sans-serif}
   @media (max-width:560px){main{padding:24px 16px 32px}.sign{grid-template-columns:1fr}h1{font-size:20px}}
@@ -390,10 +416,10 @@ ${a.body.map(blockHtml).join('\n')}
     <h4>CLIENT</h4>
     <dl>
       ${row('Client Name (Print)', escapeHtml(a.clientName))}
-      ${sig ? row('Signature', drawnSignature(sig.drawing, a.clientName), 'drawn') : row('Signature', '')}
+      ${sig?.drawing ? row('Signature', drawnSignature(sig.drawing, a.clientName), 'drawn') : row('Signature', sig?.onPaper ? 'Signed on paper' : '', 'paper')}
       ${row('Date', sig ? escapeHtml(longDate(sig.signedDate)) : '')}
     </dl>
-    ${sig ? `<p class="note">Signed by the Client through the ${escapeHtml(a.company.name)} portal.</p>` : ''}
+    ${sig ? `<p class="note">${sig.onPaper ? `Signed by the Client on a printed copy, which ${escapeHtml(a.company.name)} keeps on file.` : `Signed by the Client through the ${escapeHtml(a.company.name)} portal.`}</p>` : ''}
   </div>
   <div>
     <h4>${escapeHtml(a.company.name.toUpperCase())} REPRESENTATIVE</h4>
@@ -405,6 +431,6 @@ ${a.body.map(blockHtml).join('\n')}
     <p class="note">Signed electronically for ${escapeHtml(a.company.name)}.</p>
   </div>
 </section>
-<footer>${sig ? `Signed by ${escapeHtml(a.clientName)} on ${escapeHtml(signedAt)}.` : `Waiting for ${escapeHtml(a.clientName)} to sign.`} Agreement ${escapeHtml(a.id)}, version ${escapeHtml(a.templateVersion)}.</footer>
+<footer>${sig ? (sig.onPaper ? `Signed on paper by ${escapeHtml(a.clientName)} on ${escapeHtml(longDate(sig.signedDate))}; ${escapeHtml(a.company.name)} keeps the signed copy on file.` : `Signed by ${escapeHtml(a.clientName)} on ${escapeHtml(signedAt)}.`) : `Waiting for ${escapeHtml(a.clientName)} to sign.`} Agreement ${escapeHtml(a.id)}, version ${escapeHtml(a.templateVersion)}.</footer>
 </main></body></html>`;
 }

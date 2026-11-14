@@ -27,7 +27,7 @@ import { getSettings } from '../services/settings.ts';
 import { usageSummary } from '../services/usage.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 import { connectParents, pendingStudentSetups, resendStudentInviteForTeam } from '../services/invites.ts';
-import { clientAgreementById, clientAgreementHtml, clientAgreementRows, createClientAgreementSafely, resendClientAgreement } from '../services/clientAgreements.ts';
+import { clientAgreementById, clientAgreementHtml, clientAgreementRows, createClientAgreementSafely, recordPaperCopy, resendClientAgreement } from '../services/clientAgreements.ts';
 import { assertUsernameAvailable, normalizeUsername } from './auth.ts';
 
 const email = parseEmail;
@@ -637,6 +637,13 @@ export function adminRoutes(deps: Deps): Router {
     '/client-agreements/:id/send',
     h(async (req, res) => {
       res.json(await resendClientAgreement(deps, req.params.id));
+    }),
+  );
+  // The family signed a printed copy and sent it in.
+  router.post(
+    '/client-agreements/:id/paper',
+    h(async (req, res) => {
+      res.json(await recordPaperCopy(deps, req.params.id, req.user!, { signedDate: req.body?.signedDate }));
     }),
   );
 
