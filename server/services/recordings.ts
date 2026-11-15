@@ -3,7 +3,7 @@ import { ONE_DAY, ONE_HOUR } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
-import { driveFolderFor, firstName, usersById } from './access.ts';
+import { firstName, usersById } from './access.ts';
 import { parseDriveVideoLink } from './drive.ts';
 import { badRequest, httpUrl } from '../http.ts';
 import { emailButton, emailLayout, escapeHtml, sendEmail } from './email.ts';
@@ -44,82 +44,23 @@ export function recordingState(session: ClassSession, now: Date): 'none' | 'avai
 }
 
 /**
- * Saves the recording link for a class. When Google Drive integration is on,
- * each student with a Google account gets time-limited view access as well.
+ * Saves the recording link for a class. Students watch it in the portal's own player until the
+ * viewing window ends; nobody is given access to the file in Google Drive.
  */
-export async function attachRecording(
-  deps: Deps,
-  session: ClassSession,
-  course: Course,
-  url: string,
-  user: UserRecord,
-  settings: Settings,
-): Promise<{ session: ClassSession; warnings: string[] }> {
-  const warnings: string[] = [];
-  const availableUntil = recordingAvailableUntil(session, settings);
+export async function attachRecording(deps: Deps, session: ClassSession, url: string, user: UserRecord, settings: Settings): Promise<ClassSession> {
   const link = parseDriveVideoLink(url);
-  const driveFileId = link?.fileId;
-  const drivePermissions: Record<string, string> = { ...(session.recording?.driveFileId === driveFileId ? session.recording?.drivePermissions : {}) };
-
-  if (deps.drive && driveFileId && availableUntil > deps.now()) {
-    const students = await usersById(deps, course.studentIds);
-    for (const student of students.values()) {
-      if (drivePermissions[student.id]) continue;
-      if (!student.googleEmail) {
-        warnings.push(`${student.displayName} has no Google account on file, so they can only watch through the app link.`);
-        continue;
-      }
-      try {
-        drivePermissions[student.id] = await deps.drive.grantReader(driveFileId, student.googleEmail, availableUntil);
-      } catch (err) {
-        warnings.push(`Could not share the recording with ${student.displayName} on Google Drive: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-  }
-
   const now = deps.now().toISOString();
-  const hasPermissions = Object.keys(drivePermissions).length > 0;
-  const updated = await deps.store.patch<ClassSession>(C.sessions, session.id, {
+  return (await deps.store.patch<ClassSession>(C.sessions, session.id, {
     recording: {
       url,
-      driveFileId,
+      driveFileId: link?.fileId,
       driveResourceKey: link?.resourceKey,
       addedAt: session.recording?.addedAt || now,
       addedBy: user.id,
-      availableUntil: availableUntil.toISOString(),
-      drivePermissions: hasPermissions ? drivePermissions : undefined,
+      availableUntil: recordingAvailableUntil(session, settings).toISOString(),
     },
-    driveAccessPending: hasPermissions || undefined,
     updatedAt: now,
-  });
-  return { session: updated!, warnings };
-}
-
-/** Removes students' Drive access to recordings whose review window has ended. */
-export async function revokeExpiredDriveAccess(deps: Deps): Promise<number> {
-  if (!deps.drive) return 0;
-  const now = deps.now();
-  const pending = await deps.store.find<ClassSession>(C.sessions, { driveAccessPending: true });
-  let revoked = 0;
-  for (const session of pending) {
-    const rec = session.recording;
-    if (!rec || new Date(rec.availableUntil) > now) continue;
-    if (rec.driveFileId && rec.drivePermissions) {
-      for (const permissionId of Object.values(rec.drivePermissions)) {
-        try {
-          await deps.drive.revoke(rec.driveFileId, permissionId);
-          revoked++;
-        } catch (err) {
-          console.error(`[drive] failed to revoke ${permissionId} on ${rec.driveFileId}:`, err);
-        }
-      }
-    }
-    await deps.store.patch<ClassSession>(C.sessions, session.id, {
-      driveAccessPending: undefined,
-      recording: { ...rec, driveAccessRevokedAt: now.toISOString() },
-    });
-  }
-  return revoked;
+  }))!;
 }
 
 function formatInZone(iso: string, timeZone: string): string {
@@ -159,16 +100,13 @@ export async function sendRecordingReminders(deps: Deps, settings: Settings): Pr
       const when = formatInZone(session.startAt, mentor?.timezone || course.timezone);
       const studentNames = students.map((s) => s.displayName).join(', ') || 'your student';
       const sessionLink = `${deps.appUrl}/mentor/sessions/${encodeURIComponent(session.id)}`;
-      const folders = students.map((s) => ({ student: s, url: driveFolderFor(s, course.mentorId) })).filter((f): f is { student: UserRecord; url: string } => Boolean(f.url));
-      const folderLinks = folders.map((f) => `<li><a href="${escapeHtml(f.url)}">${escapeHtml(firstName(f.student.displayName))}'s folder in your Google Drive</a></li>`).join('');
       const reportPending = !session.report;
       const subject = `${due === hours[hours.length - 1] ? 'Final reminder' : 'Reminder'}: upload the recording for ${course.title}`;
       const html = emailLayout(
         'Class recording still needed',
         `<p style="line-height:1.6">Hi ${escapeHtml(firstName(mentor?.displayName || 'there'))},</p>
 <p style="line-height:1.6">It has been ${due} hours since your class <strong>${escapeHtml(course.title)}</strong> with ${escapeHtml(studentNames)} (${escapeHtml(when)}), and the recording has not been added yet.</p>
-<p style="line-height:1.6">Please upload the recording to the student's folder in your Google Drive, share it as “Anyone with the link”, then paste the link to the recording in the class report. Students can rewatch it for ${settings.recordingAccessDays} days after the class, so every hour counts.</p>
-${folderLinks ? `<ul style="line-height:1.6">${folderLinks}</ul>` : ''}
+<p style="line-height:1.6">Please upload the recording to your Google Drive, share it as “Anyone with the link”, then paste the link to the recording in the class report. Students can rewatch it for ${settings.recordingAccessDays} days after the class, so every hour counts.</p>
 ${emailButton(sessionLink, 'Add the recording link')}
 ${reportPending ? '<p style="line-height:1.6;color:#8a5a00">Your class report (date, duration, slides and homework) is also still pending — you can submit it on the same page.</p>' : ''}`,
         settings.organizationName,
@@ -177,8 +115,7 @@ ${reportPending ? '<p style="line-height:1.6;color:#8a5a00">Your class report (d
         `Hi ${firstName(mentor?.displayName || 'there')},`,
         '',
         `It has been ${due} hours since your class "${course.title}" with ${studentNames} (${when}), and the recording has not been added yet.`,
-        `Please upload it to the student's folder in your Google Drive, share it as "Anyone with the link", and paste the link to the recording in the class report: ${sessionLink}`,
-        ...folders.map((f) => `${f.student.displayName}'s folder: ${f.url}`),
+        `Please upload it to your Google Drive, share it as "Anyone with the link", and paste the link to the recording in the class report: ${sessionLink}`,
         reportPending ? '\nYour class report is also still pending.' : '',
       ].join('\n');
 

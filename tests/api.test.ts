@@ -25,8 +25,6 @@ async function setupSchool(h: Harness) {
     grade: 5,
     parentName: 'Hanna Tesfaye',
     parentEmails: 'parent@example.org',
-    googleEmail: 'abeba.kid@gmail.com',
-    driveFolderUrl: 'https://drive.google.com/drive/folders/abebaFolder123',
   }, 201);
   const course = await admin.post<Course>('/api/admin/courses', {
     title: 'Grade 5 Math with Abeba',
@@ -120,7 +118,8 @@ describe('a month in the life of a 1-on-1 class', () => {
     assert.equal(reminders.length, 2);
     assert.deepEqual(reminders[0].to, ['sara@example.org']);
     assert.match(reminders[0].subject, /Final reminder/);
-    assert.match(reminders[1].html, /abebaFolder123/);
+    assert.match(reminders[1].html, /upload the recording to your Google Drive/);
+    assert.doesNotMatch(reminders[1].html, /folder/i);
   });
 
   it('accepts the post-class report with slides and new homework', async () => {
@@ -176,11 +175,8 @@ describe('a month in the life of a 1-on-1 class', () => {
     await student.form(`/api/student/homework/${homeworkId}/submit`, form, 409);
   });
 
-  it('shares the recording for exactly 7 days after class', async () => {
+  it('shows the recording for exactly 7 days after class', async () => {
     // Saved with the class report above.
-    assert.equal(h.drive.granted[0].email, 'abeba.kid@gmail.com');
-    assert.equal(h.drive.granted[0].expiresAt.toISOString(), '2026-10-12T21:00:00.000Z');
-
     let recordings = await student.get('/api/student/recordings');
     assert.equal(recordings.available.length, 1);
     // The video plays through the portal; the Drive link itself never reaches the student.
@@ -191,8 +187,6 @@ describe('a month in the life of a 1-on-1 class', () => {
     assert.equal(recordings.available.length, 0);
     assert.equal(recordings.expired.length, 1);
     assert.equal(recordings.expired[0].recording.url, undefined);
-    await fetchTick(h);
-    assert.deepEqual(h.drive.revoked, ['perm-1']);
   });
 
   it('builds the monthly quiz from the month\'s homework and grades it', async () => {

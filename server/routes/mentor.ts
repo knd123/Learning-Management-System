@@ -258,7 +258,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
           .map((u) => {
             const work = allWork.filter((w) => w.submission.studentId === u.id);
             return {
-              student: { ...rosterStudent(u, user.id), city: u.city, state: u.state, country: u.country, hoursPerWeek: u.hoursPerWeek, subjects: u.subjects },
+              student: { ...rosterStudent(u), city: u.city, state: u.state, country: u.country, hoursPerWeek: u.hoursPerWeek, subjects: u.subjects },
               classes: courses.filter((c) => c.studentIds.includes(u.id)).map((c) => ({ courseId: c.id, title: c.title, subject: c.subject })),
               submissionsToReview: toReview.filter((r) => r.submission.studentId === u.id).length,
               lastSubmissionAt: work.map((w) => w.submission.updatedAt).sort().pop(),
@@ -271,7 +271,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
           const mine = recentViews.filter((v) => v.courseId === course.id);
           return {
             course,
-            students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u, course.mentorId)),
+            students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u)),
             nextSession: next ? view(next.session, course) : undefined,
             pendingReports: mine.filter((v) => v.needsReport).length,
             pendingRecordings: mine.filter((v) => v.needsRecording).length,
@@ -324,7 +324,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const detail: MentorCourseDetail = {
         course,
         mentorName: people.get(course.mentorId)?.displayName || 'Mentor',
-        students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u, course.mentorId)),
+        students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u)),
         sessions: withFeedback(sessions.map((s) => mentorSessionView(s, course, now, people, settings.recordingAccessDays)).reverse(), await feedbackFor(course.id), people),
         homework,
         quizzes,
@@ -360,7 +360,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
         rescheduleRequest,
         session: reschedule ? { ...view, reschedule } : view,
         course,
-        students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u, course.mentorId)),
+        students: course.studentIds.map((id) => people.get(id)).filter((u): u is UserRecord => Boolean(u)).map((u) => rosterStudent(u)),
         homework: homeworkId ? (await deps.store.get<Homework>(C.homework, homeworkId)) || undefined : undefined,
         recordingAccessDays: settings.recordingAccessDays,
         aiEnabled: deps.ai.enabled,
@@ -534,7 +534,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       const noVideo = !recordingUrl && !session.recording && ['true', '1', 'on'].includes(String(req.body?.noVideo || ''));
       const noVideoNote = noVideo ? str(req.body?.noVideoNote, 'What happened', { max: 1000 }) : '';
       if (!recordingUrl && !session.recording && !noVideo && course.requiresRecording) {
-        throw badRequest("Paste the link to this class's recording, or choose “No video due to technical issues”. Upload it to the student's folder in your Google Drive first.");
+        throw badRequest("Paste the link to this class's recording, or choose “No video due to technical issues”. Upload it to your Google Drive first.");
       }
 
       // Every class that took place has homework: new (with its worksheet) or already assigned.
@@ -582,7 +582,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
       let updated = (await deps.store.patch<ClassSession>(C.sessions, session.id, { report, updatedAt: deps.now().toISOString() }))!;
       // The recording goes live for students with the report and disappears after the viewing window.
       if (recordingUrl && recordingUrl !== session.recording?.url) {
-        updated = (await attachRecording(deps, updated, course, recordingUrl, req.user!, await getSettings(deps.store))).session;
+        updated = await attachRecording(deps, updated, recordingUrl, req.user!, await getSettings(deps.store));
       }
       if (noVideo) updated = await reportNoVideo(deps, req.user!, updated, course, noVideoNote);
       // The first report goes to the student and the family; later edits don't send it again.
@@ -598,12 +598,10 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
   router.post(
     '/sessions/:id/recording',
     h(async (req, res) => {
-      const { session, course } = await sessionForTeacher(deps, req.user!, req.params.id);
+      const { session } = await sessionForTeacher(deps, req.user!, req.params.id);
       const url = await recordingLink(deps, req.body?.url, true);
       if (new Date(session.startAt) > deps.now()) throw badRequest('This class has not happened yet.');
-      const settings = await getSettings(deps.store);
-      const result = await attachRecording(deps, session, course, url, req.user!, settings);
-      res.json(result);
+      res.json({ session: await attachRecording(deps, session, url, req.user!, await getSettings(deps.store)) });
     }),
   );
 
@@ -611,12 +609,7 @@ export function mentorRoutes(deps: Deps, upload: Upload): Router {
     '/sessions/:id/recording',
     h(async (req, res) => {
       const { session } = await sessionForTeacher(deps, req.user!, req.params.id);
-      if (session.recording?.drivePermissions && deps.drive && session.recording.driveFileId) {
-        for (const permissionId of Object.values(session.recording.drivePermissions)) {
-          await deps.drive.revoke(session.recording.driveFileId, permissionId).catch((err) => console.error('[drive] revoke failed', err));
-        }
-      }
-      res.json(await deps.store.patch<ClassSession>(C.sessions, session.id, { recording: undefined, driveAccessPending: undefined, updatedAt: deps.now().toISOString() }));
+      res.json(await deps.store.patch<ClassSession>(C.sessions, session.id, { recording: undefined, updatedAt: deps.now().toISOString() }));
     }),
   );
 

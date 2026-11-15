@@ -336,9 +336,6 @@ export interface RosterStudent {
   schoolName?: string;
   /** Special needs or other notes from the family. */
   notes?: string;
-  /** The student's recording folder in this mentor's Google Drive. */
-  driveFolderUrl?: string;
-  hasGoogleAccount: boolean;
 }
 
 export interface MentorProfile {
@@ -452,7 +449,6 @@ export interface QuizResults {
 export interface SystemStatus {
   aiEnabled: boolean;
   emailLive: boolean;
-  driveEnabled: boolean;
   dataBackend: string;
   appUrl: string;
 }

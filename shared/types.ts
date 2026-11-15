@@ -58,13 +58,7 @@ export interface PublicUser {
   /** Who gets the monthly reports: the listed parents, plus any parent the team linked. */
   parentEmails?: string[];
   parentPhone?: string;
-  /**
-   * The student's recording folder in each mentor's Google Drive, by mentor id: one folder for all
-   * of the student's classes with that mentor. Team and that mentor only; never sent to families.
-   */
-  driveFolders?: Record<string, string>;
-  /** Older single folder link, used for any mentor without their own entry in `driveFolders`. */
-  driveFolderUrl?: string;
+  /** The student's own Google account, for "Sign in with Google" when it isn't their email on file. */
   googleEmail?: string;
   // Mentor-only fields
   minGrade?: number;
@@ -218,9 +212,6 @@ export interface SessionRecording {
   addedBy: string;
   /** Students can watch until this instant (class end + recording access days). */
   availableUntil: string;
-  /** Google Drive permissions granted to students: studentId -> permissionId. */
-  drivePermissions?: Record<string, string>;
-  driveAccessRevokedAt?: string;
 }
 
 export type SessionStatus = 'scheduled' | 'cancelled';
@@ -303,8 +294,6 @@ export interface ClassSession {
   recording?: SessionRecording;
   /** Recording reminders already sent: hours after class -> sent time. */
   reminders?: Record<string, string>;
-  /** Set while students hold Drive access to the recording that must be revoked later. */
-  driveAccessPending?: boolean;
   /** The Abugida team checked the class report (quality control). */
   qcReview?: { at: string; by: string };
   createdAt: string;

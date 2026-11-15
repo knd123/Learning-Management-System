@@ -3,7 +3,7 @@ import { accountDigits, bankAccountProblem, BANKS } from '../../shared/profile.t
 import type { AvailabilityWindow, BankAccounts, ParentContact, Role } from '../../shared/types.ts';
 import { isValidHm, isValidTimeZone } from '../../shared/time.ts';
 import type { UserRecord } from '../auth.ts';
-import { badRequest, httpUrl, num, str } from '../http.ts';
+import { badRequest, num, str } from '../http.ts';
 import { joinPhone, PHONE_EXAMPLE, phoneProblem, splitPhone } from '../../shared/phone.ts';
 import { isCountryCode, regionField } from '../../shared/countries.ts';
 
@@ -93,19 +93,6 @@ export function parseBankAccounts(value: unknown, requireOne: boolean): BankAcco
   return out;
 }
 
-/** Recording folder links by mentor id, merged into `current`; an empty link removes that mentor's folder. */
-function parseDriveFolders(value: unknown, current: Record<string, string> = {}): Record<string, string> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest('Recording folders must be a list of links by mentor.');
-  const out = { ...current };
-  for (const [mentorId, link] of Object.entries(value as Record<string, unknown>)) {
-    if (!/^[\w-]{1,64}$/.test(mentorId)) throw badRequest('Unknown mentor for a recording folder.');
-    const url = httpUrl(link, 'Recording folder');
-    if (url) out[mentorId] = url;
-    else delete out[mentorId];
-  }
-  return Object.keys(out).length ? out : undefined;
-}
-
 /** One or two parents or guardians, each with a name, email and phone. */
 export function parseParents(value: unknown, required: boolean): ParentContact[] {
   if (value === undefined || value === null) value = [];
@@ -162,7 +149,7 @@ export interface ProfileOptions {
   timezone: string;
   /** Sign-up: every intake field is required. */
   intake?: boolean;
-  /** Admins may also set Drive folder and Google account. */
+  /** Admins may also set the student's Google account (for Sign in with Google). */
   admin?: boolean;
   /** The account before this change; keeps report emails of parents the team linked. */
   current?: UserRecord;
@@ -225,8 +212,6 @@ export function applyProfile(target: Partial<UserRecord>, body: Record<string, u
       if (has('parentEmails')) target.parentEmails = parseEmailList(body.parentEmails, "Parent's email", req);
     }
     if (opts.admin) {
-      if (body.driveFolderUrl !== undefined) target.driveFolderUrl = httpUrl(body.driveFolderUrl, 'Google Drive folder') || undefined;
-      if (body.driveFolders !== undefined) target.driveFolders = parseDriveFolders(body.driveFolders, opts.current?.driveFolders);
       if (body.googleEmail !== undefined) target.googleEmail = parseEmail(body.googleEmail, 'Student Google account');
     }
   }

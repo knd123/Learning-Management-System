@@ -15,8 +15,6 @@ const PARENTS = [
   { name: 'Dawit Tadesse', email: 'dawit.parent@private.test', phone: '+1 202 555 0133' },
 ];
 const mentorContact = [MENTOR.email, MENTOR.phone];
-// The student's recording folder in the mentor's Drive: the team and that mentor only.
-const FOLDER = 'https://drive.google.com/drive/folders/privateNahomFolder';
 const familyContact = [STUDENT.email, ...PARENTS.flatMap((p) => [p.email, p.phone])];
 
 /** Phone numbers count however they are punctuated: "+1 202 555 0122" also matches "2025550122". */
@@ -54,7 +52,6 @@ describe('privacy: mentors and families never see each other’s contact details
       parents: PARENTS, username: 'nahom', password: 'nahom-pass-1',
     }, 201)).user;
     await student.post('/api/student/mentor-requests', { mentorId: sara.id, subject: 'Math' });
-    await admin.patch(`/api/admin/users/${nahom.id}`, { driveFolders: { [sara.id]: FOLDER } });
 
     // The team approves the pairing: this creates the class and emails everyone.
     const [row] = await admin.get<MatchRequestRow[]>('/api/admin/matches');
@@ -104,7 +101,6 @@ describe('privacy: mentors and families never see each other’s contact details
   };
 
   it('shows mentors no student or parent email or phone number', async () => {
-    assert.equal((await mentor.get(`/api/mentor/courses/${ids.course}`)).students[0].driveFolderUrl, FOLDER, 'the mentor sees the folder in their own Drive');
     await sweep(mentor, [
       '/api/auth/me',
       '/api/notifications',
@@ -137,7 +133,7 @@ describe('privacy: mentors and families never see each other’s contact details
       '/api/student/profile',
       '/api/student/mentors',
       '/api/student/progress',
-    ], [...mentorContact, FOLDER]);
+    ], mentorContact);
     // By now the class is more than 7 days old: its recording link is gone too.
     const { available, expired } = await student.get('/api/student/recordings');
     assert.deepEqual([available.length, expired.length, expired[0].recording.url], [0, 1, undefined]);
@@ -146,7 +142,7 @@ describe('privacy: mentors and families never see each other’s contact details
   it('shows parents no mentor email or phone number', async () => {
     const child = await parent.get<ParentChildDetail>(`/api/parent/students/${nahom.id}`);
     assert.deepEqual([child.summary.student.displayName, child.summary.classes[0]?.mentorName], ['Nahom Tadesse', 'Sara Bekele'], 'the parent follows the student and sees the mentor’s name');
-    await sweep(parent, ['/api/auth/me', '/api/notifications', '/api/parent/overview', `/api/parent/students/${nahom.id}`, `/api/parent/reports/${ids.report}`], [...mentorContact, FOLDER]);
+    await sweep(parent, ['/api/auth/me', '/api/notifications', '/api/parent/overview', `/api/parent/students/${nahom.id}`, `/api/parent/reports/${ids.report}`], mentorContact);
   });
 
   it('keeps contact details out of emails between mentors and families', () => {

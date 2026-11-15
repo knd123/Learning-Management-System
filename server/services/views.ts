@@ -1,7 +1,6 @@
 import type { HomeworkStatus, HomeworkView, MentorSessionView, QuizSummary, RosterStudent, SessionView } from '../../shared/api.ts';
 import type { ClassSession, Course, Homework, Quiz, QuizAttempt, Submission } from '../../shared/types.ts';
 import type { UserRecord } from '../auth.ts';
-import { driveFolderFor } from './access.ts';
 import { attendanceFor } from './progress.ts';
 import { effectiveStatus } from './quizzes.ts';
 import { recordingState } from './recordings.ts';
@@ -97,8 +96,8 @@ export function quizSummary(quiz: Quiz, courseTitle: string, now: Date, attempt?
   };
 }
 
-/** A student as `mentorId` sees them: only the recording folder in that mentor's own Drive. */
-export function rosterStudent(user: UserRecord, mentorId: string): RosterStudent {
+/** A student as their mentor sees them: no contact details. */
+export function rosterStudent(user: UserRecord): RosterStudent {
   return {
     id: user.id,
     displayName: user.displayName,
@@ -106,7 +105,5 @@ export function rosterStudent(user: UserRecord, mentorId: string): RosterStudent
     grade: user.grade,
     schoolName: user.schoolName,
     notes: user.notes,
-    driveFolderUrl: driveFolderFor(user, mentorId),
-    hasGoogleAccount: Boolean(user.googleEmail),
   };
 }

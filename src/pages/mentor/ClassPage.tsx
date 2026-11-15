@@ -1,4 +1,4 @@
-import { BarChart3, FolderOpen, History, Link2, Plus, Sparkles } from 'lucide-react';
+import { BarChart3, History, Link2, Plus, Sparkles } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { MentorCourseDetail } from '../../../shared/api.ts';
@@ -6,7 +6,7 @@ import type { Curriculum, Homework } from '../../../shared/types.ts';
 import { AttachmentList, AttachmentPicker, type PickedLinks } from '../../components/Attachments.tsx';
 import { emptyHomework, HomeworkFields, homeworkPayload, homeworkProblem } from '../../components/HomeworkFields.tsx';
 import { MentorSessionRow } from '../../components/MentorSessions.tsx';
-import { Badge, Button, Card, EmptyState, ErrorBox, ExternalButton, Field, Input, Loading, Modal, Notice, PageHeader, SectionTitle, Select, Tabs, Textarea, useToast } from '../../components/ui.tsx';
+import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Loading, Modal, Notice, PageHeader, SectionTitle, Select, Tabs, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { currentMonth, fmtDate, fmtDateTime, fmtSlot, monthLabel, shiftMonth, tzAbbrev } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
@@ -125,13 +125,6 @@ function Overview({ data, onSaved }: { data: MentorCourseDetail; onSaved(): void
                   {s.notes && <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-amber-50 px-2.5 py-1.5 text-sm text-amber-900">Note from the family: {s.notes}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {s.driveFolderUrl ? (
-                    <ExternalButton href={s.driveFolderUrl} variant="secondary" size="sm">
-                      <FolderOpen className="size-4" /> Drive folder
-                    </ExternalButton>
-                  ) : (
-                    <Badge tone="amber">No Drive folder on file</Badge>
-                  )}
                   <Link to={`/mentor/students/${s.id}`} className="inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-brand-700 hover:bg-brand-50">
                     <BarChart3 className="size-4" /> Progress
                   </Link>

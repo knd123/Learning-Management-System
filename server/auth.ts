@@ -39,10 +39,9 @@ export function generatePassword(): string {
   return `${pick()}-${pick()}-${crypto.randomInt(10, 100)}`;
 }
 
-/** A user as they and other non-team users may see them: no credentials and no recording folder links. */
+/** A user as they and other non-team users may see them: no credentials. */
 export function toPublicUser(user: UserRecord): PublicUser {
-  const { driveFolders: _folders, driveFolderUrl: _folder, ...rest } = toAdminUser(user);
-  return rest;
+  return toAdminUser(user);
 }
 
 /** Everything but credentials, for the Abugida team. */

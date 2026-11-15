@@ -141,7 +141,7 @@ export function adminRoutes(deps: Deps): Router {
           pendingStudentSetups: setups.length,
         },
         approvals,
-        status: { aiEnabled: deps.ai.enabled, emailLive: deps.mailer.live, driveEnabled: Boolean(deps.drive), dataBackend: deps.dataBackend, appUrl: deps.appUrl },
+        status: { aiEnabled: deps.ai.enabled, emailLive: deps.mailer.live, dataBackend: deps.dataBackend, appUrl: deps.appUrl },
         lastJobRun: lastRun ? { ranAt: lastRun.result.ranAt, notes: lastRun.result.notes } : undefined,
       };
       res.json(overview);

@@ -182,7 +182,6 @@ export default function AdminHome() {
           <ul className="divide-y divide-sand-100">
             <StatusRow ok={status.emailLive} label="Email delivery" detail={status.emailLive ? 'Reminders and parent reports are emailed via SMTP.' : 'SMTP is not configured: emails are only recorded in the email log. Set SMTP_HOST, SMTP_USER and SMTP_PASS.'} />
             <StatusRow ok={status.aiEnabled} label="AI (quizzes, homework drafts, report writing)" detail={status.aiEnabled ? 'Gemini is connected.' : 'Add GEMINI_API_KEY to enable AI quizzes and homework drafts. Parent reports use a standard template until then.'} />
-            <StatusRow ok={status.driveEnabled} label="Google Drive access control" detail={status.driveEnabled ? 'Students get time-limited view access to recordings on Drive automatically.' : 'Optional. Recordings are shown in the app only during the viewing window; enable GOOGLE_DRIVE_ENABLED to also expire students\' Drive access automatically.'} />
             <StatusRow ok={status.dataBackend === 'firestore'} label="Database" detail={status.dataBackend === 'firestore' ? 'Firestore (production).' : `Local ${status.dataBackend} storage — fine for testing; use Firestore in production.`} />
           </ul>
         </Card>

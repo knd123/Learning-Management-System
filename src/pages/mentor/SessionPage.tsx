@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { CalendarClock, CalendarX2, CheckCircle2, FolderOpen, PlayCircle, Video, VideoOff } from 'lucide-react';
+import { CalendarClock, CalendarX2, CheckCircle2, PlayCircle, Video, VideoOff } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { MentorCourseDetail, MentorSessionDetail } from '../../../shared/api.ts';
@@ -10,7 +10,7 @@ import { emptyHomework, HomeworkFields, homeworkPayload, homeworkProblem, type H
 import { MentorSessionBadges, Stars } from '../../components/MentorSessions.tsx';
 import { canPropose, ProposeNewTime, RescheduleRequestCard } from '../../components/Reschedule.tsx';
 import { useAuth } from '../../lib/auth.tsx';
-import { Badge, Button, Card, ErrorBox, ExternalButton, Field, Input, Loading, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
+import { Button, Card, ErrorBox, Field, Input, Loading, Notice, PageHeader, Select, Textarea, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { addDays, dayOfMonth, fmtDateTime, fmtDay, fmtShortDay, fmtTimeRange, fmtWeekdayShort, fromLocalInput, localYmd, toLocalInput } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
@@ -368,7 +368,7 @@ function ReportCard({ data, onSaved, initialHeld }: { data: MentorSessionDetail;
 }
 
 /**
- * The link to this class's recording file, pasted from the student's folder in the mentor's Google Drive,
+ * The link to this class's recording file in the mentor's Google Drive,
  * or, when the class wasn't recorded because of technical issues, "No video" with what happened.
  */
 function RecordingField({
@@ -388,7 +388,7 @@ function RecordingField({
   note: string;
   onNote(v: string): void;
 }) {
-  const { session, course, students, recordingAccessDays } = data;
+  const { session, course, recordingAccessDays } = data;
   // Once a video is added, the class has one: no "No video" choice.
   const canSkip = !session.recordingUrl;
   if (noVideo && canSkip) {
@@ -415,23 +415,10 @@ function RecordingField({
         <Video className="size-4" /> Recording of this class{!course.requiresRecording && <span className="font-normal text-ink-muted">(optional)</span>}
       </p>
       <ol className="list-decimal space-y-0.5 pl-5 text-sm text-ink-soft">
-        <li>Upload the recording to the student's folder in your Google Drive.</li>
+        <li>Upload the recording to your Google Drive.</li>
         <li>Share the video as “Anyone with the link” (Viewer).</li>
-        <li>Paste the link to that video below — not the folder link.</li>
+        <li>Paste the link to that video below — not a folder link.</li>
       </ol>
-      <div className="flex flex-wrap gap-2">
-        {students.map((s) =>
-          s.driveFolderUrl ? (
-            <ExternalButton key={s.id} href={s.driveFolderUrl} variant="secondary" size="sm">
-              <FolderOpen className="size-4" /> {s.displayName.split(' ')[0]}'s folder
-            </ExternalButton>
-          ) : (
-            <Badge key={s.id} tone="amber">
-              No folder on file for {s.displayName} — ask the Abugida team
-            </Badge>
-          ),
-        )}
-      </div>
       <Field label="Recording link" hint={`Students watch it in the portal's own player for ${recordingAccessDays} days after the class, without seeing your Google Drive; then it disappears.`}>
         {(fid) => <Input id={fid} type="url" required={course.requiresRecording} value={value} onChange={(e) => onChange(e.target.value)} placeholder="https://drive.google.com/file/d/…/view" />}
       </Field>

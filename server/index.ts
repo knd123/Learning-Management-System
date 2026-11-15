@@ -7,7 +7,7 @@ import { config } from './config.ts';
 import { C } from './db/store.ts';
 import type { Deps } from './deps.ts';
 import { DisabledAi, GeminiAi } from './services/ai.ts';
-import { GoogleDriveService, GoogleDriveVideos } from './services/drive.ts';
+import { GoogleDriveVideos } from './services/drive.ts';
 import { LogMailer, SmtpMailer } from './services/email.ts';
 import { GoogleIdTokenVerifier } from './services/google.ts';
 import { runScheduledJobs } from './services/jobs.ts';
@@ -23,7 +23,6 @@ async function main() {
     blobs,
     mailer: config.smtp.host ? new SmtpMailer(config.smtp, config.emailFrom) : new LogMailer(),
     ai: config.geminiApiKey ? new GeminiAi(config.geminiApiKey, config.geminiModel, { meter: aiAllowance, liteModel: config.geminiLiteModel }) : new DisabledAi(),
-    drive: config.driveEnabled ? new GoogleDriveService() : null,
     videos: new GoogleDriveVideos(),
     google: config.googleClientId ? new GoogleIdTokenVerifier(config.googleClientId) : null,
     now: () => new Date(),
@@ -57,7 +56,7 @@ async function main() {
 
   const server = app.listen(config.port, () => {
     console.log(`Abugida LMS running on http://localhost:${config.port}`);
-    console.log(`  data: ${config.dataBackend} | files: ${config.fileBackend} | email: ${deps.mailer.live ? 'SMTP' : 'log only'} | AI: ${deps.ai.enabled ? `${config.geminiModel} + ${config.geminiLiteModel}` : 'off'} | Drive: ${deps.drive ? 'on' : 'off'} | Google sign-in: ${deps.google ? 'on' : 'off'}`);
+    console.log(`  data: ${config.dataBackend} | files: ${config.fileBackend} | email: ${deps.mailer.live ? 'SMTP' : 'log only'} | AI: ${deps.ai.enabled ? `${config.geminiModel} + ${config.geminiLiteModel}` : 'off'} | Google sign-in: ${deps.google ? 'on' : 'off'}`);
   });
 
   let timer: NodeJS.Timeout | undefined;

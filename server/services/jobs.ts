@@ -12,7 +12,7 @@ import { finalizeExpiredSessions, purgeOldSnapshots } from './proctoring.ts';
 import type { QuizBatch } from './ai.ts';
 import { generateMonthlyQuiz, quizIdFor, quizSource, saveMonthlyQuiz, type QuizSource } from './quizzes.ts';
 import { aiAllowanceLeft } from './usage.ts';
-import { revokeExpiredDriveAccess, sendRecordingReminders } from './recordings.ts';
+import { sendRecordingReminders } from './recordings.ts';
 import { generateParentReport, reportIdFor, sendParentReport } from './reports.ts';
 import { ensureSessions } from './schedule.ts';
 import { getSettings } from './settings.ts';
@@ -24,7 +24,6 @@ export interface JobResult {
   remindersSent: number;
   agreementReminders: number;
   clientAgreementReminders: number;
-  driveAccessRevoked: number;
   curriculumWindowEmails: number;
   quizzesGenerated: number;
   quizSittingsClosed: number;
@@ -272,7 +271,6 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
     remindersSent: 0,
     agreementReminders: 0,
     clientAgreementReminders: 0,
-    driveAccessRevoked: 0,
     curriculumWindowEmails: 0,
     quizzesGenerated: 0,
     quizSittingsClosed: 0,
@@ -304,9 +302,6 @@ export async function runScheduledJobs(deps: Deps): Promise<JobResult> {
     }],
     ['client agreement reminders', async () => {
       result.clientAgreementReminders = await sendClientAgreementReminders(deps);
-    }],
-    ['drive', async () => {
-      result.driveAccessRevoked = await revokeExpiredDriveAccess(deps);
     }],
     ['curriculum', () => announceCurriculumWindow(deps, result)],
     ['quizzes', () => generateDueQuizzes(deps, courses, result)],

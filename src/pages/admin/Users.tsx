@@ -1,6 +1,6 @@
 import { Copy, KeyRound, MailCheck, Pencil, Plus, Search, UserPlus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import type { AdminCourseRow, PendingStudentSetup, PublicConfig } from '../../../shared/api.ts';
+import type { PendingStudentSetup, PublicConfig } from '../../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../../shared/hours.ts';
 import { missingStudentDetails } from '../../../shared/profile.ts';
 import type { AvailabilityWindow, PublicUser, Role } from '../../../shared/types.ts';
@@ -85,7 +85,6 @@ export default function AdminUsers() {
                 <>
                   <th>Grade</th>
                   <th>Parent email</th>
-                  <th>Drive folders</th>
                 </>
               ) : role === 'parent' ? (
                 <>
@@ -119,7 +118,6 @@ export default function AdminUsers() {
                   <>
                     <td>{u.grade}</td>
                     <td className="text-ink-soft">{u.parentEmails?.join(', ') || <Badge tone="amber">Missing</Badge>}</td>
-                    <td>{Object.keys(u.driveFolders || {}).length || u.driveFolderUrl ? <Badge tone="green">Linked</Badge> : <Badge tone="amber">Missing</Badge>}</td>
                   </>
                 ) : role === 'parent' ? (
                   <>
@@ -299,18 +297,6 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
   // Report emails of parents the team linked who are not on the student's list.
   const [otherEmails, setOtherEmails] = useState((user?.parentEmails || []).filter((e) => !initialParents.some((p) => p.email === e)).join(', '));
   const [parentsChanged, setParentsChanged] = useState(false);
-  // One recording folder per mentor, in that mentor's Google Drive.
-  const courses = useApi<AdminCourseRow[]>(role === 'student' && user ? '/api/admin/courses' : null);
-  const folderMentors = [
-    ...new Map(
-      (courses.data || [])
-        .filter(({ course }) => user && course.studentIds.includes(user.id) && (course.active || user.driveFolders?.[course.mentorId]))
-        .map(({ course, mentorName }) => [course.mentorId, { id: course.mentorId, name: mentorName }]),
-    ).values(),
-  ];
-  const [folders, setFolders] = useState<Record<string, string>>(user?.driveFolders || {});
-  // A folder link saved before folders were kept per mentor belongs to the only mentor, if there is one.
-  const folderFor = (mentorId: string) => folders[mentorId] ?? (folderMentors.length === 1 ? user?.driveFolderUrl || '' : '');
   const [googleEmail, setGoogleEmail] = useState(user?.googleEmail || '');
   const [subjects, setSubjects] = useState<string[]>(user?.subjects || []);
   const [availability, setAvailability] = useState<AvailabilityWindow[]>(user?.availability || []);
@@ -348,10 +334,6 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
       Object.assign(body, { grade: Number(grade), createMatchRequest: false, sendSetupLink: sendSetupLink && Boolean(email) });
     } else if (role === 'student') {
       Object.assign(body, { grade: Number(grade), schoolName, city, state, subjects, availability, notes, googleEmail });
-      if (folderMentors.length) {
-        body.driveFolders = Object.fromEntries(folderMentors.map((m) => [m.id, folderFor(m.id)]));
-        if (user?.driveFolderUrl) body.driveFolderUrl = '';
-      }
       if (sendParents) Object.assign(body, { parents, parentEmails: otherEmails });
       if (subjects.length) body.subjectHours = Object.fromEntries(subjects.map((s) => [s, subjectHours[s] ?? DEFAULT_SUBJECT_HOURS]));
       if (!user) body.createMatchRequest = queueForPairing;
@@ -492,31 +474,7 @@ export function UserForm({ role, user, onClose, onSaved }: { role: Role; user: P
                   />
                 )}
               </Field>
-              <div className="flex flex-col gap-3 rounded-2xl border border-sand-200 p-4 sm:col-span-2">
-                <div>
-                  <p className="text-sm font-medium">Recording folders</p>
-                  <p className="text-xs text-ink-muted">The student's folder in each mentor's Google Drive. Only the Abugida team and that mentor see it; students and parents only get each class's recording link, for a limited time.</p>
-                </div>
-                {!user ? (
-                  <p className="text-sm text-ink-soft">Add folders once the student is paired with a mentor.</p>
-                ) : courses.loading && !courses.data ? (
-                  <p className="text-sm text-ink-soft">Loading the student's mentors…</p>
-                ) : folderMentors.length ? (
-                  folderMentors.map((m) => (
-                    <Field key={m.id} label={`Folder in ${m.name}'s Drive`}>
-                      {(id) => <Input id={id} type="url" value={folderFor(m.id)} onChange={(e) => setFolders({ ...folders, [m.id]: e.target.value })} placeholder="https://drive.google.com/drive/folders/…" />}
-                    </Field>
-                  ))
-                ) : (
-                  <p className="text-sm text-ink-soft">No classes yet. Add folders once the student is paired with a mentor.</p>
-                )}
-                {user?.driveFolderUrl && folderMentors.length > 1 && (
-                  <p className="text-xs text-amber-800">
-                    Older folder link on file: <span className="[overflow-wrap:anywhere]">{user.driveFolderUrl}</span>. Paste it under the right mentor; it is removed when you save.
-                  </p>
-                )}
-              </div>
-              <Field label="Student's Google account (optional)" hint="Used to give the student time-limited access to recordings on Drive." className="sm:col-span-2">
+              <Field label="Student's Google account (optional)" hint="Lets the student use “Sign in with Google” with this account." className="sm:col-span-2">
                 {(id) => <Input id={id} type="email" value={googleEmail} onChange={(e) => setGoogleEmail(e.target.value)} placeholder="The student's Gmail address" />}
               </Field>
             </div>

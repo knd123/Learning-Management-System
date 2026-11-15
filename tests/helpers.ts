@@ -10,7 +10,7 @@ import { FirestoreStore } from '../server/db/firestoreStore.ts';
 import type { Deps } from '../server/deps.ts';
 import type { BlobStore } from '../server/files/blobStore.ts';
 import { templateNarrative, type AiService, type GeneratedQuestion, type QuizGenInput, type ReportGenInput } from '../server/services/ai.ts';
-import type { DriveService, DriveVideos, VideoChunk } from '../server/services/drive.ts';
+import type { DriveVideos, VideoChunk } from '../server/services/drive.ts';
 import { LogMailer } from '../server/services/email.ts';
 
 export class MemoryBlobs implements BlobStore {
@@ -125,18 +125,6 @@ export class FakeAi implements AiService {
   }
 }
 
-export class FakeDrive implements DriveService {
-  granted: Array<{ fileId: string; email: string; expiresAt: Date }> = [];
-  revoked: string[] = [];
-  async grantReader(fileId: string, email: string, expiresAt: Date) {
-    this.granted.push({ fileId, email, expiresAt });
-    return `perm-${this.granted.length}`;
-  }
-  async revoke(_fileId: string, permissionId: string) {
-    this.revoked.push(permissionId);
-  }
-}
-
 /**
  * Videos in mentors' Drives, shared "Anyone with the link". Ids containing "Private" aren't shared and
  * ids containing "Notes" aren't videos. Every other file is a video of `sizes` bytes (default 1000), byte i = i % 251.
@@ -175,7 +163,6 @@ export interface Harness {
   store: Store;
   mailer: LogMailer;
   ai: FakeAi;
-  drive: FakeDrive;
   videos: FakeVideos;
   clock: { now: Date };
   baseUrl: string;
@@ -188,7 +175,6 @@ export async function startHarness(start: string, opts: { ai?: AiService; maxUpl
   const store: Store = opts.store || (process.env.TEST_STORE === 'firestore' ? firestoreTestStore(`demo-${crypto.randomUUID().slice(0, 8)}`) : new MemoryStore());
   const mailer = new LogMailer();
   const ai = new FakeAi();
-  const drive = new FakeDrive();
   const videos = new FakeVideos();
   const clock = { now: new Date(start) };
   const deps: Deps = {
@@ -196,7 +182,6 @@ export async function startHarness(start: string, opts: { ai?: AiService; maxUpl
     blobs: new MemoryBlobs(),
     mailer,
     ai: opts.ai || ai,
-    drive,
     videos,
     google: null,
     now: () => new Date(clock.now),
@@ -216,7 +201,6 @@ export async function startHarness(start: string, opts: { ai?: AiService; maxUpl
     store,
     mailer,
     ai,
-    drive,
     videos,
     clock,
     baseUrl: `http://127.0.0.1:${port}`,
