@@ -66,7 +66,7 @@ When a student scores **90% or higher** on **four monthly quizzes in a row in th
 Time-based work runs automatically:
 
 - **Recording reminders.** Mentors get an email 12 and 24 hours after each class whose recording is missing. The email links to the class report where they paste the link.
-- **Recording access.** Students see each recording in the app only for the viewing window (7 days by default). With Google Drive integration on, their Drive access to the file also expires.
+- **Recording access.** Students watch each recording in the portal's own player only for the viewing window (7 days by default); they never get access to the file in Google Drive.
 - **Monthly quizzes.** On the 20th of each month (configurable), the AI builds a quiz for each class (up to 10 questions) from that month's homework, the topics in the class reports, and the curriculum. Quizzes can publish automatically or wait for the mentor to review. Quiz sittings left open are graded once their time is up.
 - **Webcam photo clean-up.** Proctoring photos older than the retention period (30 days by default) are deleted.
 - **Parent reports.** On the 1st of each month, a report is prepared for every student from attendance, homework and quiz results (the AI writes the text from the actual numbers) and emailed to the parents. In "review" mode it waits for the team to send it.
