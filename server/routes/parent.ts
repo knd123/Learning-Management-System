@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import type { ParentChildDetail, ParentChildSummary, ParentOverview, SessionView } from '../../shared/api.ts';
+import { PARENT_HOMEWORK_FILES, type ParentChildDetail, type ParentChildSummary, type ParentOverview, type SessionView } from '../../shared/api.ts';
 import type { ClassSession, Course, Homework, ParentLinkRequest, ParentReport, Quiz, QuizAttempt, Submission } from '../../shared/types.ts';
 import { ONE_DAY } from '../../shared/time.ts';
 import { requireRole, toPublicUser, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, h, HttpError, notFound, str } from '../http.ts';
-import { coursesFor, usersById } from '../services/access.ts';
+import { byNewestAssigned, coursesFor, usersById } from '../services/access.ts';
 import { invitedStudents, inviteStudent, resendStudentInvite } from '../services/invites.ts';
 import { parseCountry, parseEmail } from '../services/profiles.ts';
 import { attendanceFor, studentProgress } from '../services/progress.ts';
@@ -45,10 +45,11 @@ export function parentRoutes(deps: Deps): Router {
     const sessions = sessionLists.flat().sort((a, b) => a.s.startAt.localeCompare(b.s.startAt));
     const subs = new Map(submissions.map((x) => [x.homeworkId, x]));
     const titles = new Map(courses.map((c) => [c.id, c.title]));
+    // Newest first; parents can open the files of the newest few (the same ones the file check allows).
     const homework = homeworkLists
       .flat()
-      .map((hw) => homeworkView(hw, titles.get(hw.courseId) || '', subs.get(hw.id), now))
-      .sort((a, b) => b.assignedAt.localeCompare(a.assignedAt));
+      .sort(byNewestAssigned)
+      .map((hw, i) => ({ ...homeworkView(hw, titles.get(hw.courseId) || '', subs.get(hw.id), now), ...(i < PARENT_HOMEWORK_FILES ? { attachmentsOpen: true } : {}) }));
     const held = sessions.filter(({ s }) => s.status !== 'cancelled' && new Date(s.endAt) <= now).map(({ s }) => attendanceFor(s, student.id)).filter((a) => a !== 'unknown');
     const latest = [...attempts].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];
     const next = sessions.find(({ s }) => s.status !== 'cancelled' && new Date(s.endAt) > now);

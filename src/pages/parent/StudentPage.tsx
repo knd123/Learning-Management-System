@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { ClipboardList, FileText, Sparkles, Video } from 'lucide-react';
 import { useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import type { ParentChildDetail, SessionView } from '../../../shared/api.ts';
+import { PARENT_HOMEWORK_FILES, type ParentChildDetail, type SessionView } from '../../../shared/api.ts';
 import { HomeworkCard } from '../../components/Homework.tsx';
 import { ProgressView } from '../../components/ProgressView.tsx';
 import { ProposeNewTime, RescheduleNote } from '../../components/Reschedule.tsx';
@@ -89,6 +89,11 @@ export default function ParentStudentPage() {
         </div>
       )}
 
+      {tab === 'homework' && data.homework.some((h) => h.attachments.length > 0) && (
+        <p className="mb-4 text-sm text-ink-soft">
+          You can open the worksheets and other files of {firstName(s.displayName)}'s {PARENT_HOMEWORK_FILES} most recent homework assignments.
+        </p>
+      )}
       {tab === 'homework' && (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           <section>

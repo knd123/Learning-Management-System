@@ -1,3 +1,4 @@
+import { PARENT_HOMEWORK_FILES } from '../../shared/api.ts';
 import type { ClassSession, Course, Homework, Quiz } from '../../shared/types.ts';
 import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -75,4 +76,16 @@ export async function usersById(deps: Deps, ids: Iterable<string>): Promise<Map<
 
 export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
+}
+
+/** Newest assignment first; ties go by id, so the parent's page and the file check pick the same ones. */
+export function byNewestAssigned(a: { id: string; assignedAt: string }, b: { id: string; assignedAt: string }): number {
+  return b.assignedAt.localeCompare(a.assignedAt) || b.id.localeCompare(a.id);
+}
+
+/** The child's newest homework across their active classes (the ones parents can open), reading only those. */
+export async function newestHomeworkFor(deps: Deps, student: UserRecord): Promise<Homework[]> {
+  const courses = await coursesFor(deps, student);
+  const lists = await Promise.all(courses.map((c) => deps.store.findLatest<Homework>(C.homework, { courseId: c.id }, 'assignedAt', PARENT_HOMEWORK_FILES)));
+  return lists.flat().sort(byNewestAssigned).slice(0, PARENT_HOMEWORK_FILES);
 }

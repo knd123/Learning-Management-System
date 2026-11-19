@@ -146,6 +146,13 @@ else
   run gcloud firestore indexes composite create --collection-group=homework --query-scope=COLLECTION \
     --field-config=field-path=courseId,order=ascending --field-config=field-path=assignedAt,order=ascending --async --quiet
 fi
+# Lets a parent's file check read only a child's newest homework in each class.
+if [ -z "$DRY_RUN" ] && gcloud firestore indexes composite list --format='value[separator=" "](fields.fieldPath.list(),fields.order.list())' 2>/dev/null | grep -q "^courseId,assignedAt,__name__ ASCENDING,DESCENDING"; then
+  note "Newest-homework index already exists."
+else
+  run gcloud firestore indexes composite create --collection-group=homework --query-scope=COLLECTION \
+    --field-config=field-path=courseId,order=ascending --field-config=field-path=assignedAt,order=descending --async --quiet
+fi
 # Lets the notification bell read a person's newest 50 notices instead of every notice they ever had.
 if [ -z "$DRY_RUN" ] && gcloud firestore indexes composite list --format='value(fields)' 2>/dev/null | grep -q "userId.*createdAt"; then
   note "Notification index already exists."

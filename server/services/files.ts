@@ -5,6 +5,7 @@ import type { UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest } from '../http.ts';
+import { newestHomeworkFor } from './access.ts';
 
 export type FilePurpose = 'homework' | 'submission' | 'slides' | 'curriculum' | 'proctoring' | 'cv' | 'photo';
 
@@ -99,11 +100,13 @@ export async function canDownload(deps: Deps, user: UserRecord, file: StoredFile
   if (!course) return false;
   if (user.role === 'mentor') return course.mentorId === user.id;
   if (user.role === 'parent') {
-    // Parents see their children's homework, handed-in work and shared slides.
+    // Parents see their children's handed-in work, shared slides and the files of each child's
+    // newest homework assignments (PARENT_HOMEWORK_FILES), which keeps the check to a few reads.
     const children = user.linkedStudentIds || [];
-    if (!course.studentIds.some((id) => children.includes(id))) return false;
+    const inClass = children.filter((id) => course.studentIds.includes(id));
+    if (!inClass.length) return false;
     if (file.purpose === 'submission') return children.includes(file.uploadedBy);
-    if (file.purpose === 'homework') return true;
+    if (file.purpose === 'homework') return isNewestHomeworkFile(deps, inClass, file.id);
   }
   if (user.role === 'student' && !course.studentIds.includes(user.id)) return false;
   switch (file.purpose) {
@@ -118,6 +121,17 @@ export async function canDownload(deps: Deps, user: UserRecord, file: StoredFile
       // Curricula are for the Abugida team only; submissions are private to their author.
       return false;
   }
+}
+
+/** Whether the file belongs to one of the newest homework assignments of one of these children. */
+async function isNewestHomeworkFile(deps: Deps, childIds: string[], fileId: string): Promise<boolean> {
+  for (const id of childIds) {
+    const child = await deps.store.get<UserRecord>(C.users, id);
+    if (child?.role !== 'student') continue;
+    const newest = await newestHomeworkFor(deps, child);
+    if (newest.some((hw) => hw.attachments.some((a) => a.kind === 'file' && a.fileId === fileId))) return true;
+  }
+  return false;
 }
 
 export function contentDisposition(file: StoredFile): string {

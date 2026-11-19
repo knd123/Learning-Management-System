@@ -1,7 +1,8 @@
 import { CheckCircle2, Clock, Paperclip } from 'lucide-react';
 import { Link } from 'react-router';
-import type { HomeworkStatus, HomeworkView } from '../../shared/api.ts';
+import { PARENT_HOMEWORK_FILES, type HomeworkStatus, type HomeworkView } from '../../shared/api.ts';
 import { fmtDateTime, fmtRelative } from '../lib/format.ts';
+import { AttachmentList } from './Attachments.tsx';
 import { Badge } from './ui.tsx';
 
 export function HomeworkStatusBadge({ status }: { status: HomeworkStatus }) {
@@ -25,8 +26,12 @@ export function HomeworkStatusBadge({ status }: { status: HomeworkStatus }) {
   }
 }
 
-/** Homework summary; links to the student's homework page unless `linked` is false (parents). */
+/**
+ * Homework summary; links to the student's homework page unless `linked` is false (parents).
+ * Parents can open the files of the child's newest assignments right on the card.
+ */
 export function HomeworkCard({ homework, compact, linked = true }: { homework: HomeworkView; compact?: boolean; linked?: boolean }) {
+  const showFiles = !linked && Boolean(homework.attachmentsOpen) && homework.attachments.length > 0;
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
@@ -45,14 +50,19 @@ export function HomeworkCard({ homework, compact, linked = true }: { homework: H
             Due {fmtDateTime(homework.dueAt)} ({fmtRelative(homework.dueAt)})
           </span>
         )}
-        {homework.attachments.length > 0 && (
-          <span className="flex items-center gap-1">
+        {homework.attachments.length > 0 && !showFiles && (
+          <span className="flex items-center gap-1" title={linked ? undefined : `Files can be opened for the ${PARENT_HOMEWORK_FILES} most recent assignments`}>
             <Paperclip className="size-3" /> {homework.attachments.length}
           </span>
         )}
         {homework.submission?.submittedAt && <span>Handed in {fmtDateTime(homework.submission.submittedAt)}</span>}
         {typeof homework.submission?.score === 'number' && <span className="font-semibold text-emerald-700">Grade: {homework.submission.score}%</span>}
       </div>
+      {showFiles && (
+        <div className="mt-3">
+          <AttachmentList attachments={homework.attachments} />
+        </div>
+      )}
     </>
   );
   if (!linked) return <div className="rounded-2xl border border-sand-200 bg-white p-4">{body}</div>;

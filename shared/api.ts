@@ -136,7 +136,12 @@ export interface HomeworkView {
   assignedAt: string;
   status: HomeworkStatus;
   submission?: Submission;
+  /** Parents only: the files can be opened (one of the child's newest assignments). */
+  attachmentsOpen?: boolean;
 }
+
+/** Parents can open the files of their child's newest this-many homework assignments. */
+export const PARENT_HOMEWORK_FILES = 2;
 
 export interface QuizSummary {
   id: string;
