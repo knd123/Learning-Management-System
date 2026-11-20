@@ -132,3 +132,19 @@ export function SignaturePad({ onChange, disabled }: { onChange(drawing: Signatu
     </div>
   );
 }
+
+/** Under a Sign button that is still greyed out: what the signer has left to do, in plain words. */
+export function StillToSign({ items }: { items: Array<string | false> }) {
+  const left = items.filter((x): x is string => Boolean(x));
+  if (!left.length) return null;
+  return (
+    <div className="text-sm text-amber-800" role="status">
+      <p className="font-medium">To sign, you still need to:</p>
+      <ul className="mt-1 list-disc pl-5">
+        {left.map((x) => (
+          <li key={x}>{x}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}

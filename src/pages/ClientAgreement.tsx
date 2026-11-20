@@ -1,14 +1,14 @@
-import { CheckCircle2, FileSignature, Lock } from 'lucide-react';
+import { CheckCircle2, FileSignature, Lock, MailCheck } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useLocation } from 'react-router';
 import { longDate, sameName, signatureFromDrawing, type SignatureDrawing } from '../../shared/agreement.ts';
-import type { ClientAgreementView } from '../../shared/api.ts';
+import type { ClientAgreementLinkResult, ClientAgreementView } from '../../shared/api.ts';
 import { ymdInZone } from '../../shared/time.ts';
 import { AgreementDocument } from '../components/AgreementDocument.tsx';
-import { SignaturePad } from '../components/SignaturePad.tsx';
+import { SignaturePad, StillToSign } from '../components/SignaturePad.tsx';
 import { SignupLayout } from '../components/SignupLayout.tsx';
 import { Button, Checkbox, ErrorBox, Field, Input, Loading, Notice, SectionTitle } from '../components/ui.tsx';
-import { api, errorMessage } from '../lib/api.ts';
+import { api, ApiError, errorMessage } from '../lib/api.ts';
 import { ContactEmail } from '../lib/contact.tsx';
 
 /**
@@ -19,7 +19,7 @@ export default function ClientAgreementPage() {
   const location = useLocation();
   const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
   const [view, setView] = useState<ClientAgreementView | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{ message: string; outdated: boolean } | null>(null);
   const [readToEnd, setReadToEnd] = useState(false);
   const [name, setName] = useState('');
   const [drawing, setDrawing] = useState<SignatureDrawing | null>(null);
@@ -31,19 +31,19 @@ export default function ClientAgreementPage() {
 
   useEffect(() => {
     if (!token) {
-      setLoadError('This link is missing its code. Open the link from the email about the agreement again.');
+      setLoadError({ message: 'This link is missing its code. Open the link from the email about the agreement again.', outdated: false });
       return;
     }
     api
       .post<ClientAgreementView>('/api/client-agreement/view', { token })
       .then(setView)
-      .catch((err) => setLoadError(errorMessage(err)));
+      .catch((err) => setLoadError({ message: errorMessage(err), outdated: err instanceof ApiError && err.status === 404 && token.startsWith('csa_') }));
   }, [token]);
 
   if (loadError) {
     return (
       <SignupLayout title="Client Service Agreement" subtitle="Abugida Education">
-        <ErrorBox message={loadError} />
+        {loadError.outdated ? <OutdatedLink token={token} /> : <ErrorBox message={loadError.message} />}
         <p className="mt-4 text-sm text-ink-soft">
           Need help? Email <ContactEmail />.
         </p>
@@ -127,6 +127,15 @@ export default function ClientAgreementPage() {
               />
             </fieldset>
             {problem && <ErrorBox message={problem} />}
+            {readToEnd && (
+              <StillToSign
+                items={[
+                  !nameOk && `Type your full name exactly as written: ${view.clientName}`,
+                  !signatureOk && (signature && 'problem' in signature ? signature.problem : 'Draw your signature in the box'),
+                  !agree && 'Tick the box to agree',
+                ]}
+              />
+            )}
             <div>
               <Button type="submit" size="lg" disabled={!readToEnd || !nameOk || !signatureOk || !agree} loading={busy}>
                 <FileSignature className="size-4" aria-hidden /> Sign agreement
@@ -136,5 +145,45 @@ export default function ClientAgreementPage() {
         )}
       </div>
     </SignupLayout>
+  );
+}
+
+/** An out-of-date link (the agreement was sent again since): one tap emails the current link. */
+function OutdatedLink({ token }: { token: string }) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const send = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const res = await api.post<ClientAgreementLinkResult>('/api/client-agreement/email-link', { token });
+      setDone(
+        res.signed
+          ? 'This agreement is already signed. Thank you! The signed copy is in the email we sent when it was signed.'
+          : `Done. We emailed the current link to ${res.sentTo}. Open the newest email from Abugida Education and tap “Review and sign the agreement”.`,
+      );
+    } catch (err) {
+      setProblem(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-4">
+      <Notice>This link is from an older email, and the agreement has been sent again since. Nothing is lost: tap below and we’ll email you the current link.</Notice>
+      {done ? (
+        <Notice tone="green" icon={<MailCheck className="mt-0.5 size-4 shrink-0" />}>
+          {done}
+        </Notice>
+      ) : (
+        <div>
+          <Button size="lg" onClick={send} loading={busy}>
+            Email me the current link
+          </Button>
+        </div>
+      )}
+      {problem && <ErrorBox message={problem} />}
+    </div>
   );
 }

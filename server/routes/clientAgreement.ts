@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Deps } from '../deps.ts';
 import { h } from '../http.ts';
-import { agreementForToken, signClientAgreement, viewOf } from '../services/clientAgreements.ts';
+import { agreementForToken, emailCurrentLink, signClientAgreement, viewOf } from '../services/clientAgreements.ts';
 
 /**
  * A family's Client Service Agreement, opened from the private link in its email: no sign-in needed.
@@ -25,6 +25,15 @@ export function clientAgreementRoutes(deps: Deps): Router {
       const signed = await signClientAgreement(deps, body.token, { name: body.name, drawing: body.drawing, agree: body.agree, ip: req.ip, userAgent: req.get('user-agent') });
       res.setHeader('Cache-Control', 'no-store');
       res.json(viewOf(signed));
+    }),
+  );
+
+  // From an out-of-date link: email the current link to the address on the agreement.
+  router.post(
+    '/email-link',
+    h(async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(await emailCurrentLink(deps, req.body?.token, req.ip || ''));
     }),
   );
 

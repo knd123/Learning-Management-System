@@ -161,7 +161,7 @@ function ClientAgreements() {
     setSending(row.id);
     try {
       const res = await api.post<ClientAgreementSendResult>(`/api/admin/client-agreements/${row.id}/send`);
-      if (res.emailStatus === 'sent') toast(`Sent again to ${row.clientName}${row.clientEmail ? ` (${row.clientEmail})` : ''}, with the class schedule as it is now. Older links no longer work.`);
+      if (res.emailStatus === 'sent') toast(`Sent again to ${row.clientName}${row.clientEmail ? ` (${row.clientEmail})` : ''}, with the class schedule as it is now. Links in earlier emails keep working.`);
       else if (res.emailStatus === 'no_email') toast(`${row.clientName} has no email address on the student's profile. Add one, then send again.`, 'error');
       else if (res.emailStatus === 'logged') toast('Rewritten with a new link. Email is not set up, so the email was only logged.');
       else toast(`The email failed: ${res.emailError || 'unknown error'}`, 'error');

@@ -30,38 +30,58 @@ export function AgreementDocument({
   const end = useRef<HTMLDivElement>(null);
   const [fitted, setFitted] = useState(false);
 
-  const fit = useCallback(() => {
-    const el = frame.current;
+  /** Grows the frame to the agreement's full height, so the page (not the frame) scrolls through it. */
+  const fit = useCallback((el: HTMLIFrameElement | null = frame.current) => {
     const body = el?.contentDocument?.body;
-    if (el && body && body.scrollHeight > 0) {
-      el.style.height = `${body.scrollHeight + 8}px`;
-      setFitted(true);
-    }
+    if (!el || !body || body.scrollHeight <= 0) return;
+    el.style.height = `${body.scrollHeight + 8}px`;
+    setFitted(true);
   }, []);
+  // Safari (iPhone, iPad, Mac) can finish loading the frame's page before the frame is wired up here,
+  // so its load event alone is not enough: fit again once it is on the page, as its layout settles
+  // (fonts, a phone's toolbars), and whenever the window changes size.
   useEffect(() => {
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
-  }, [fit]);
+    const el = frame.current;
+    if (!el || !data) return;
+    const timers = [0, 150, 500, 1500, 4000].map((ms) => window.setTimeout(() => fit(el), ms));
+    const refit = () => fit(el);
+    window.addEventListener('resize', refit);
+    return () => {
+      timers.forEach((t) => window.clearTimeout(t));
+      window.removeEventListener('resize', refit);
+    };
+  }, [fit, data]);
 
-  // The end of the agreement counts as reached (only once the frame shows all of it) when it has
-  // come up into view, however fast the reader scrolled past it.
+  // The end of the agreement counts as reached when it has come up into view on the page, however
+  // fast the reader scrolled past it; or, if the frame could not be grown and scrolls on its own,
+  // when the reader reaches the end inside it.
   useEffect(() => {
-    if (!fitted || !onReadToEnd) return;
-    const check = () => {
-      const marker = end.current;
-      if (!marker || marker.getBoundingClientRect().top > window.innerHeight) return;
-      onReadToEnd();
+    if (!onReadToEnd || !data) return;
+    const el = frame.current;
+    const inner = el?.contentWindow ?? null;
+    let done = false;
+    const stop = () => {
       window.removeEventListener('scroll', check, true);
       window.removeEventListener('resize', check);
+      inner?.removeEventListener('scroll', check);
     };
+    function check() {
+      if (done) return;
+      const marker = end.current;
+      const page = el?.contentDocument?.documentElement;
+      const pageEnd = fitted && marker && marker.getBoundingClientRect().top <= window.innerHeight;
+      const frameEnd = !fitted && inner && page && page.scrollHeight > inner.innerHeight + 40 && inner.scrollY + inner.innerHeight >= page.scrollHeight - 40;
+      if (!pageEnd && !frameEnd) return;
+      done = true;
+      stop();
+      onReadToEnd!();
+    }
     window.addEventListener('scroll', check, { capture: true, passive: true });
     window.addEventListener('resize', check);
+    inner?.addEventListener('scroll', check, { passive: true });
     check();
-    return () => {
-      window.removeEventListener('scroll', check, true);
-      window.removeEventListener('resize', check);
-    };
-  }, [fitted, onReadToEnd]);
+    return stop;
+  }, [fitted, onReadToEnd, data]);
 
   if (loading && !data) return <Loading label="Loading the agreement…" />;
   if ((error && !html) || !data) return <ErrorBox message={error || 'Could not load the agreement.'} onRetry={reload} />;
@@ -73,7 +93,7 @@ export function AgreementDocument({
           <Printer className="size-4" aria-hidden /> Print or save as PDF
         </Button>
       </div>
-      <iframe ref={frame} title={title} srcDoc={data} sandbox="allow-same-origin allow-modals" onLoad={fit} className="block h-[70vh] w-full" />
+      <iframe ref={frame} title={title} srcDoc={data} sandbox="allow-same-origin allow-modals" onLoad={(e) => fit(e.currentTarget)} className="block h-[70vh] w-full" />
       <div ref={end} className="h-px" aria-hidden />
     </div>
   );

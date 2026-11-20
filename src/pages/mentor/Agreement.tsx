@@ -4,7 +4,7 @@ import { longDate, sameName, signatureFromDrawing, type SignatureDrawing } from 
 import { ymdInZone } from '../../../shared/time.ts';
 import type { MentorAgreement } from '../../../shared/types.ts';
 import { AgreementDocument } from '../../components/AgreementDocument.tsx';
-import { SignaturePad } from '../../components/SignaturePad.tsx';
+import { SignaturePad, StillToSign } from '../../components/SignaturePad.tsx';
 import { Button, Card, Checkbox, EmptyState, ErrorBox, Field, Input, Loading, Notice, PageHeader, SectionTitle, useToast } from '../../components/ui.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { useAuth } from '../../lib/auth.tsx';
@@ -118,6 +118,15 @@ export default function MentorAgreementPage() {
                 />
               </fieldset>
               {problem && <ErrorBox message={problem} />}
+              {readToEnd && (
+                <StillToSign
+                  items={[
+                    !nameOk && `Type your full legal name exactly as written: ${agreement.contractorName}`,
+                    !signatureOk && (signature && 'problem' in signature ? signature.problem : 'Draw your signature in the box'),
+                    !agree && 'Tick the box to agree',
+                  ]}
+                />
+              )}
               <div>
                 <Button type="submit" size="lg" disabled={!readToEnd || !nameOk || !signatureOk || !agree} loading={busy}>
                   <FileSignature className="size-4" aria-hidden /> Sign agreement

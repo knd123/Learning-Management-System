@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
-import type { ClientAgreementRow, ClientAgreementSendResult, ClientAgreementView, ParentAgreementLink } from '../shared/api.ts';
+import type { ClientAgreementLinkResult, ClientAgreementRow, ClientAgreementSendResult, ClientAgreementView, ParentAgreementLink } from '../shared/api.ts';
 import { platformName, serviceLine } from '../shared/clientAgreement.ts';
 import type { AppNotification, ClientAgreement, Course, PublicUser } from '../shared/types.ts';
 import { C } from '../server/db/store.ts';
@@ -102,7 +103,7 @@ describe('client service agreements for new classes', () => {
     assert.match(v.html, /<strong>2\. First Four Weeks of Pause:<\/strong> The Client may pause Services for four \(4\) weeks \(one billing cycle\) without charge\./);
     assert.match(v.html, /For each additional four \(4\) weeks of pause, the Client must pay fifty percent \(50%\) of the regular four-week invoice/);
     assert.ok(!/monthly invoice|month of pause|Month of Pause/i.test(v.html), 'no monthly billing, pause or invoice left');
-    assert.match((await view(`${token.slice(0, -2)}xx`, 404)).error!, /expired or is not valid/);
+    assert.match((await view(`${token.slice(0, -2)}xx`, 404)).error!, /out of date/);
     assert.match((await view('nonsense', 404)).error!, /not found/);
   });
 
@@ -126,7 +127,7 @@ describe('client service agreements for new classes', () => {
     assert.match((await admin.post<{ error: string }>(`/api/admin/client-agreements/csa_${course.id}/send`, {}, 400)).error, /Tigist Tadesse already signed this agreement on November 10, 2026/);
   });
 
-  it('reminds at 24 and 48 hours, then tells the team; sending again uses the schedule as it is now and retires old links', async () => {
+  it('reminds at 24 and 48 hours, then tells the team; sending again uses the schedule as it is now and keeps earlier links working', async () => {
     const science = await admin.post<Course>('/api/admin/courses', {
       title: 'Science with Nahom', subject: 'Science', gradeLevel: 9, mentorId: sara.id, studentIds: [nahom.id], schedule: [{ weekday: 2, startTime: '17:00', durationMinutes: 90 }], timezone: NY, startDate: '2026-11-10', meetingUrl: '',
     }, 201);
@@ -151,8 +152,9 @@ describe('client service agreements for new classes', () => {
     assert.equal(res.row.services[0], 'Two (2) one-on-one Science classes per week for Nahom Tadesse, 1 hour each class, billable every four (4) weeks (8 classes, 8 hours per 4-week billing cycle)');
     assert.deepEqual(res.row.remindersSent, []);
     assert.equal(res.row.effectiveDate, '2026-11-10', 'the effective date stays');
-    await view(first, 404);
-    assert.equal((await view(linkIn('tigist@example.com'))).services[0], res.row.services[0]);
+    // Every email the family has keeps working: the link stays the same for the same address.
+    assert.equal((await view(first)).services[0], res.row.services[0]);
+    assert.equal(linkIn('tigist@example.com'), first);
   });
 
   it('shows a parent their agreements in the portal, with the link to sign', async () => {
@@ -187,10 +189,49 @@ describe('client service agreements for new classes', () => {
   it('sends a student-signed agreement again to the parent linked afterwards', async () => {
     const [row] = (await admin.get<ClientAgreementRow[]>('/api/admin/client-agreements')).filter((r) => r.studentName === 'Liya Haile');
     assert.equal(row.clientIsStudent, true);
+    const studentsLink = linkIn('liya@example.com');
     await admin.post('/api/admin/users', { role: 'parent', username: 'haile.gebru', password: 'parent-pass-8', displayName: 'Haile Gebru', email: 'haile.g@example.com', linkedStudentIds: [row.studentId], timezone: NY }, 201);
     const sent = await admin.post<ClientAgreementSendResult>(`/api/admin/client-agreements/${row.id}/send`);
     assert.deepEqual([sent.row.clientName, sent.row.clientEmail, sent.row.clientIsStudent], ['Haile Gebru', 'haile.g@example.com', false]);
     assert.match(h.mailer.sent.at(-1)!.text, /^Hi Haile,/);
+    // Now addressed to someone else, so the link the student was sent stops working.
+    await view(studentsLink, 404);
+    await view(linkIn('haile.g@example.com'));
+  });
+
+  it('still opens links emailed before links were tied to the address, however often it is sent again', async () => {
+    const selam = (await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'student', username: 'selam', displayName: 'Selam Bekele', email: 'selam@example.com', grade: 7, timezone: NY, createMatchRequest: false, parents: [{ name: 'Hirut Bekele', email: 'hirut@example.com', phone: '+1-202-555-0177' }] }, 201)).user;
+    const english = await admin.post<Course>('/api/admin/courses', { title: 'English with Selam', subject: 'English / Language Arts', gradeLevel: 7, mentorId: sara.id, studentIds: [selam.id], schedule: twiceWeekly, timezone: NY, startDate: '2026-11-12', meetingUrl: '' }, 201);
+    const id = `csa_${english.id}`;
+    // How links were made until 2026-11-21: tied to the time of sending.
+    const legacy = (sentAt: string) => `${id}.${crypto.createHmac('sha256', h.deps.sessionSecret).update(`client-agreement|${id}|${sentAt}`).digest('base64url').slice(0, 32)}`;
+    const oldLink = legacy((await h.store.get<ClientAgreement>(C.clientAgreements, id))!.sentAt);
+    assert.equal((await view(oldLink)).subject, 'English / Language Arts');
+    await admin.post(`/api/admin/client-agreements/${id}/send`);
+    h.clock.now = new Date(h.clock.now.getTime() + 60_000);
+    await admin.post(`/api/admin/client-agreements/${id}/send`);
+    assert.equal((await view(oldLink)).subject, 'English / Language Arts', 'still works after two more sends');
+    assert.match((await view(`${id}.not-the-right-code-at-all-000000`, 404)).error!, /out of date/);
+  });
+
+  it('emails the current link from an out-of-date one, only to the address on the agreement and a few times an hour', async () => {
+    const [selam] = (await admin.get<PublicUser[]>('/api/admin/users?role=student')).filter((u) => u.username === 'selam');
+    const reading = await admin.post<Course>('/api/admin/courses', { title: 'Reading with Selam', subject: 'Reading', gradeLevel: 7, mentorId: sara.id, studentIds: [selam.id], schedule: twiceWeekly, timezone: NY, startDate: '2026-11-12', meetingUrl: '' }, 201);
+    const id = `csa_${reading.id}`;
+    const stale = `${id}.an-old-code-from-a-lost-email-0000`;
+    const ask = (t: string, expect = 200) => new Client(h).post<ClientAgreementLinkResult & { error?: string }>('/api/client-agreement/email-link', { token: t }, expect);
+    const before = h.mailer.sent.length;
+    assert.deepEqual(await ask(stale), { sentTo: 'h\u2022\u2022\u2022@example.com' });
+    const email = h.mailer.sent.at(-1)!;
+    assert.deepEqual(email.to, ['hirut@example.com']);
+    assert.equal(h.mailer.sent.length, before + 1);
+    const current = /\/client-agreement#token=([\w.-]+)/.exec(email.text)![1];
+    assert.equal((await view(current)).subject, 'Reading');
+    await ask(stale);
+    await ask(stale);
+    assert.match((await ask(stale, 429)).error!, /just emailed the current link/);
+    await ask('csa_nosuchclass.abc', 404);
+    await ask('not-a-link', 404);
   });
 
   it('draws nothing for classes that already existed, even when they are edited', async () => {

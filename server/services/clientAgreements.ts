@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
-import type { ClientAgreementRow, ClientAgreementSendResult, ClientAgreementView, ParentAgreementLink } from '../../shared/api.ts';
+import type { ClientAgreementLinkResult, ClientAgreementRow, ClientAgreementSendResult, ClientAgreementView, ParentAgreementLink } from '../../shared/api.ts';
 import { ICA_REMINDER_HOURS, longDate, sameName, signatureFromDrawing } from '../../shared/agreement.ts';
 import { CSA_COMPANY, CSA_COMPANY_SIGNATORY, CSA_TITLE, CSA_VERSION, csaBody, platformName, serviceLine } from '../../shared/clientAgreement.ts';
 import type { ClientAgreement, Course } from '../../shared/types.ts';
 import { isValidYmd, ONE_HOUR, ymdInZone } from '../../shared/time.ts';
-import type { UserRecord } from '../auth.ts';
+import { LoginLimiter, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
 import type { Deps } from '../deps.ts';
 import { badRequest, HttpError, notFound } from '../http.ts';
@@ -28,36 +28,85 @@ export const CSA_REMINDER_HOURS = ICA_REMINDER_HOURS;
 // --- The private link -------------------------------------------------------------------
 
 /**
- * The link to sign is "<agreement id>.<code>", where the code is made from the server's secret and
- * when the agreement was sent: nothing secret is stored, and sending again retires older links.
+ * The link to sign is "<agreement id>.<code>", where the code is made from the server's secret, the
+ * agreement and the email address it goes to. Nothing secret is stored. Sending the agreement again to
+ * the same address keeps the same link, so every email the client has keeps working; addressing it to
+ * someone else changes the code, so links sent to the old address stop working.
  */
-function linkCode(deps: Deps, agreement: Pick<ClientAgreement, 'id' | 'sentAt'>): string {
-  return crypto.createHmac('sha256', deps.sessionSecret).update(`client-agreement|${agreement.id}|${agreement.sentAt}`).digest('base64url').slice(0, 32);
+const hmac = (deps: Deps, text: string) => crypto.createHmac('sha256', deps.sessionSecret).update(text).digest('base64url').slice(0, 32);
+const addressOf = (email?: string) => (email || '').trim().toLowerCase();
+
+function linkCode(deps: Deps, agreement: Pick<ClientAgreement, 'id' | 'clientEmail'>): string {
+  return hmac(deps, `client-agreement-v2|${agreement.id}|${addressOf(agreement.clientEmail)}`);
 }
 
-export function signingToken(deps: Deps, agreement: Pick<ClientAgreement, 'id' | 'sentAt'>): string {
+/** Links emailed before 2026-11-21 carry a code tied to when that email was sent. */
+function legacyCode(deps: Deps, id: string, sentAt: string): string {
+  return hmac(deps, `client-agreement|${id}|${sentAt}`);
+}
+
+export function signingToken(deps: Deps, agreement: Pick<ClientAgreement, 'id' | 'clientEmail'>): string {
   return `${agreement.id}.${linkCode(deps, agreement)}`;
 }
 
-export function signingLink(deps: Deps, agreement: Pick<ClientAgreement, 'id' | 'sentAt'>): string {
+export function signingLink(deps: Deps, agreement: Pick<ClientAgreement, 'id' | 'clientEmail'>): string {
   // After "#", so the code never reaches a server log.
   return `${deps.appUrl}/client-agreement#token=${signingToken(deps, agreement)}`;
 }
 
-/** The agreement a link opens, or a 404 for a wrong or retired link. */
-export async function agreementForToken(deps: Deps, token: unknown): Promise<ClientAgreement> {
+/** The agreement id at the start of a link's code, if it has the right shape. */
+function agreementIdIn(token: unknown): string {
   const value = typeof token === 'string' ? token.trim() : '';
   const dot = value.lastIndexOf('.');
   const id = dot > 0 ? value.slice(0, dot) : '';
-  if (!/^csa_[\w-]{1,40}$/.test(id)) throw notFound('Agreement');
+  return /^csa_[\w-]{1,40}$/.test(id) ? id : '';
+}
+
+const OUTDATED_LINK = 'This link is out of date. Tap “Email me the current link”, or ask the Abugida team to send it again.';
+
+/** The agreement a link opens, or a 404 for a wrong or out-of-date link. */
+export async function agreementForToken(deps: Deps, token: unknown): Promise<ClientAgreement> {
+  const id = agreementIdIn(token);
+  if (!id) throw notFound('Agreement');
   const agreement = await deps.store.get<ClientAgreement>(C.clientAgreements, id);
   if (!agreement) throw notFound('Agreement');
-  const expected = Buffer.from(linkCode(deps, agreement));
-  const given = Buffer.from(value.slice(dot + 1));
-  if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) {
-    throw new HttpError(404, 'This link has expired or is not valid. Use the link in the most recent email about the agreement, or ask the Abugida team to send it again.');
-  }
+  const given = Buffer.from(String(token).trim().slice(id.length + 1));
+  const sameAddress = (to?: string) => addressOf(to) === addressOf(agreement.clientEmail);
+  const valid = [
+    linkCode(deps, agreement),
+    legacyCode(deps, agreement.id, agreement.sentAt),
+    ...(agreement.earlierSends || []).filter((e) => sameAddress(e.to)).map((e) => legacyCode(deps, agreement.id, e.at)),
+  ];
+  if (!valid.some((code) => code.length === given.length && crypto.timingSafeEqual(Buffer.from(code), given))) throw new HttpError(404, OUTDATED_LINK);
   return agreement;
+}
+
+/** A few "Email me the current link" requests an hour, per agreement and per network. */
+const linkRequests = new LoginLimiter(3, 60 * 60_000);
+const masked = (email: string) => {
+  const [user, domain] = email.split('@');
+  return `${user.slice(0, 1)}•••@${domain}`;
+};
+
+/**
+ * From an out-of-date link: emails the current link to the address the agreement is for (never to an
+ * address the request names), so the client can always get back to signing without the team.
+ */
+export async function emailCurrentLink(deps: Deps, token: unknown, network: string): Promise<ClientAgreementLinkResult> {
+  const id = agreementIdIn(token);
+  const agreement = id ? await deps.store.get<ClientAgreement>(C.clientAgreements, id) : null;
+  if (!agreement) throw notFound('Agreement');
+  if (agreement.status === 'signed') return { signed: true };
+  if (!agreement.clientEmail) {
+    const settings = await getSettings(deps.store);
+    throw badRequest(`We have no email address for this agreement. Please email ${settings.adminNotificationEmail} and we will send it to you.`);
+  }
+  const now = deps.now().getTime();
+  const keys = [`agreement|${agreement.id}`, `network|${network}`];
+  if (!keys.every((k) => linkRequests.check(k, now))) throw new HttpError(429, 'We have just emailed the current link. Please look for the newest email from Abugida Education (check spam too), or try again in an hour.');
+  keys.forEach((k) => linkRequests.fail(k, now));
+  await askToSign(deps, agreement, 'send');
+  return { sentTo: masked(agreement.clientEmail) };
 }
 
 // --- Writing the agreement --------------------------------------------------------------
@@ -195,7 +244,8 @@ async function noticeToClient(deps: Deps, agreement: ClientAgreement, title: str
 
 /**
  * The team sends the agreement again: rewritten with the client and the class schedule as they are now
- * (the effective date stays), with a new link (older links stop working) and the reminders starting over.
+ * (the effective date stays), and the reminders start over. Links the client already has keep working,
+ * unless the agreement now goes to a different email address.
  */
 export async function resendClientAgreement(deps: Deps, id: string): Promise<ClientAgreementSendResult> {
   const existing = await deps.store.get<ClientAgreement>(C.clientAgreements, id);
@@ -204,7 +254,8 @@ export async function resendClientAgreement(deps: Deps, id: string): Promise<Cli
   const [course, student] = await Promise.all([deps.store.get<Course>(C.courses, existing.courseId), deps.store.get<UserRecord>(C.users, existing.studentId)]);
   if (!course || !student) throw badRequest('This class or student no longer exists.');
   const now = deps.now().toISOString();
-  const agreement: ClientAgreement = { ...existing, ...(await written(deps, course, student, existing.effectiveDate)), sentAt: now, reminders: undefined, updatedAt: now };
+  const earlierSends = [...(existing.earlierSends || []), { at: existing.sentAt, to: existing.clientEmail }].slice(-10);
+  const agreement: ClientAgreement = { ...existing, ...(await written(deps, course, student, existing.effectiveDate)), sentAt: now, earlierSends, reminders: undefined, updatedAt: now };
   await deps.store.put(C.clientAgreements, agreement);
   const log = await askToSign(deps, agreement, 'send');
   await noticeToClient(deps, agreement, 'Please sign the client service agreement', `Read and sign the Client Service Agreement for ${agreement.studentName}’s ${agreement.subject} classes.`);

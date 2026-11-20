@@ -747,6 +747,14 @@ export interface ClientAgreementView {
   html: string;
 }
 
+/** "Email me the current link" from an out-of-date signing link. */
+export interface ClientAgreementLinkResult {
+  /** The address it went to, partly hidden (a•••@example.com). */
+  sentTo?: string;
+  /** Nothing to sign: the agreement is already signed. */
+  signed?: boolean;
+}
+
 export interface ClientAgreementSendResult {
   row: ClientAgreementRow;
   emailStatus: EmailLog['status'] | 'no_email';

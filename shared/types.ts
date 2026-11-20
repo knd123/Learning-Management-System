@@ -639,8 +639,13 @@ export interface ClientAgreement {
   /** Signed for the Company on the effective date. */
   company: { name: string; signatory: string; title: string; signedDate: string };
   status: 'awaiting_signature' | 'signed';
-  /** When the client was last emailed the link to sign; links from earlier emails stop working, and reminders count from here. */
+  /** When the client was last emailed the link to sign; reminders count from here. */
   sentAt: string;
+  /**
+   * Earlier sends, kept so that links emailed before 2026-11-21 (whose code was tied to the send time)
+   * keep working after the agreement is sent again to the same address.
+   */
+  earlierSends?: Array<{ at: string; to?: string }>;
   /** Reminder emails sent, by hours after `sentAt`. */
   reminders?: Record<string, string>;
   signature?: {
