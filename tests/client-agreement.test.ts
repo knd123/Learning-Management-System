@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import type { ClientAgreementRow, ClientAgreementView, ParentAgreementLink } from '../shared/api.ts';
+import type { ClientAgreementRow, ClientAgreementSendResult, ClientAgreementView, ParentAgreementLink } from '../shared/api.ts';
 import { platformName, serviceLine } from '../shared/clientAgreement.ts';
 import type { AppNotification, ClientAgreement, Course, PublicUser } from '../shared/types.ts';
 import { C } from '../server/db/store.ts';
@@ -171,6 +171,26 @@ describe('client service agreements for new classes', () => {
     const a = (await h.store.get<ClientAgreement>(C.clientAgreements, `csa_${c.id}`))!;
     assert.deepEqual([a.clientName, a.clientEmail, a.clientIsStudent], ['Liya Haile', 'liya@example.com', true]);
     assert.match(h.mailer.sent.find((e) => e.to.includes('liya@example.com') && /client service agreement/i.test(e.subject))!.text, /Your SAT \/ ACT Prep classes/);
+  });
+
+  it('makes a parent account linked to the student the client when the profile lists no parent', async () => {
+    // A student added with Quick add has no parent on the profile; the team links the parent's account.
+    const abel = (await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'student', username: 'abel', displayName: 'Abel Kidane', email: 'abel@example.com', grade: 6, timezone: NY, createMatchRequest: false }, 201)).user;
+    await admin.post('/api/admin/users', { role: 'parent', username: 'meron.kidane', password: 'parent-pass-9', displayName: 'Meron Kidane', email: 'meron.k@example.com', linkedStudentIds: [abel.id], timezone: NY }, 201);
+    const c = await admin.post<Course>('/api/admin/courses', { title: 'Math with Abel', subject: 'Math', gradeLevel: 6, mentorId: sara.id, studentIds: [abel.id], schedule: twiceWeekly, timezone: NY, startDate: '2026-11-12', meetingUrl: '' }, 201);
+    const a = (await h.store.get<ClientAgreement>(C.clientAgreements, `csa_${c.id}`))!;
+    assert.deepEqual([a.clientName, a.clientEmail, Boolean(a.clientIsStudent)], ['Meron Kidane', 'meron.k@example.com', false]);
+    const email = h.mailer.sent.find((e) => e.to.includes('meron.k@example.com') && /client service agreement/i.test(e.subject))!;
+    assert.match(email.text, /^Hi Meron,/);
+  });
+
+  it('sends a student-signed agreement again to the parent linked afterwards', async () => {
+    const [row] = (await admin.get<ClientAgreementRow[]>('/api/admin/client-agreements')).filter((r) => r.studentName === 'Liya Haile');
+    assert.equal(row.clientIsStudent, true);
+    await admin.post('/api/admin/users', { role: 'parent', username: 'haile.gebru', password: 'parent-pass-8', displayName: 'Haile Gebru', email: 'haile.g@example.com', linkedStudentIds: [row.studentId], timezone: NY }, 201);
+    const sent = await admin.post<ClientAgreementSendResult>(`/api/admin/client-agreements/${row.id}/send`);
+    assert.deepEqual([sent.row.clientName, sent.row.clientEmail, sent.row.clientIsStudent], ['Haile Gebru', 'haile.g@example.com', false]);
+    assert.match(h.mailer.sent.at(-1)!.text, /^Hi Haile,/);
   });
 
   it('draws nothing for classes that already existed, even when they are edited', async () => {

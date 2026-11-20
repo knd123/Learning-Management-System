@@ -62,19 +62,27 @@ export async function agreementForToken(deps: Deps, token: unknown): Promise<Cli
 
 // --- Writing the agreement --------------------------------------------------------------
 
-/** Who signs: the first parent or guardian on the student's profile, otherwise the student. */
-function clientOf(student: UserRecord): { name: string; email?: string; isStudent: boolean } {
+/**
+ * Who signs: the first parent or guardian on the student's profile; else a parent account the team
+ * linked to the student (a student added with Quick add has no parent on the profile yet); otherwise
+ * the student. The linked-parent lookup only runs when the profile lists no parent.
+ */
+async function clientOf(deps: Deps, student: UserRecord): Promise<{ name: string; email?: string; isStudent: boolean }> {
   const parent = student.parents?.[0];
   if (parent?.name) return { name: parent.name, email: parent.email || undefined, isStudent: false };
   if (student.parentName) return { name: student.parentName, email: student.parentEmails?.[0], isStudent: false };
+  const [linked] = (await deps.store.find<UserRecord>(C.users, { role: 'parent' }, { arrayContains: { field: 'linkedStudentIds', value: student.id } }))
+    .filter((p) => p.active && p.displayName)
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '') || a.id.localeCompare(b.id));
+  if (linked) return { name: linked.displayName, email: linked.email || undefined, isStudent: false };
   return { name: student.displayName, email: student.email || undefined, isStudent: true };
 }
 
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ');
 
 /** The agreement text for a class: who the client is today, and the class's current schedule. */
-function written(course: Course, student: UserRecord, effectiveDate: string) {
-  const client = clientOf(student);
+async function written(deps: Deps, course: Course, student: UserRecord, effectiveDate: string) {
+  const client = await clientOf(deps, student);
   const services = [serviceLine({ subject: course.subject, studentName: clean(student.displayName), slots: course.schedule })];
   const platform = platformName(course.meetingUrl);
   return {
@@ -108,7 +116,7 @@ export async function createClientAgreement(deps: Deps, course: Course): Promise
     id: clientAgreementIdFor(course.id),
     courseId: course.id,
     studentId: student.id,
-    ...written(course, student, ymdInZone(new Date(course.createdAt || now), settings.timezone)),
+    ...(await written(deps, course, student, ymdInZone(new Date(course.createdAt || now), settings.timezone))),
     status: 'awaiting_signature',
     sentAt: now,
     createdAt: now,
@@ -196,7 +204,7 @@ export async function resendClientAgreement(deps: Deps, id: string): Promise<Cli
   const [course, student] = await Promise.all([deps.store.get<Course>(C.courses, existing.courseId), deps.store.get<UserRecord>(C.users, existing.studentId)]);
   if (!course || !student) throw badRequest('This class or student no longer exists.');
   const now = deps.now().toISOString();
-  const agreement: ClientAgreement = { ...existing, ...written(course, student, existing.effectiveDate), sentAt: now, reminders: undefined, updatedAt: now };
+  const agreement: ClientAgreement = { ...existing, ...(await written(deps, course, student, existing.effectiveDate)), sentAt: now, reminders: undefined, updatedAt: now };
   await deps.store.put(C.clientAgreements, agreement);
   const log = await askToSign(deps, agreement, 'send');
   await noticeToClient(deps, agreement, 'Please sign the client service agreement', `Read and sign the Client Service Agreement for ${agreement.studentName}’s ${agreement.subject} classes.`);
