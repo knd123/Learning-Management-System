@@ -125,6 +125,36 @@ export async function sendAccountSetupLink(deps: Deps, user: UserRecord): Promis
   return to;
 }
 
+/**
+ * The team emails someone a one-time link to choose a password that works for SETUP_LINK_DAYS days
+ * (the "Forgot password?" link lasts an hour). A student who has never signed in gets the "Your account
+ * is ready" email; anyone else a "choose a new password" one, and their current password keeps working
+ * until they use the link. Replaces any earlier link. Returns where it went.
+ */
+export async function sendPasswordLink(deps: Deps, user: UserRecord): Promise<string[]> {
+  if (user.role === 'student' && !user.lastLoginAt) return sendAccountSetupLink(deps, user);
+  const to = resetRecipients(user);
+  if (!to.length) return [];
+  const settings = await getSettings(deps.store);
+  const org = settings.organizationName;
+  const { token, link } = await newLink(deps, user, SETUP_LINK_DAYS * 24 * 60);
+  const forParent = !user.email;
+  const name = user.displayName.split(/\s+/)[0] || user.username;
+  const greeting = forParent ? 'Hello,' : `Hi ${name},`;
+  const intro = forParent
+    ? `The ${org} team sent you this link to choose a new password for ${user.displayName}’s account.`
+    : `The ${org} team sent you this link to choose a new password.`;
+  const keep = 'Your current password keeps working until you choose a new one.';
+  const text = [greeting, '', intro, '', `Username: ${user.username}`, `Choose the new password here (the link works for ${SETUP_LINK_DAYS} days and only once):`, link, '', keep, `Questions? Email ${settings.adminNotificationEmail}.`].join('\n');
+  const html = emailLayout(
+    'Choose a new password',
+    `<p>${escapeHtml(greeting)}</p><p style="line-height:1.6">${escapeHtml(intro)}</p><p>Username: <strong>${escapeHtml(user.username)}</strong></p>${emailButton(link, 'Choose a new password')}<p style="color:#55605c;font-size:14px">The link works for ${SETUP_LINK_DAYS} days and only once. ${escapeHtml(keep)} Questions? Email ${escapeHtml(settings.adminNotificationEmail)}.</p>`,
+    org,
+  );
+  await sendEmail(deps, 'password_reset', { to, subject: `Choose a new password for ${org}`, text, html }, user.id, { hide: [token] });
+  return to;
+}
+
 /** The account a reset link belongs to, or null when the link is unknown, used or expired. */
 export async function findResetAccount(deps: Deps, token: string): Promise<{ reset: PasswordReset; user: UserRecord } | null> {
   if (!token || token.length > 200) return null;

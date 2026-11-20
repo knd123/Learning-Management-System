@@ -20,7 +20,7 @@ import { classReportDetail, classReportRows, setReportReviewed } from '../servic
 import { approveMatchItem, classMentorChanged, closeMatchRequest, createMatchRequest, declineMatchItem, editApprovedMatchItem, isPairableMentor, loadRequest, openTeamRequest, planSuggestions, requestDetail, type ApproveInput } from '../services/pairing.ts';
 import { applyProfile, parseEmail, parseSubjects, parseTimezone } from '../services/profiles.ts';
 import { generateParentReport, renderReportEmail, sendParentReport } from '../services/reports.ts';
-import { sendAccountSetupLink } from '../services/passwordReset.ts';
+import { sendAccountSetupLink, sendPasswordLink } from '../services/passwordReset.ts';
 import { recordingState } from '../services/recordings.ts';
 import { findClashes, joinUrl, resyncFutureSessions, sessionsBetween } from '../services/schedule.ts';
 import { getSettings } from '../services/settings.ts';
@@ -258,6 +258,20 @@ export function adminRoutes(deps: Deps): Router {
       if (password.length < 6) throw badRequest('Passwords need at least 6 characters.');
       await deps.store.patch<UserRecord>(C.users, user.id, { passwordHash: await hashPassword(password), tokenVersion: user.tokenVersion + 1 });
       res.json({ password });
+    }),
+  );
+
+  // Emails a one-time link to choose a password, valid 7 days; any earlier link stops working.
+  router.post(
+    '/users/:id/password-link',
+    h(async (req, res) => {
+      const user = await deps.store.get<UserRecord>(C.users, req.params.id);
+      if (!user) throw notFound('User');
+      if (user.role === 'admin') throw badRequest(TEAM_SIGN_IN_NOTE);
+      if (!user.active) throw badRequest(`${user.displayName}’s account is turned off. Turn it on first.`);
+      const sentTo = await sendPasswordLink(deps, user);
+      if (!sentTo.length) throw badRequest(`${user.displayName} has no email address on file${user.role === 'student' ? ', and no parent email either' : ''}. Add one first.`);
+      res.json({ sentTo });
     }),
   );
 

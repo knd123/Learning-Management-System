@@ -1,4 +1,4 @@
-import { Copy, KeyRound, MailCheck, Pencil, Plus, Search, UserPlus } from 'lucide-react';
+import { Copy, KeyRound, Mail, MailCheck, Pencil, Plus, Search, UserPlus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import type { PendingStudentSetup, PublicConfig } from '../../../shared/api.ts';
 import { DEFAULT_SUBJECT_HOURS, hoursBySubject } from '../../../shared/hours.ts';
@@ -31,6 +31,7 @@ export default function AdminUsers() {
   const [editing, setEditing] = useState<PublicUser | 'new' | null>(null);
   const [credentials, setCredentials] = useState<{ username: string; password: string; name: string; setupLinkSentTo?: string[] } | null>(null);
   const [assigning, setAssigning] = useState<PublicUser | null>(null);
+  const [linkFor, setLinkFor] = useState<PublicUser | null>(null);
   const { data, error, loading, reload } = useApi<PublicUser[]>(`/api/admin/users?role=${role}`);
   const students = useApi<PublicUser[]>(role === 'parent' ? '/api/admin/users?role=student' : null);
   const studentNames = new Map((students.data || []).map((s) => [s.id, s.displayName]));
@@ -157,6 +158,11 @@ export default function AdminUsers() {
                     <Button size="sm" variant="ghost" onClick={() => setEditing(u)} aria-label={`Edit ${u.displayName}`}>
                       <Pencil className="size-4" />
                     </Button>
+                    {u.role !== 'admin' && u.active && (
+                      <Button size="sm" variant="ghost" onClick={() => setLinkFor(u)} aria-label={`Email a password link to ${u.displayName}`} title="Email a link to choose a password (7 days)">
+                        <Mail className="size-4" />
+                      </Button>
+                    )}
                     {u.role !== 'admin' && (
                       <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} aria-label={`Reset password for ${u.displayName}`}>
                         <KeyRound className="size-4" />
@@ -194,6 +200,18 @@ export default function AdminUsers() {
       </Modal>
       <Modal open={Boolean(assigning)} onClose={() => setAssigning(null)} title={assigning ? `Assign a mentor to ${assigning.displayName}` : 'Assign a mentor'}>
         {assigning && <AssignMentor student={assigning} onClose={() => setAssigning(null)} />}
+      </Modal>
+      <Modal open={Boolean(linkFor)} onClose={() => setLinkFor(null)} title={linkFor ? `Email a password link to ${linkFor.displayName}` : 'Email a password link'}>
+        {linkFor && (
+          <PasswordLink
+            user={linkFor}
+            onCancel={() => setLinkFor(null)}
+            onSent={(message) => {
+              setLinkFor(null);
+              toast(message);
+            }}
+          />
+        )}
       </Modal>
     </>
   );
@@ -243,6 +261,46 @@ function PendingSetups({ list, onChange }: { list: PendingStudentSetup[]; onChan
         ))}
       </ul>
     </Card>
+  );
+}
+
+/** Confirms, then emails a one-time link to choose a password (7 days) to the address on file. */
+function PasswordLink({ user, onCancel, onSent }: { user: PublicUser; onCancel(): void; onSent(message: string): void }) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const to = user.email || (user.role === 'student' ? (user.parentEmails || []).join(', ') : '');
+  const send = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const r = await api.post<{ sentTo: string[] }>(`/api/admin/users/${user.id}/password-link`);
+      onSent(`Emailed a password link for ${user.displayName} to ${r.sentTo.join(', ')}. It works for 7 days.`);
+    } catch (err) {
+      setProblem(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-ink-soft">
+        We’ll email a one-time link to choose a password{to ? (
+          <>
+            {' '}to <strong className="text-ink">{to}</strong>
+          </>
+        ) : null}
+        . It works for 7 days, and any earlier link stops working. The current password keeps working until the link is used.
+      </p>
+      {problem && <ErrorBox message={problem} />}
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button onClick={send} loading={busy}>
+          <Mail className="size-4" aria-hidden /> Send link
+        </Button>
+      </div>
+    </div>
   );
 }
 
