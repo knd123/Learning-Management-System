@@ -1,5 +1,5 @@
 // Response shapes of the REST API, shared by server and client.
-import type { AppNotification, Attachment, AttendanceMark, ClassSession, ClassType, ClientAgreement, Course, Curriculum, CurriculumWindow, EmailLog, Homework, MatchItem, MatchRequest, MentorAgreement, ParentLinkRequest, ParentReport, PublicUser, Quiz, QuizAttempt, QuizStatus, RewardRequest, Role, ScheduleSlot, SessionReport, Settings, Submission } from './types.ts';
+import type { AppNotification, Attachment, AttendanceMark, ClassSession, ClassType, ClientAgreement, Course, Curriculum, CurriculumWindow, EmailLog, Homework, MatchItem, MatchRequest, MentorAgreement, ParentLinkRequest, ParentReport, PrepaidClasses, PublicUser, Quiz, QuizAttempt, QuizStatus, RewardRequest, Role, ScheduleSlot, SessionReport, Settings, Submission } from './types.ts';
 
 export interface SessionView {
   id: string;
@@ -729,6 +729,8 @@ export interface ClientAgreementRow {
   signedDate?: string;
   /** The family signed a printed copy and sent it in. */
   onPaper?: boolean;
+  /** Classes already paid for, as written in the agreement. */
+  prepaid?: PrepaidClasses;
 }
 
 /** What the person signing sees (POST /api/client-agreement/view): no internal details. */
@@ -743,6 +745,8 @@ export interface ClientAgreementView {
   status: ClientAgreement['status'];
   timeZone: string;
   signedDate?: string;
+  /** Classes already paid for, as written in the agreement. */
+  prepaid?: PrepaidClasses;
   /** The agreement as a printable page. */
   html: string;
 }

@@ -650,7 +650,8 @@ export function adminRoutes(deps: Deps): Router {
   router.post(
     '/client-agreements/:id/send',
     h(async (req, res) => {
-      res.json(await resendClientAgreement(deps, req.params.id));
+      // Optionally with the classes already paid for (null removes them).
+      res.json(await resendClientAgreement(deps, req.params.id, req.body && 'prepaid' in req.body ? { prepaid: req.body.prepaid } : undefined));
     }),
   );
   // The family signed a printed copy and sent it in.

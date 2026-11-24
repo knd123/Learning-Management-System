@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type { ClientAgreementLinkResult, ClientAgreementRow, ClientAgreementSendResult, ClientAgreementView, ParentAgreementLink } from '../../shared/api.ts';
 import { ICA_REMINDER_HOURS, longDate, sameName, signatureFromDrawing } from '../../shared/agreement.ts';
 import { CSA_COMPANY, CSA_COMPANY_SIGNATORY, CSA_TITLE, CSA_VERSION, csaBody, platformName, serviceLine } from '../../shared/clientAgreement.ts';
-import type { ClientAgreement, Course } from '../../shared/types.ts';
+import type { ClientAgreement, Course, PrepaidClasses } from '../../shared/types.ts';
 import { isValidYmd, ONE_HOUR, ymdInZone } from '../../shared/time.ts';
 import { LoginLimiter, type UserRecord } from '../auth.ts';
 import { C } from '../db/store.ts';
@@ -130,7 +130,7 @@ async function clientOf(deps: Deps, student: UserRecord): Promise<{ name: string
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ');
 
 /** The agreement text for a class: who the client is today, and the class's current schedule. */
-async function written(deps: Deps, course: Course, student: UserRecord, effectiveDate: string) {
+async function written(deps: Deps, course: Course, student: UserRecord, effectiveDate: string, prepaid?: PrepaidClasses) {
   const client = await clientOf(deps, student);
   const services = [serviceLine({ subject: course.subject, studentName: clean(student.displayName), slots: course.schedule })];
   const platform = platformName(course.meetingUrl);
@@ -146,7 +146,8 @@ async function written(deps: Deps, course: Course, student: UserRecord, effectiv
     effectiveDate,
     services,
     platform,
-    body: csaBody({ effectiveDate, services, platform }),
+    prepaid,
+    body: csaBody({ effectiveDate, services, platform, prepaid }),
     company: { name: CSA_COMPANY, signatory: CSA_COMPANY_SIGNATORY.name, title: CSA_COMPANY_SIGNATORY.title, signedDate: effectiveDate },
   };
 }
@@ -247,7 +248,19 @@ async function noticeToClient(deps: Deps, agreement: ClientAgreement, title: str
  * (the effective date stays), and the reminders start over. Links the client already has keep working,
  * unless the agreement now goes to a different email address.
  */
-export async function resendClientAgreement(deps: Deps, id: string): Promise<ClientAgreementSendResult> {
+/** Classes already paid for, as the team typed them (null removes them). */
+function parsePrepaid(value: unknown, effectiveDate: string): PrepaidClasses | undefined {
+  if (value === null) return undefined;
+  const v = (value && typeof value === 'object' ? value : {}) as { classes?: unknown; from?: unknown };
+  const classes = Number(v.classes);
+  if (!Number.isInteger(classes) || classes < 1 || classes > 200) throw badRequest('Enter how many classes are paid for: a whole number from 1 to 200.');
+  const from = typeof v.from === 'string' ? v.from.trim() : '';
+  if (!isValidYmd(from)) throw badRequest('Enter the date of the first paid class.');
+  if (from < effectiveDate) throw badRequest(`The first paid class can’t be before the agreement’s date, ${longDate(effectiveDate)}.`);
+  return { classes, from };
+}
+
+export async function resendClientAgreement(deps: Deps, id: string, change?: { prepaid?: unknown }): Promise<ClientAgreementSendResult> {
   const existing = await deps.store.get<ClientAgreement>(C.clientAgreements, id);
   if (!existing) throw notFound('Agreement');
   if (existing.status === 'signed') throw badRequest(`${existing.clientName} already signed this agreement on ${longDate(existing.signature!.signedDate)}.`);
@@ -255,7 +268,8 @@ export async function resendClientAgreement(deps: Deps, id: string): Promise<Cli
   if (!course || !student) throw badRequest('This class or student no longer exists.');
   const now = deps.now().toISOString();
   const earlierSends = [...(existing.earlierSends || []), { at: existing.sentAt, to: existing.clientEmail }].slice(-10);
-  const agreement: ClientAgreement = { ...existing, ...(await written(deps, course, student, existing.effectiveDate)), sentAt: now, earlierSends, reminders: undefined, updatedAt: now };
+  const prepaid = change && 'prepaid' in change ? parsePrepaid(change.prepaid, existing.effectiveDate) : existing.prepaid;
+  const agreement: ClientAgreement = { ...existing, ...(await written(deps, course, student, existing.effectiveDate, prepaid)), sentAt: now, earlierSends, reminders: undefined, updatedAt: now };
   await deps.store.put(C.clientAgreements, agreement);
   const log = await askToSign(deps, agreement, 'send');
   await noticeToClient(deps, agreement, 'Please sign the client service agreement', `Read and sign the Client Service Agreement for ${agreement.studentName}’s ${agreement.subject} classes.`);
@@ -280,6 +294,7 @@ function rowOf(a: ClientAgreement): ClientAgreementRow {
     signedAt: a.signature?.signedAt,
     signedDate: a.signature?.signedDate,
     onPaper: a.signature?.onPaper ? true : undefined,
+    prepaid: a.prepaid,
   };
 }
 
@@ -332,6 +347,7 @@ export function viewOf(agreement: ClientAgreement): ClientAgreementView {
     status: agreement.status,
     timeZone: agreement.timeZone,
     signedDate: agreement.signature?.signedDate,
+    prepaid: agreement.prepaid,
     html: clientAgreementHtml(agreement),
   };
 }

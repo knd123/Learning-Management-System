@@ -234,6 +234,40 @@ describe('client service agreements for new classes', () => {
     await ask('not-a-link', 404);
   });
 
+  it('writes in the classes already paid for, with the schedule as it is now, when the team sends it again', async () => {
+    const dawit = (await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'student', username: 'dawit.t', displayName: 'Dawit Test', email: 'dawit@example.com', grade: 11, timezone: NY, createMatchRequest: false, parents: [{ name: 'Meseret Test', email: 'meseret@example.com', phone: '+1-202-555-0188' }] }, 201)).user;
+    const amharic = await admin.post<Course>('/api/admin/courses', {
+      title: 'Amharic with Dawit', subject: 'Amharic', gradeLevel: 11, mentorId: sara.id, studentIds: [dawit.id], timezone: NY, startDate: '2026-11-12', meetingUrl: '',
+      schedule: [{ weekday: 3, startTime: '18:00', durationMinutes: 60 }, { weekday: 6, startTime: '16:00', durationMinutes: 60 }],
+    }, 201);
+    const id = `csa_${amharic.id}`;
+    const link = linkIn('meseret@example.com');
+    assert.match((await view(link)).services[0], /^Two \(2\) one-on-one Amharic classes per week/);
+
+    // The family keeps only the Saturday class and has paid for the first eight.
+    await admin.patch(`/api/admin/courses/${amharic.id}`, { schedule: [{ weekday: 6, startTime: '16:00', durationMinutes: 60 }] });
+    const sent = await admin.post<ClientAgreementSendResult>(`/api/admin/client-agreements/${id}/send`, { prepaid: { classes: 8, from: '2026-11-28' } });
+    assert.equal(sent.row.services[0], 'One (1) one-on-one Amharic class per week for Dawit Test, 1 hour, billable every four (4) weeks (4 classes, 4 hours per 4-week billing cycle)');
+    assert.deepEqual(sent.row.prepaid, { classes: 8, from: '2026-11-28' });
+    const seen = await view(link);
+    assert.deepEqual(seen.prepaid, { classes: 8, from: '2026-11-28' });
+    assert.match(seen.html, /5\. Prepaid Classes:/);
+    assert.match(seen.html, /The Client has paid in advance for the first eight \(8\) classes under this Agreement, starting November 28, 2026\. Billing every four \(4\) weeks begins after these prepaid classes\./);
+    assert.match(h.mailer.sent.at(-1)!.subject, /client service agreement \(Amharic\)/);
+
+    // Sending again keeps it; null takes it out.
+    assert.deepEqual((await admin.post<ClientAgreementSendResult>(`/api/admin/client-agreements/${id}/send`)).row.prepaid, { classes: 8, from: '2026-11-28' });
+    assert.equal((await admin.post<ClientAgreementSendResult>(`/api/admin/client-agreements/${id}/send`, { prepaid: null })).row.prepaid, undefined);
+    assert.doesNotMatch((await view(link)).html, /Prepaid Classes/);
+
+    // Checks: a whole number of classes, a real date, not before the agreement's date.
+    const bad = (prepaid: unknown) => admin.post<{ error: string }>(`/api/admin/client-agreements/${id}/send`, { prepaid }, 400);
+    assert.match((await bad({ classes: 0, from: '2026-11-28' })).error, /whole number/);
+    assert.match((await bad({ classes: 2.5, from: '2026-11-28' })).error, /whole number/);
+    assert.match((await bad({ classes: 8, from: 'next week' })).error, /date of the first paid class/);
+    assert.match((await bad({ classes: 8, from: '2026-11-01' })).error, /can’t be before the agreement/);
+  });
+
   it('draws nothing for classes that already existed, even when they are edited', async () => {
     const now = h.clock.now.toISOString();
     const older: Course = { ...course, id: 'olderclass01', title: 'Reading with Nahom', subject: 'Reading', createdAt: '2026-10-01T12:00:00Z', updatedAt: now };

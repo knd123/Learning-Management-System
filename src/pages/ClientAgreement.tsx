@@ -88,6 +88,11 @@ export default function ClientAgreementPage() {
                 <li key={s}>{s}</li>
               ))}
             </ul>
+            {view.prepaid && (
+              <p className="mt-2">
+                Already paid: the first {view.prepaid.classes} {view.prepaid.classes === 1 ? 'class' : 'classes'}, starting {longDate(view.prepaid.from)}.
+              </p>
+            )}
             <p className="mt-2">
               Questions before you sign? Email <ContactEmail />.
             </p>

@@ -612,6 +612,13 @@ export type EmailKind =
  * A family's Client Service Agreement for one class, drawn up and emailed when the team approves the
  * class (classes approved before this feature have none). The filled-in text is saved with it.
  */
+/** Classes the family has already paid for, written into their agreement (section 2.5). */
+export interface PrepaidClasses {
+  classes: number;
+  /** YYYY-MM-DD: the date of the first paid class. */
+  from: string;
+}
+
 export interface ClientAgreement {
   /** "csa_<class id>" */
   id: string;
@@ -646,6 +653,8 @@ export interface ClientAgreement {
    * keep working after the agreement is sent again to the same address.
    */
   earlierSends?: Array<{ at: string; to?: string }>;
+  /** Classes already paid for, if the team added them; part of the written text. */
+  prepaid?: PrepaidClasses;
   /** Reminder emails sent, by hours after `sentAt`. */
   reminders?: Record<string, string>;
   signature?: {

@@ -4,6 +4,7 @@
  * four-week billing cycles; only the effective date, the services and the meeting platform are filled in. The filled-in text is saved with each agreement, so a later change
  * here never changes an agreement already sent or signed. Change CSA_VERSION when the text changes.
  */
+import type { PrepaidClasses } from './types.ts';
 import { longDate, type AgreementBlock } from './agreement.ts';
 
 export const CSA_VERSION = '2026-11';
@@ -57,7 +58,13 @@ export function platformName(meetingUrl: string | undefined): string {
 }
 
 /** The agreement text with the effective date (YYYY-MM-DD), the services and the meeting platform filled in. */
-export function csaBody(fields: { effectiveDate: string; services: string[]; platform: string }): AgreementBlock[] {
+/** Section 2.5, when the family has already paid for some classes. */
+export function prepaidLine(p: PrepaidClasses): string {
+  const n = counted(p.classes).replace(/^[A-Z]/, (c) => c.toLowerCase());
+  return `The Client has paid in advance for the first ${n} ${p.classes === 1 ? 'class' : 'classes'} under this Agreement, starting ${longDate(p.from)}. Billing every four (4) weeks begins after these prepaid classes.`;
+}
+
+export function csaBody(fields: { effectiveDate: string; services: string[]; platform: string; prepaid?: PrepaidClasses }): AgreementBlock[] {
   const section = (text: string): AgreementBlock => ({ kind: 'section', text });
   const para = (text: string, lead?: string): AgreementBlock => (lead ? { kind: 'para', lead, text } : { kind: 'para', text });
   const bullet = (text: string): AgreementBlock => ({ kind: 'bullet', text });
@@ -88,6 +95,7 @@ export function csaBody(fields: { effectiveDate: string; services: string[]; pla
       'Clients who terminate Services and later return after a lapse of more than three (3) consecutive months shall be subject to a mandatory 10% fee increase relative to their prior rate.',
       '4. Price Adjustments for Re-Enrollment:',
     ),
+    ...(fields.prepaid ? [para(prepaidLine(fields.prepaid), '5. Prepaid Classes:')] : []),
 
     section('3. Refunds and Cancellation Policy'),
     para('All payments made are final, non-cancellable, and non-refundable, including but not limited to prepaid tuition, fees for unused sessions, and deposits.', '1. No Refunds:'),

@@ -1,4 +1,4 @@
-import { ExternalLink, FileCheck2, FilePlus2, Send } from 'lucide-react';
+import { ExternalLink, FileCheck2, FilePlus2, Receipt, Send } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { longDate } from '../../../shared/agreement.ts';
@@ -154,6 +154,7 @@ function ClientAgreements() {
   const { data, error, loading, reload } = useApi<ClientAgreementRow[]>('/api/admin/client-agreements');
   const [sending, setSending] = useState<string | null>(null);
   const [paper, setPaper] = useState<ClientAgreementRow | null>(null);
+  const [prepaidFor, setPrepaidFor] = useState<ClientAgreementRow | null>(null);
   const rows = data || [];
   const waiting = rows.filter((r) => r.status === 'awaiting_signature').length;
 
@@ -214,7 +215,14 @@ function ClientAgreements() {
                 <td className="whitespace-nowrap">
                   <AgreementStatus status={r.status} onPaper={r.onPaper} />
                 </td>
-                <td className="min-w-64 text-xs text-ink-soft">{r.services.join(' · ')}</td>
+                <td className="min-w-64 text-xs text-ink-soft">
+                  {r.services.join(' · ')}
+                  {r.prepaid && (
+                    <p className="mt-1 font-medium text-emerald-800">
+                      Prepaid: the first {r.prepaid.classes} {r.prepaid.classes === 1 ? 'class' : 'classes'}, from {longDate(r.prepaid.from)}
+                    </p>
+                  )}
+                </td>
                 <td className="whitespace-nowrap text-ink-soft">{fmtDateTime(r.sentAt)}</td>
                 <td className="text-ink-soft">{r.remindersSent.length ? r.remindersSent.map((h) => `${h}h`).join(', ') : '—'}</td>
                 <td className="whitespace-nowrap text-ink-soft">{r.onPaper && r.signedDate ? longDate(r.signedDate) : r.signedAt ? fmtDateTime(r.signedAt) : '—'}</td>
@@ -232,6 +240,9 @@ function ClientAgreements() {
                       <>
                         <Button size="sm" variant="secondary" loading={sending === r.id} disabled={Boolean(sending) && sending !== r.id} onClick={() => void sendAgain(r)}>
                           <Send className="size-4" aria-hidden /> Send again
+                        </Button>
+                        <Button size="sm" variant="secondary" disabled={Boolean(sending)} onClick={() => setPrepaidFor(r)}>
+                          <Receipt className="size-4" aria-hidden /> Prepaid classes
                         </Button>
                         <Button size="sm" variant="secondary" disabled={Boolean(sending)} onClick={() => setPaper(r)}>
                           <FileCheck2 className="size-4" aria-hidden /> Record paper copy
@@ -252,6 +263,17 @@ function ClientAgreements() {
           </tbody>
         </Table>
       )}
+      {prepaidFor && (
+        <Prepaid
+          key={prepaidFor.id}
+          row={prepaidFor}
+          onClose={() => setPrepaidFor(null)}
+          onSaved={async () => {
+            setPrepaidFor(null);
+            await reload();
+          }}
+        />
+      )}
       {paper && (
         <PaperCopy
           key={paper.id}
@@ -264,6 +286,62 @@ function ClientAgreements() {
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Classes the family has already paid for: written into section 2 of their agreement, which is then
+ * rewritten with the class schedule as it is now and emailed to them again (earlier links keep working).
+ */
+function Prepaid({ row, onClose, onSaved }: { row: ClientAgreementRow; onClose(): void; onSaved(): Promise<void> }) {
+  const toast = useToast();
+  const [classes, setClasses] = useState(String(row.prepaid?.classes ?? ''));
+  const [from, setFrom] = useState(row.prepaid?.from ?? '');
+  const [saving, setSaving] = useState(false);
+  const n = Number(classes);
+  const ready = Number.isInteger(n) && n >= 1 && n <= 200 && Boolean(from);
+
+  const send = async (prepaid: { classes: number; from: string } | null) => {
+    setSaving(true);
+    try {
+      const res = await api.post<ClientAgreementSendResult>(`/api/admin/client-agreements/${row.id}/send`, { prepaid });
+      const what = prepaid ? `with the first ${prepaid.classes} classes from ${longDate(prepaid.from)} marked as paid` : 'without the prepaid classes';
+      if (res.emailStatus === 'sent') toast(`Sent ${row.clientName} the agreement ${what}, and the class schedule as it is now.`);
+      else if (res.emailStatus === 'no_email') toast(`Saved ${what}, but ${row.clientName} has no email address on the student's profile.`, 'error');
+      else if (res.emailStatus === 'logged') toast(`Saved ${what}. Email is not set up, so the email was only logged.`);
+      else toast(`Saved, but the email failed: ${res.emailError || 'unknown error'}`, 'error');
+      await onSaved();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Classes already paid for">
+      <p className="text-sm text-ink-soft">
+        Adds to section 2 of {row.clientName}’s agreement for {row.studentName}’s {row.subject} classes: “The Client has paid in advance for the first … classes under this Agreement, starting …
+        Billing every four (4) weeks begins after these prepaid classes.” The agreement is rewritten with the class schedule as it is now and emailed again; links in earlier emails keep
+        working.
+      </p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <Field label="Classes paid for">{(id) => <Input id={id} type="number" min={1} max={200} step={1} value={classes} onChange={(e) => setClasses(e.target.value)} />}</Field>
+        <Field label="Date of the first paid class">{(id) => <Input id={id} type="date" min={row.effectiveDate} value={from} onChange={(e) => setFrom(e.target.value)} />}</Field>
+      </div>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <Button variant="secondary" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        {row.prepaid && (
+          <Button variant="secondary" onClick={() => void send(null)} disabled={saving}>
+            Remove and send again
+          </Button>
+        )}
+        <Button loading={saving} disabled={!ready} onClick={() => void send({ classes: n, from })}>
+          <Send className="size-4" aria-hidden /> Save and send again
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
