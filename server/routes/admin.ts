@@ -27,7 +27,7 @@ import { getSettings } from '../services/settings.ts';
 import { usageSummary } from '../services/usage.ts';
 import { TEAM_SIGN_IN_NOTE } from '../services/teamAccount.ts';
 import { connectParents, pendingStudentSetups, resendStudentInviteForTeam } from '../services/invites.ts';
-import { clientAgreementById, clientAgreementHtml, clientAgreementRows, createClientAgreementSafely, recordPaperCopy, resendClientAgreement } from '../services/clientAgreements.ts';
+import { clientAgreementById, clientAgreementHtml, clientAgreementRows, createClientAgreementSafely, recordPaperCopy, withdrawClientAgreement, resendClientAgreement } from '../services/clientAgreements.ts';
 import { assertUsernameAvailable, normalizeUsername } from './auth.ts';
 
 const email = parseEmail;
@@ -652,6 +652,13 @@ export function adminRoutes(deps: Deps): Router {
     h(async (req, res) => {
       // Optionally with the classes already paid for (null removes them).
       res.json(await resendClientAgreement(deps, req.params.id, req.body && 'prepaid' in req.body ? { prepaid: req.body.prepaid } : undefined));
+    }),
+  );
+  // Taken back unsigned (sent in error); nobody is emailed.
+  router.post(
+    '/client-agreements/:id/withdraw',
+    h(async (req, res) => {
+      res.json(await withdrawClientAgreement(deps, req.params.id, req.user!));
     }),
   );
   // The family signed a printed copy and sent it in.

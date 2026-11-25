@@ -757,6 +757,8 @@ export interface ClientAgreementLinkResult {
   sentTo?: string;
   /** Nothing to sign: the agreement is already signed. */
   signed?: boolean;
+  /** Nothing to sign: the team withdrew the agreement. */
+  withdrawn?: boolean;
 }
 
 export interface ClientAgreementSendResult {

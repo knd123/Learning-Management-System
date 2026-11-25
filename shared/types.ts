@@ -645,7 +645,9 @@ export interface ClientAgreement {
   body: import('./agreement.ts').AgreementBlock[];
   /** Signed for the Company on the effective date. */
   company: { name: string; signatory: string; title: string; signedDate: string };
-  status: 'awaiting_signature' | 'signed';
+  /** "withdrawn": the team took it back unsigned (sent in error); kept for the record, nothing to sign. */
+  status: 'awaiting_signature' | 'signed' | 'withdrawn';
+  withdrawn?: { at: string; by: string };
   /** When the client was last emailed the link to sign; reminders count from here. */
   sentAt: string;
   /**

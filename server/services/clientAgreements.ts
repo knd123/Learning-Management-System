@@ -97,6 +97,7 @@ export async function emailCurrentLink(deps: Deps, token: unknown, network: stri
   const agreement = id ? await deps.store.get<ClientAgreement>(C.clientAgreements, id) : null;
   if (!agreement) throw notFound('Agreement');
   if (agreement.status === 'signed') return { signed: true };
+  if (agreement.status === 'withdrawn') return { withdrawn: true };
   if (!agreement.clientEmail) {
     const settings = await getSettings(deps.store);
     throw badRequest(`We have no email address for this agreement. Please email ${settings.adminNotificationEmail} and we will send it to you.`);
@@ -269,7 +270,7 @@ export async function resendClientAgreement(deps: Deps, id: string, change?: { p
   const now = deps.now().toISOString();
   const earlierSends = [...(existing.earlierSends || []), { at: existing.sentAt, to: existing.clientEmail }].slice(-10);
   const prepaid = change && 'prepaid' in change ? parsePrepaid(change.prepaid, existing.effectiveDate) : existing.prepaid;
-  const agreement: ClientAgreement = { ...existing, ...(await written(deps, course, student, existing.effectiveDate, prepaid)), sentAt: now, earlierSends, reminders: undefined, updatedAt: now };
+  const agreement: ClientAgreement = { ...existing, ...(await written(deps, course, student, existing.effectiveDate, prepaid)), status: 'awaiting_signature', withdrawn: undefined, sentAt: now, earlierSends, reminders: undefined, updatedAt: now };
   await deps.store.put(C.clientAgreements, agreement);
   const log = await askToSign(deps, agreement, 'send');
   await noticeToClient(deps, agreement, 'Please sign the client service agreement', `Read and sign the Client Service Agreement for ${agreement.studentName}’s ${agreement.subject} classes.`);
@@ -301,7 +302,8 @@ function rowOf(a: ClientAgreement): ClientAgreementRow {
 /** Every client agreement, waiting ones first, newest first. */
 export async function clientAgreementRows(deps: Deps): Promise<ClientAgreementRow[]> {
   const all = await deps.store.find<ClientAgreement>(C.clientAgreements);
-  return all.map(rowOf).sort((x, y) => Number(x.status === 'signed') - Number(y.status === 'signed') || y.sentAt.localeCompare(x.sentAt));
+  const order = { awaiting_signature: 0, signed: 1, withdrawn: 2 } as const;
+  return all.map(rowOf).sort((x, y) => order[x.status] - order[y.status] || y.sentAt.localeCompare(x.sentAt));
 }
 
 export async function clientAgreementById(deps: Deps, id: string): Promise<ClientAgreement> {
@@ -318,6 +320,7 @@ export async function clientAgreementById(deps: Deps, id: string): Promise<Clien
 export async function recordPaperCopy(deps: Deps, id: string, admin: UserRecord, input: { signedDate: unknown }): Promise<ClientAgreementRow> {
   const agreement = await clientAgreementById(deps, id);
   if (agreement.status === 'signed') throw badRequest(`${agreement.clientName} already signed this agreement on ${longDate(agreement.signature!.signedDate)}.`);
+  if (agreement.status === 'withdrawn') throw badRequest('This agreement was withdrawn. Send it again first if it should be signed.');
   const now = deps.now();
   const signedDate = typeof input.signedDate === 'string' ? input.signedDate.trim() : '';
   if (!isValidYmd(signedDate)) throw badRequest('Enter the date written on the signed copy.');
@@ -356,6 +359,7 @@ export function viewOf(agreement: ClientAgreement): ClientAgreementView {
 export async function signClientAgreement(deps: Deps, token: unknown, input: { name: unknown; drawing: unknown; agree: unknown; ip?: string; userAgent?: string }): Promise<ClientAgreement> {
   const agreement = await agreementForToken(deps, token);
   if (agreement.status === 'signed') throw badRequest('This agreement is already signed.');
+  if (agreement.status === 'withdrawn') throw badRequest('Abugida Education withdrew this agreement, so there is nothing to sign.');
   const typed = typeof input.name === 'string' ? clean(input.name) : '';
   if (!typed) throw badRequest('Type your full name to sign.');
   if (!sameName(typed, agreement.clientName)) {
@@ -404,11 +408,26 @@ export async function signClientAgreement(deps: Deps, token: unknown, input: { n
   return signed;
 }
 
+/**
+ * The team withdraws an unsigned agreement that should not have gone out (say, a class that was set up
+ * again instead of being edited). Nobody is emailed; reminders stop; it leaves the family's dashboard and
+ * its link says it was withdrawn. It stays on the team's list, and "Send again" reinstates it.
+ */
+export async function withdrawClientAgreement(deps: Deps, id: string, admin: UserRecord): Promise<ClientAgreementRow> {
+  const agreement = await clientAgreementById(deps, id);
+  if (agreement.status === 'signed') throw badRequest(`${agreement.clientName} already signed this agreement on ${longDate(agreement.signature!.signedDate)}, so it can’t be withdrawn.`);
+  if (agreement.status === 'withdrawn') return rowOf(agreement);
+  const now = deps.now().toISOString();
+  const updated = (await deps.store.patch<ClientAgreement>(C.clientAgreements, agreement.id, { status: 'withdrawn', withdrawn: { at: now, by: admin.displayName }, updatedAt: now }))!;
+  return rowOf(updated);
+}
+
 /** The parent's own agreements, with the link to read or sign each one. */
 export async function parentAgreements(deps: Deps, parent: UserRecord): Promise<ParentAgreementLink[]> {
   if (!parent.email) return [];
   const mine = await deps.store.find<ClientAgreement>(C.clientAgreements, { clientEmail: parent.email.trim().toLowerCase() });
   return mine
+    .filter((a) => a.status !== 'withdrawn')
     .sort((a, b) => Number(a.status === 'signed') - Number(b.status === 'signed') || b.sentAt.localeCompare(a.sentAt))
     .map((a) => ({ id: a.id, studentName: a.studentName, subject: a.subject, status: a.status, sentAt: a.sentAt, signedDate: a.signature?.signedDate, link: signingLink(deps, a) }));
 }

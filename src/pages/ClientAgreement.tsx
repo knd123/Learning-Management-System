@@ -51,6 +51,13 @@ export default function ClientAgreementPage() {
     );
   }
   if (!view) return <Loading label="Loading the agreement…" />;
+  if (view.status === 'withdrawn') {
+    return (
+      <SignupLayout title="Client Service Agreement" subtitle={`For ${view.studentName}’s ${view.subject} classes`}>
+        <Notice>Abugida Education withdrew this agreement, so there is nothing to sign. Questions? Email <ContactEmail />.</Notice>
+      </SignupLayout>
+    );
+  }
 
   const signed = view.status === 'signed';
   const nameOk = sameName(name, view.clientName);
@@ -164,7 +171,9 @@ function OutdatedLink({ token }: { token: string }) {
     try {
       const res = await api.post<ClientAgreementLinkResult>('/api/client-agreement/email-link', { token });
       setDone(
-        res.signed
+        res.withdrawn
+          ? 'Abugida Education withdrew this agreement, so there is nothing to sign.'
+          : res.signed
           ? 'This agreement is already signed. Thank you! The signed copy is in the email we sent when it was signed.'
           : `Done. We emailed the current link to ${res.sentTo}. Open the newest email from Abugida Education and tap “Review and sign the agreement”.`,
       );

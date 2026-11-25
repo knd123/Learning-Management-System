@@ -268,6 +268,47 @@ describe('client service agreements for new classes', () => {
     assert.match((await bad({ classes: 8, from: '2026-11-01' })).error, /can’t be before the agreement/);
   });
 
+  it('withdraws an agreement sent in error: no email, no reminders, nothing to sign, and it can be reinstated', async () => {
+    const yared = (await admin.post<{ user: PublicUser }>('/api/admin/users', { role: 'student', username: 'yared.t', displayName: 'Yared Test', email: 'yared@example.com', grade: 11, timezone: NY, createMatchRequest: false, parents: [{ name: 'Hymanot Test', email: 'hymanot@example.com', phone: '+1-202-555-0199' }] }, 201)).user;
+    await admin.post('/api/admin/users', { role: 'parent', username: 'hymanot.t', password: 'parent-pass-7', displayName: 'Hymanot Test', email: 'hymanot@example.com', linkedStudentIds: [yared.id], timezone: NY }, 201);
+    const chem = await admin.post<Course>('/api/admin/courses', { title: 'Chemistry with Yared', subject: 'Chemistry', gradeLevel: 11, mentorId: sara.id, studentIds: [yared.id], schedule: twiceWeekly, timezone: NY, startDate: '2026-11-12', meetingUrl: '' }, 201);
+    const id = `csa_${chem.id}`;
+    const link = linkIn('hymanot@example.com');
+    const parent = new Client(h);
+    await parent.login('hymanot.t', 'parent-pass-7');
+    assert.equal((await parent.get<ParentAgreementLink[]>('/api/parent/agreements')).length, 1);
+
+    const emailsBefore = h.mailer.sent.length;
+    const row = await admin.post<ClientAgreementRow>(`/api/admin/client-agreements/${id}/withdraw`);
+    assert.equal(row.status, 'withdrawn');
+    assert.equal(h.mailer.sent.length, emailsBefore, 'nobody is emailed');
+    assert.equal((await view(link)).status, 'withdrawn');
+    assert.match((await new Client(h).post<{ error: string }>('/api/client-agreement/sign', { token: link, name: 'Hymanot Test', drawing: SIG, agree: true }, 400)).error, /withdrew this agreement/);
+    assert.deepEqual(await new Client(h).post('/api/client-agreement/email-link', { token: link }), { withdrawn: true });
+    await admin.post(`/api/admin/client-agreements/${id}/paper`, { signedDate: '2026-11-12' }, 400);
+    assert.deepEqual(await parent.get('/api/parent/agreements'), [], 'gone from the family’s dashboard');
+    const listed = (await admin.get<ClientAgreementRow[]>('/api/admin/client-agreements')).find((r) => r.id === id)!;
+    assert.equal(listed.status, 'withdrawn', 'kept on the team’s list');
+
+    // No reminders for it, however long it waits.
+    const clockBefore = h.clock.now;
+    h.clock.now = new Date(h.clock.now.getTime() + 3 * 24 * 3600_000);
+    await tick();
+    assert.equal(h.mailer.sent.slice(emailsBefore).filter((e) => e.to.includes('hymanot@example.com')).length, 0);
+    h.clock.now = clockBefore;
+
+    // "Reinstate and send" puts it back.
+    const back = await admin.post<ClientAgreementSendResult>(`/api/admin/client-agreements/${id}/send`);
+    assert.equal(back.row.status, 'awaiting_signature');
+    assert.equal((await view(link)).status, 'awaiting_signature');
+    assert.equal((await parent.get<ParentAgreementLink[]>('/api/parent/agreements')).length, 1);
+
+    // Only the team can withdraw, and never a signed agreement.
+    await parent.post(`/api/admin/client-agreements/${id}/withdraw`, undefined, 403);
+    const [signedRow] = (await admin.get<ClientAgreementRow[]>('/api/admin/client-agreements')).filter((r) => r.status === 'signed');
+    assert.match((await admin.post<{ error: string }>(`/api/admin/client-agreements/${signedRow.id}/withdraw`, undefined, 400)).error, /can’t be withdrawn/);
+  });
+
   it('draws nothing for classes that already existed, even when they are edited', async () => {
     const now = h.clock.now.toISOString();
     const older: Course = { ...course, id: 'olderclass01', title: 'Reading with Nahom', subject: 'Reading', createdAt: '2026-10-01T12:00:00Z', updatedAt: now };

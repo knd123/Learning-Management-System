@@ -1,4 +1,4 @@
-import { ExternalLink, FileCheck2, FilePlus2, Receipt, Send } from 'lucide-react';
+import { ExternalLink, FileCheck2, FilePlus2, Receipt, Send, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { longDate } from '../../../shared/agreement.ts';
@@ -8,8 +8,9 @@ import { api, errorMessage } from '../../lib/api.ts';
 import { fmtDateTime, firstName } from '../../lib/format.ts';
 import { useApi } from '../../lib/useApi.ts';
 
-export function AgreementStatus({ status, onPaper }: { status: AgreementRow['status']; onPaper?: boolean }) {
+export function AgreementStatus({ status, onPaper }: { status: AgreementRow['status'] | ClientAgreementRow['status']; onPaper?: boolean }) {
   if (status === 'signed') return <Badge tone="green">{onPaper ? 'Signed on paper' : 'Signed'}</Badge>;
+  if (status === 'withdrawn') return <Badge tone="gray">Withdrawn</Badge>;
   if (status === 'awaiting_signature') return <Badge tone="amber">Waiting for signature</Badge>;
   if (status === 'draft') return <Badge tone="blue">Draft to review</Badge>;
   return <Badge tone="gray">Not drafted</Badge>;
@@ -155,6 +156,7 @@ function ClientAgreements() {
   const [sending, setSending] = useState<string | null>(null);
   const [paper, setPaper] = useState<ClientAgreementRow | null>(null);
   const [prepaidFor, setPrepaidFor] = useState<ClientAgreementRow | null>(null);
+  const [withdrawing, setWithdrawing] = useState<ClientAgreementRow | null>(null);
   const rows = data || [];
   const waiting = rows.filter((r) => r.status === 'awaiting_signature').length;
 
@@ -236,7 +238,12 @@ function ClientAgreements() {
                     >
                       <ExternalLink className="size-4" aria-hidden /> View
                     </a>
-                    {r.status !== 'signed' && (
+                    {r.status === 'withdrawn' && (
+                      <Button size="sm" variant="secondary" loading={sending === r.id} disabled={Boolean(sending) && sending !== r.id} onClick={() => void sendAgain(r)}>
+                        <Send className="size-4" aria-hidden /> Reinstate and send
+                      </Button>
+                    )}
+                    {r.status === 'awaiting_signature' && (
                       <>
                         <Button size="sm" variant="secondary" loading={sending === r.id} disabled={Boolean(sending) && sending !== r.id} onClick={() => void sendAgain(r)}>
                           <Send className="size-4" aria-hidden /> Send again
@@ -246,6 +253,9 @@ function ClientAgreements() {
                         </Button>
                         <Button size="sm" variant="secondary" disabled={Boolean(sending)} onClick={() => setPaper(r)}>
                           <FileCheck2 className="size-4" aria-hidden /> Record paper copy
+                        </Button>
+                        <Button size="sm" variant="secondary" disabled={Boolean(sending)} onClick={() => setWithdrawing(r)}>
+                          <Undo2 className="size-4" aria-hidden /> Withdraw
                         </Button>
                       </>
                     )}
@@ -262,6 +272,17 @@ function ClientAgreements() {
             )}
           </tbody>
         </Table>
+      )}
+      {withdrawing && (
+        <Withdraw
+          key={withdrawing.id}
+          row={withdrawing}
+          onClose={() => setWithdrawing(null)}
+          onSaved={async () => {
+            setWithdrawing(null);
+            await reload();
+          }}
+        />
       )}
       {prepaidFor && (
         <Prepaid
@@ -339,6 +360,39 @@ function Prepaid({ row, onClose, onSaved }: { row: ClientAgreementRow; onClose()
         )}
         <Button loading={saving} disabled={!ready} onClick={() => void send({ classes: n, from })}>
           <Send className="size-4" aria-hidden /> Save and send again
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Takes back an unsigned agreement sent in error, after a confirmation. Nobody is emailed. */
+function Withdraw({ row, onClose, onSaved }: { row: ClientAgreementRow; onClose(): void; onSaved(): Promise<void> }) {
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+  const withdraw = async () => {
+    setSaving(true);
+    try {
+      await api.post<ClientAgreementRow>(`/api/admin/client-agreements/${row.id}/withdraw`);
+      toast(`Withdrawn: ${row.clientName} won’t be asked to sign the agreement for ${row.studentName}’s ${row.subject} classes.`);
+      await onSaved();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal open onClose={onClose} title="Withdraw this agreement?">
+      <p className="text-sm text-ink-soft">
+        {row.clientName} won’t be asked to sign the agreement for {row.studentName}’s {row.subject} classes: no more reminders, it leaves their dashboard, and its link
+        says it was withdrawn. Nobody is emailed, and the class itself doesn’t change. It stays in this list as Withdrawn; “Reinstate and send” undoes it.
+      </p>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <Button variant="secondary" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        <Button loading={saving} onClick={() => void withdraw()}>
+          <Undo2 className="size-4" aria-hidden /> Withdraw
         </Button>
       </div>
     </Modal>
